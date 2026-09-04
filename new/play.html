@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- base 指向原版游戏目录：catmario.js / res/ / snd/ 都从那里加载，不修改任何原文件 -->
+<base href="../catmario/docs/">
+<title>猫里奥 · 自定义关卡试玩</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: #16181f; color: #d8dee9; font-family: "Microsoft YaHei", sans-serif; min-height: 100%; }
+#bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: #232733; border-bottom: 1px solid #333a48;
+}
+#bar b { color: #ffd75e; margin-right: 6px; }
+#bar button {
+  background: #313747; color: #d8dee9; border: 1px solid #454d61;
+  border-radius: 5px; padding: 5px 10px; font-size: 13px; cursor: pointer;
+}
+#bar button:hover:not(:disabled) { background: #3d4458; }
+#bar button:disabled { opacity: .45; cursor: default; }
+#startBtn { background: #2d6cdf !important; border-color: #4a86f0 !important; color: #fff !important; font-weight: bold; }
+#status { font-size: 12px; color: #9aa4b8; }
+#status.ok { color: #7ddc8a; }
+#status.err { color: #ff7d7d; }
+#wrap { display: flex; justify-content: center; padding: 14px; }
+canvas#canvas {
+  background: #000;
+  box-shadow: 0 0 24px rgba(0,0,0,.6), 0 0 0 1px #333a48;
+  max-width: 96vw;
+  outline: none;
+}
+#info {
+  max-width: 760px; margin: 0 auto; padding: 0 16px 20px;
+  font-size: 13px; line-height: 1.7; color: #b8c2d6;
+}
+#info .sec { background: #20242e; border: 1px solid #333a48; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; }
+#info h3 { font-size: 13px; color: #ffd75e; margin-bottom: 6px; }
+#skiplist { color: #ffb46b; }
+#help { color: #9aa4b8; }
+#help kbd {
+  background: #313747; border: 1px solid #454d61; border-bottom-width: 2px;
+  border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 12px; color: #e8ecf4;
+}
+#dropTip { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+  background: rgba(20,40,90,.55); color: #fff; font-size: 22px; pointer-events: none; z-index: 9; }
+body.dragging #dropTip { display: flex; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>🐱 猫里奥 · 自定义关卡试玩</b>
+  <button id="pickBtn">📂 选择JSON</button>
+  <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+  <button id="demoBtn">✨ 内置示例</button>
+  <button id="startBtn" disabled>▶ 开始游戏</button>
+  <button id="retryBtn" disabled>↺ 回到标题</button>
+  <span id="status">正在加载游戏引擎…</span>
+</div>
+
+<div id="wrap"><canvas id="canvas" width="480" height="420" tabindex="0"></canvas></div>
+
+<div id="info">
+  <div class="sec" id="levelInfoSec">
+    <h3>当前关卡</h3>
+    <div id="levelInfo">尚未加载关卡（打开本页时若编辑器刚点过"▶ 试玩"，会自动载入那个关卡）</div>
+  </div>
+  <div class="sec">
+    <h3>操作</h3>
+    <div id="help">
+      <kbd>←</kbd><kbd>→</kbd> 移动　<kbd>↑</kbd>/<kbd>空格</kbd> 跳　<kbd>↓</kbd> 下蹲/进管道　<kbd>Enter</kbd> 暂停/确认<br>
+      原理：把编辑器 JSON 转换成原版 17×1001 地图字节，替换游戏内存中 1-1 关的关卡常量后启动原版引擎。
+      关卡通关后会接原版 1-2；死亡重试仍是你的关卡。
+    </div>
+  </div>
+</div>
+<div id="dropTip">松开以加载关卡 JSON</div>
+
+<script src="../../new/stage11_data.js"></script>
+<script async src="catmario.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 关卡转换：编辑器 JSON → 原版数据 =================
+   * 通道一（字节表 stagedate）：1-19方块/9金币/20升降台/30中间旗/
+   *   40-44管道/50-79敌人/80-89背景/99终点杆（见 stage() main.cpp 4075）
+   * 通道二（运行时数组，本页 JS 注入）：
+   *   特殊方块 ttype>=100 → tyobi 等效写入 t[] 数组（只占 ta/tb/ttype 三字段）
+   *   特殊敌人/道具 → 敌人触发器 b[] 数组（ba/bb/bz=1/btm=0/btype/bxtype），
+   *   玩家进入屏幕时引擎自动 ayobi() 生成，支持任意 atype（100蘑菇/110星/
+   *   30小猫/31肌肉鸡/80云/83刺球/85假杆/86桃猫/90光束/87火焰棒…）
+   */
+  var TILE_VAL = {
+    block_brick: 1, block_question: 2, block_hard: 3, block_stair: 4,
+    block_ground_top: 5, block_ground_fill: 6, block_hidden: 7, block_cat_shut: 8,
+    item_coin: 9, block_spike: 10,
+    bg_midflag: 30, pipe_top: 40, pipe_body: 41, pipe_v2: 43, pipe_h: 44,
+    lift_yellow: 20, lift_green: 20, lift_gray: 20,
+    enemy_syobon: 50, enemy_turtle: 51, enemy_shell: 52, enemy_ghost: 53, enemy_king: 54,
+    enemy_tongue_cat: 55, enemy_robot: 56, enemy_syobon_pad: 57, enemy_runner: 58, enemy_flame: 59,
+    bg_hill_house: 80, bg_grass: 81, bg_cloud_face: 82, bg_tree: 83,
+    bg_cloud_angry: 84, bg_tree_round: 85, bg_lava: 86
+  };
+
+  // 通道二 A：特殊方块 → tyobi ttype
+  var EX_BLOCK = {
+    b2_hint: 300, b2_pswitch: 400, b2_on: 130, b2_off: 131,
+    b2_note_peach: 117, b2_note_white: 117,
+    b2_sword: 140, b2_blade: 141, b2_pineapple: 142, item_jumppad: 120
+  };
+
+  // 通道二 B：敌人/道具 → 触发器 btype（=生成的 atype）, bxtype
+  var EX_TRIGGER = {
+    item_mushroom_red:    { t: 100, xt: 0 },
+    item_mushroom_dark:   { t: 100, xt: 1 },
+    item_flower:          { t: 101, xt: 0 },
+    item_mushroom_purple: { t: 102, xt: 1 },
+    item_green_question:  { t: 105, xt: 0 },
+    item_star:            { t: 110, xt: 0 },
+    enemy_flame_h:        { t: 10,  xt: 0 },
+    enemy_moralar:        { t: 30,  xt: 0 },
+    enemy_chicken:        { t: 31,  xt: 0 },
+    enemy_cloud_face:     { t: 80,  xt: 0 },
+    enemy_cloud_plain:    { t: 81,  xt: 0 },
+    enemy_spike_ball:     { t: 83,  xt: 0 },
+    enemy_fireball:       { t: 84,  xt: 0 },
+    fake_pole:            { t: 85,  xt: 0 },
+    enemy_peach_cat:      { t: 86,  xt: 0 },
+    enemy_beam:           { t: 90,  xt: 0 },
+    firebar:              { t: 87,  xt: 5 }
+  };
+
+  var BGM_FILE = {
+    bgm_field: 'snd/field.mp3', bgm_dungeon: 'snd/dungeon.mp3',
+    bgm_star: 'snd/star4.mp3', bgm_castle: 'snd/castle.mp3', bgm_puyo: 'snd/puyo.mp3'
+  };
+
+  var ROWS = 17, COLS = 1001;
+
+  function convert(level) {
+    if (!level || !Array.isArray(level.elements))
+      throw new Error('JSON 格式不正确：缺少 elements 数组');
+    var grid = new Uint8Array(ROWS * COLS);
+    var blocks = [];    // {x,y,ttype} 写入 t[]
+    var triggers = [];  // {x,y,btype,bxtype} 写入 b[]
+    var bgms = [];      // {col,file}
+    var spawn = null;
+    var skip = {};
+    var used = 0;
+
+    function put(r, c, v) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
+      grid[r * COLS + c] = v;
+      return true;
+    }
+
+    level.elements.forEach(function (e) {
+      if (!e || typeof e.id !== 'string') return;
+      var id = e.id;
+      var c = e.col | 0, r = e.row | 0;
+      var x = c * 29, y = r * 29 - 12;   // 与 stage() 的世界坐标一致
+      if (id === 'goal_pole') {
+        if (r > 11) r = 11;               // 杆高=(12-行)*29px
+        put(r, c, 99); used++;
+      } else if (TILE_VAL[id] !== undefined) {
+        var v = TILE_VAL[id];
+        if (id.indexOf('lift_') === 0) {
+          var len = Math.max(1, Math.min(e.len | 0 || 3, 50));
+          for (var i = 0; i < len; i++) { if (put(r, c + i, v)) used++; }
+        } else if (put(r, c, v)) used++;
+      } else if (EX_BLOCK[id] !== undefined) {
+        blocks.push({ x: x * 100, y: y * 100, ttype: EX_BLOCK[id] });
+      } else if (EX_TRIGGER[id] !== undefined) {
+        var sp = EX_TRIGGER[id];
+        var xt = (id === 'firebar') ? (e.xt || sp.xt) : sp.xt;
+        triggers.push({ x: x * 100, y: y * 100, btype: sp.t, bxtype: xt });
+      } else if (id === 'player_start') {
+        spawn = { x: x, y: y };
+      } else if (BGM_FILE[id]) {
+        bgms.push({ col: c, file: BGM_FILE[id] });
+      } else {
+        skip[id] = (skip[id] || 0) + 1;
+      }
+    });
+    bgms.sort(function (a, b) { return a.col - b.col; });
+    return {
+      bytes: grid, blocks: blocks, triggers: triggers, bgms: bgms,
+      spawn: spawn, skip: skip, used: used
+    };
+  }
+
+  /* ================= 内存补丁：替换 1-1 关卡常量 ================= */
+  function b64ToBytes(b64) {
+    var bin = atob(b64), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function patchMemory(bytes) {
+    var heap = Module.HEAPU8;
+    if (!heap) return { ok: false, msg: '无法访问引擎内存（Module.HEAPU8 不存在）' };
+    var orig = b64ToBytes(window.STAGE11_IMAGE_B64);
+    // 选取权重最高的 16 字节窗口作探针（非零最多、最独特）
+    var best = 0, bestScore = -1;
+    for (var off = 0; off + 16 <= orig.length; off += 16) {
+      var s = 0;
+      for (var j = 0; j < 16; j++) s += orig[off + j];
+      if (s > bestScore) { bestScore = s; best = off; }
+    }
+    var probe = orig.subarray(best, best + 16);
+    var H = heap.length, n = orig.length;
+
+    // 快扫探针
+    var cands = [];
+    for (var i = 0; i + n <= H; i++) {
+      if (heap[i] !== probe[0]) continue;
+      var ok = true;
+      for (var k = 1; k < 16; k++) {
+        if (heap[i + k] !== probe[k]) { ok = false; break; }
+      }
+      if (ok) { cands.push(i); i += 15; }
+    }
+    // 逐一完整校验并替换
+    var hits = 0;
+    for (var m = 0; m < cands.length; m++) {
+      var pos = cands[m] - best;
+      if (pos < 0 || pos + n > H) continue;
+      var same = true;
+      for (var p = 0; p < n; p += 1) {
+        if (heap[pos + p] !== orig[p]) { same = false; break; }
+      }
+      if (!same) continue;
+      heap.set(bytes, pos);
+      hits++;
+    }
+    return hits > 0
+      ? { ok: true, msg: '已替换内存中 ' + hits + ' 处 1-1 关卡数据' }
+      : { ok: false, msg: '未在引擎内存中找到 1-1 关卡指纹（引擎版本不符？）' };
+  }
+
+  /* ================= 运行时实体注入（通道二） =================
+   * 引擎主循环全量遍历各实体数组，靠哨兵值判活（ta/ba=-9000000 为空）。
+   * 字段在 asm.js 静态内存中的位置以实测为准（与 C 源码声明顺序略有差异）：
+   *   t[]（方块，步长641）：k0=ta, k1=tb, k3=ttype（k2/k4/k5 为内部字段）
+   *   b[]（触发器，步长81）：k0=ba, k1=bb, k2=btm, k3=btype, k4=bxtype, k5=bz
+   * 定位用 1-1 固定陷阱块/触发器的常量签名（stagep 每次进关都会无条件写入，
+   * 不随自定义关卡数据变化），并对签名做严格校验，失败绝不写入。
+   */
+  var MEM = null;   // { ta, tb, ttype, ba, bb, btm, btype, bxtype, bz, ma, mb }
+  var SENTINEL = -9000000;
+
+  function locateRuntimeArrays() {
+    var u8 = Module.HEAPU8;
+    if (!u8) return null;
+    var u32 = new Int32Array(u8.buffer);
+    var T = 641, B = 81;
+
+    // t[] 基址：1-1 固定特殊块连续 4 个 ta 签名（cols 8,13,14,35）
+    var pT = -1;
+    for (var p = 0; p + T * 6 < u32.length; p++) {
+      if (u32[p] === 8 * 2900 && u32[p + 1] === 13 * 2900 &&
+          u32[p + 2] === 14 * 2900 && u32[p + 3] === 35 * 2900) {
+        // 校验：tb(row9) 与 ttype(k=3) 常量序列
+        if (u32[p + T] === (9 * 29 - 12) * 100 &&
+            u32[p + 3 * T] === 100 && u32[p + 3 * T + 1] === 102 &&
+            u32[p + 3 * T + 2] === 101 && u32[p + 3 * T + 3] === 110) {
+          pT = p;
+          break;
+        }
+      }
+    }
+    if (pT < 0) return null;
+
+    // b[] 基址：1-1 固定触发器 ba[0]=27列, ba[1]=103列，且 btype(k=3)[1]=80
+    var pB = -1;
+    for (var q = 0; q + B * 6 < u32.length; q++) {
+      if (u32[q] === 27 * 2900 && u32[q + 1] === 103 * 2900 &&
+          u32[q + 3 * B] === 0 && u32[q + 3 * B + 1] === 80 &&
+          u32[q + 5 * B] === 1) {
+        pB = q;
+        break;
+      }
+    }
+    if (pB < 0) return null;
+
+    // 玩家出生坐标 ma/mb：进关同一帧为 ma=5600, mb=32000（相邻两格）
+    var maAddr = -1;
+    for (var i = 0; i + 1 < u32.length; i++) {
+      if (u32[i] === 5600 && u32[i + 1] === 32000) { maAddr = i; break; }
+    }
+
+    MEM = {
+      ta: pT, tb: pT + T, ttype: pT + 3 * T,
+      ba: pB, bb: pB + B, btm: pB + 2 * B,
+      btype: pB + 3 * B, bxtype: pB + 4 * B, bz: pB + 5 * B,
+      ma: maAddr, mb: maAddr >= 0 ? maAddr + 1 : -1
+    };
+    return MEM;
+  }
+
+  // 每关（含死亡重试）重建数组后重新注入
+  function injectExtras(conv) {
+    var u32 = new Int32Array(Module.HEAPU8.buffer);
+    var n;
+
+    // A. 特殊方块（等效 tyobi：ta/tb/ttype）
+    var wroteBlocks = 0, overflowBlocks = 0;
+    for (var i = 0; i < conv.blocks.length; i++) {
+      var slot = -1;
+      for (n = 0; n < 641; n++) {
+        if (u32[MEM.ta + n] === SENTINEL) { slot = n; break; }
+      }
+      if (slot < 0) { overflowBlocks++; continue; }
+      var b = conv.blocks[i];
+      u32[MEM.ta + slot] = b.x;
+      u32[MEM.tb + slot] = b.y;
+      u32[MEM.ttype + slot] = b.ttype;
+      wroteBlocks++;
+    }
+
+    // B. 敌人/道具触发器（bz=1, btm=0 → 入屏自动 ayobi 生成）
+    var wroteTriggers = 0, overflowTriggers = 0;
+    for (var k = 0; k < conv.triggers.length; k++) {
+      var bslot = -1;
+      for (n = 0; n < 81; n++) {
+        if (u32[MEM.ba + n] < -80000) { bslot = n; break; }
+      }
+      if (bslot < 0) { overflowTriggers++; continue; }
+      var tg = conv.triggers[k];
+      u32[MEM.ba + bslot] = tg.x;
+      u32[MEM.bb + bslot] = tg.y;
+      u32[MEM.btm + bslot] = 0;
+      u32[MEM.btype + bslot] = tg.btype;
+      u32[MEM.bxtype + bslot] = tg.bxtype;
+      u32[MEM.bz + bslot] = 1;
+      wroteTriggers++;
+    }
+
+    // C. 玩家出生点（ma=5600/mb=32000 在进关同一帧定位，此刻改写）
+    var spawnOk = false;
+    if (conv.spawn && MEM.ma >= 0 && u32[MEM.ma] === 5600 && u32[MEM.mb] === 32000) {
+      u32[MEM.ma] = conv.spawn.x * 100 + 200;
+      u32[MEM.mb] = (conv.spawn.y - 30) * 100;   // 略高几格，自然落地
+      spawnOk = true;
+    }
+
+    return { wroteBlocks: wroteBlocks, overflowBlocks: overflowBlocks,
+             wroteTriggers: wroteTriggers, overflowTriggers: overflowTriggers,
+             spawnOk: spawnOk };
+  }
+
+  /* ================= BGM（网页侧直接播放，关卡事件不打断它的循环） ================= */
+  var bgmAudio = null, bgmWanted = null;
+  function ensureBgm(conv) {
+    if (!conv.bgms.length) return;
+    var want = conv.bgms[0].file;
+    if (bgmWanted === want && bgmAudio && !bgmAudio.paused) return;
+    if (bgmAudio) { bgmAudio.pause(); bgmAudio = null; }
+    bgmWanted = want;
+    bgmAudio = new Audio(want);
+    bgmAudio.loop = true;
+    bgmAudio.volume = 0.45;
+    var pr = bgmAudio.play();
+    if (pr && pr.catch) pr.catch(function () { /* 自动播放限制时等待开始按钮后重试 */ });
+  }
+  function pauseBgm() {
+    if (bgmAudio) bgmAudio.play(); // 在游戏中持续播放；pause 仅留接口
+  }
+  function retryBgmAfterGesture() {
+    if (bgmAudio && bgmAudio.paused && bgmWanted) {
+      var pr = bgmAudio.play();
+      if (pr && pr.catch) pr.catch(function () {});
+    }
+  }
+  window.addEventListener('keydown', function () { retryBgmAfterGesture(); }, true);
+
+  // 引擎把键盘监听挂在 canvas（捕获阶段）上：当焦点在按钮/其他元素上时按键
+  // 到不了 canvas，游戏会卡在“按任意键”过渡。window 捕获阶段统一转发给 canvas。
+  (function forwardKeysToCanvas() {
+    function fwd(ev) {
+      if (ev.target === canvas || (canvas && canvas.contains(ev.target))) return;
+      var ne;
+      try {
+        ne = new KeyboardEvent(ev.type, { bubbles: true, cancelable: true, key: ev.key, code: ev.code });
+        Object.defineProperty(ne, 'keyCode', { get: function () { return ev.keyCode; } });
+        Object.defineProperty(ne, 'which', { get: function () { return ev.keyCode; } });
+      } catch (e) { return; }
+      canvas.dispatchEvent(ne);
+    }
+    window.addEventListener('keydown', fwd, true);
+    window.addEventListener('keyup', fwd, true);
+  })();
+
+  /* ================= 界面与流程 ================= */
+  var statusEl = document.getElementById('status');
+  var infoEl = document.getElementById('levelInfo');
+  var startBtn = document.getElementById('startBtn');
+  var retryBtn = document.getElementById('retryBtn');
+  var canvas = document.getElementById('canvas');
+  var level = null;      // {name, bytes, used, skip}
+  var patched = false;
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || '';
+  }
+
+  function fmtSkip(skip, nameMap) {
+    var parts = [];
+    Object.keys(skip).forEach(function (id) {
+      var cn = (nameMap && nameMap[id]) || id;
+      parts.push(cn + '×' + skip[id]);
+    });
+    return parts.length ? parts.join('、') : '';
+  }
+
+  var CN_NAMES = {
+    player_start: '玩家起点', item_mushroom_red: '红蘑菇', item_mushroom_dark: '毒蘑菇',
+    item_mushroom_purple: '紫蘑菇', item_star: '无敌星', item_green_question: '绿问号球',
+    item_flower: '火焰花', item_jumppad: '弹簧跳台', firebar: '火焰棒', fake_pole: '假旗杆',
+    enemy_moralar: '小猫咪', enemy_chicken: '肌肉鸡', enemy_cloud_face: '脸云怪',
+    enemy_cloud_plain: '普通云怪', enemy_spike_ball: '刺球', enemy_peach_cat: '桃色方块猫',
+    enemy_beam: '黄色光束', enemy_flame_h: '横火焰', enemy_fireball: '火球',
+    b2_hint: '提示块', b2_pswitch: 'P开关', b2_on: 'ON块', b2_off: 'OFF块',
+    b2_note_peach: '音符块', b2_note_white: '白音符块', b2_sword: '剑陷阱',
+    b2_blade: '刀刃陷阱', b2_pineapple: '菠萝雷', bgm_field: 'BGM标记', bgm_dungeon: 'BGM标记',
+    bgm_star: 'BGM标记', bgm_castle: 'BGM标记', bgm_puyo: 'BGM标记'
+  };
+
+  function loadLevelObject(obj, name) {
+    try {
+      var r = convert(obj);
+      level = {
+        name: name || '未命名', conv: r,
+        blocksN: r.blocks.length, triggersN: r.triggers.length,
+        bgmN: r.bgms.length, spawn: !!r.spawn
+      };
+      patched = false;
+      MEM = null;
+      var skipTxt = fmtSkip(r.skip, CN_NAMES);
+      var cols = (obj && obj.cols) || '?';
+      var theme = { overworld: '地上', dungeon: '地下', castle: '城堡', sky: '空中' }[(obj && obj.theme)] || '';
+      infoEl.innerHTML = '「' + level.name + '」— ' + cols + ' 列 · ' + theme +
+        ' · 地图元素 ' + r.used + ' 格' +
+        ' · 特殊方块 ' + r.blocks.length + ' · 敌人/道具 ' + r.triggers.length +
+        (r.bgms.length ? ' · 音乐 ' + r.bgms[0].file.split('/').pop() : '') +
+        (r.spawn ? ' · 自定义起点' : '') +
+        (skipTxt ? '<br><span id="skiplist">⚠ 未知元素、已跳过：' + skipTxt + '</span>' : '') +
+        '<br>等待引擎加载完成后写入内存…';
+      if (Module.ready) doPatch();
+    } catch (err) {
+      setStatus('关卡加载失败：' + err.message, 'err');
+    }
+  }
+
+  function doPatch() {
+    if (!level || patched) return;
+    var r = patchMemory(level.conv.bytes);
+    if (r.ok) {
+      patched = true;
+      setStatus('✓ ' + r.msg + '，点"▶ 开始游戏"（特殊元素将在进关时注入）', 'ok');
+    } else {
+      setStatus(r.msg, 'err');
+    }
+  }
+
+  /* ---------- 每帧：检测进关 → 定位运行时数组 → 注入特殊元素 ---------- */
+  var prevProc = -1;
+  var injectTimer = 0;
+  var injectState = '';
+
+  function watchRuntime() {
+    var M = window.Module;
+    if (!M.ready || !patched || !level) return;
+    var proc;
+    try { proc = M['_dlm_mainproc'](); } catch (e) { return; }
+
+    if (prevProc !== 1 && proc === 1) {
+      // 刚进入关卡（stagecls/stage 已在同一帧重建数组）
+      injectTimer = 2;
+    }
+    if (proc === 1 && injectTimer > 0) {
+      injectTimer--;
+      if (injectTimer === 0) {
+        if (!MEM) locateRuntimeArrays();
+        if (!MEM) { injectState = '运行时数组定位失败（特殊元素未注入）'; }
+        else {
+          var res = injectExtras(level.conv);
+          ensureBgm(level.conv);
+          var msgs = [];
+          if (res.wroteBlocks) msgs.push('特殊方块 ' + res.wroteBlocks);
+          if (res.wroteTriggers) msgs.push('敌人/道具 ' + res.wroteTriggers);
+          if (res.overflowBlocks) msgs.push('⚠方块槽已满少' + res.overflowBlocks);
+          if (res.overflowTriggers) msgs.push('⚠敌人槽已满少' + res.overflowTriggers);
+          if (level.conv.spawn && !res.spawnOk) msgs.push('起点未生效（时机错过）');
+          injectState = '✓ 已注入：' + (msgs.join('，') || '无特殊元素');
+        }
+        setStatus('游戏进行中 · ' + injectState, 'ok');
+      }
+    }
+    prevProc = proc;
+  }
+
+  /* ---------- 引擎装载（参照原版 load.js 的最小实现） ---------- */
+  window.Module = {
+    canvas: canvas,
+    status: 'loading',
+    ready: false,
+    pause: false,
+    setStatus: function (t) { this.status = t; }
+  };
+  window.onerror = function (ev) { setStatus('页面错误：' + ev, 'err'); };
+
+  var booted = false;
+  var engineRetried = false;
+  var engineDeadline = Date.now() + 20000;
+  function tick() {
+    var M = window.Module;
+    if (!booted) {
+      // 引擎脚本若因加载中断（如刷新打断 async 请求）未到达，20 秒后自动重挂一次
+      if (!window.Dlm && !engineRetried && Date.now() > engineDeadline) {
+        engineRetried = true;
+        var s = document.createElement('script');
+        s.src = 'catmario.js';
+        document.head.appendChild(s);
+      }
+      if (!M.dlm && window.Dlm) M.dlm = window.Dlm(M);
+      if (!M.loading && M.status === '') {
+        booted = true;
+        M.ready = true;
+        M['_dlm_init']();
+        M['_dlm_frame']();
+        setStatus('引擎已就绪', 'ok');
+        startBtn.disabled = false;
+        retryBtn.disabled = false;
+        doPatch();
+      }
+    } else {
+      if (M.pause === false) M['_dlm_frame']();
+      watchRuntime();
+    }
+    window.requestAnimationFrame(tick);
+  }
+  window.requestAnimationFrame(tick);
+  // 看门狗：标签页隐藏时 rAF 会被挂起，用低频定时器保证启动与游戏流程仍能推进
+  setInterval(function () {
+    if (!booted) { tick(); return; }
+    if (document.hidden || document.webkitHidden) {
+      var M2 = window.Module;
+      if (M2.ready && M2.pause === false) { M2['_dlm_frame'](); watchRuntime(); }
+    }
+  }, 200);
+
+  startBtn.addEventListener('click', function () {
+    var M = window.Module;
+    if (!M.ready) return;
+    if (level && !patched) doPatch();
+    if (level && !patched) { alert('关卡未能写入引擎内存，无法开始'); return; }
+    if (level) ensureBgm(level.conv);
+    retryBgmAfterGesture();
+    M['_dlm_start']();
+    canvas.focus();
+  });
+
+  retryBtn.addEventListener('click', function () {
+    window.Module['_dlm_title']();
+    canvas.focus();
+  });
+
+  /* ---------- JSON 载入途径 ---------- */
+  document.getElementById('pickBtn').addEventListener('click', function () {
+    document.getElementById('fileInput').click();
+  });
+  document.getElementById('fileInput').addEventListener('change', function (ev) {
+    var f = ev.target.files[0];
+    if (f) readFile(f);
+    ev.target.value = '';
+  });
+  function readFile(f) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        loadLevelObject(JSON.parse(rd.result), f.name.replace(/\.json$/i, ''));
+      } catch (err) {
+        setStatus('JSON 解析失败：' + err.message, 'err');
+      }
+    };
+    rd.readAsText(f);
+  }
+  window.addEventListener('dragover', function (ev) {
+    ev.preventDefault();
+    document.body.classList.add('dragging');
+  });
+  window.addEventListener('dragleave', function () { document.body.classList.remove('dragging'); });
+  window.addEventListener('drop', function (ev) {
+    ev.preventDefault();
+    document.body.classList.remove('dragging');
+    var f = ev.dataTransfer.files && ev.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+
+  /* ---------- 内置示例关卡 ---------- */
+  function demoLevel() {
+    var E = [];
+    function e(id, c, r, extra) { var o = { id: id, col: c, row: r }; if (extra) for (var k in extra) o[k] = extra[k]; E.push(o); }
+    for (var c = 0; c < 50; c++) {
+      if (c === 15 || c === 16 || c === 33 || c === 34) continue;
+      e('block_ground_top', c, 13); e('block_ground_fill', c, 14);
+    }
+    e('block_brick', 6, 9); e('block_question', 7, 9); e('block_brick', 8, 9);
+    e('item_coin', 7, 8); e('item_coin', 20, 10); e('item_coin', 21, 10);
+    e('block_hidden', 10, 9);
+    e('enemy_syobon', 12, 12); e('enemy_syobon', 26, 12); e('enemy_turtle', 40, 11);
+    e('pipe_top', 19, 11); e('pipe_body', 19, 12);
+    e('bg_midflag', 25, 11);
+    e('lift_yellow', 30, 10, { len: 3 });
+    e('block_spike', 15, 13); e('block_spike', 16, 13);
+    for (var s = 0; s < 4; s++) for (var s2 = 0; s2 <= s; s2++) e('block_stair', 43 + s, 12 - s2);
+    e('goal_pole', 48, 1);
+    e('bg_hill_house', 2, 10); e('bg_grass', 11, 12); e('bg_cloud_face', 16, 3); e('bg_tree', 36, 10);
+    // —— 路线 2 新增：特殊元素 ——
+    e('player_start', 3, 12);
+    e('bgm_field', 2, 10);
+    e('item_mushroom_red', 4, 12);     // 红蘑菇（掉落地面）
+    e('item_star', 9, 12);             // 无敌星
+    e('b2_hint', 20, 9);               // 提示块
+    e('item_flower', 22, 12);          // 火焰花
+    e('b2_pswitch', 23, 12);           // P开关
+    e('item_jumppad', 28, 12);         // 弹簧跳台
+    e('b2_note_white', 31, 9);         // 音符块
+    e('enemy_moralar', 37, 12);        // 小猫咪
+    e('enemy_cloud_face', 38, 6);      // 脸云怪
+    e('enemy_spike_ball', 40, 12);     // 刺球伪地块
+    return { app: 'catmario-level-editor', version: 1, cols: 50, theme: 'overworld', elements: E };
+  }
+  document.getElementById('demoBtn').addEventListener('click', function () {
+    loadLevelObject(demoLevel(), '内置示例');
+  });
+
+  /* ---------- 启动：优先编辑器传来的关卡，否则载入示例 ---------- */
+  try {
+    var saved = localStorage.getItem('catmario-editor-playdata');
+    if (saved) {
+      var obj = JSON.parse(saved);
+      localStorage.removeItem('catmario-editor-playdata');
+      loadLevelObject(obj, '编辑器关卡');
+    } else {
+      loadLevelObject(demoLevel(), '内置示例');
+    }
+  } catch (e) {
+    loadLevelObject(demoLevel(), '内置示例');
+  }
+})();
+</script>
+</body>
+</html>

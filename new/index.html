@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>猫里奥关卡编辑器</title>
+<link rel="stylesheet" href="editor.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶部工具栏 -->
+  <div id="toolbar">
+    <span class="title">🐱 猫里奥关卡编辑器</span>
+    <button id="saveBtn" title="将当前关卡保存为 JSON 文件">💾 保存JSON</button>
+    <button id="loadBtn" title="读取之前保存的 JSON 关卡（也可直接把 .json 拖进窗口）">📂 读取JSON</button>
+    <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+    <button id="demoBtn">✨ 示例关卡</button>
+    <button id="playBtn" title="把当前关卡转换成游戏数据，在新标签页用原版引擎试玩">▶ 试玩</button>
+    <button id="clearBtn">🗑 清空</button>
+    <span class="sep"></span>
+    <label>画布列数：</label>
+    <button id="colsMinus" title="横向缩短 10 列">−</button>
+    <input type="number" id="colsInput" min="20" max="1000" value="120">
+    <button id="colsPlus" title="横向加长 10 列">＋</button>
+    <span class="sep"></span>
+    <label>主题：</label>
+    <select id="themeSel">
+      <option value="overworld">地上（蓝）</option>
+      <option value="dungeon">地下（暗）</option>
+      <option value="castle">城堡（灰）</option>
+      <option value="sky">空中（深蓝）</option>
+    </select>
+    <button id="gridBtn" title="显示/隐藏网格">▦ 网格</button>
+    <button id="eraserBtn" title="橡皮工具（也可在画布上右键擦除）">🧽 橡皮</button>
+  </div>
+
+  <!-- 主体：左侧元素栏 + 中间横向滚动画布 -->
+  <div id="main">
+    <div id="palette"></div>
+    <div id="stage-wrap">
+      <canvas id="gutter" style="margin-top:20px"></canvas>
+      <div id="scroller">
+        <div id="stage-inner">
+          <canvas id="ruler"></canvas>
+          <canvas id="stage"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部状态栏 -->
+  <div id="statusbar">
+    <span id="status">位置：列 - / 行 -</span>
+    <span id="hint">点击左侧元素，再到画布上点击/拖动放置；右键擦除；滚轮横向滚动；画布可水平增减。</span>
+  </div>
+</div>
+
+<script src="assets/sprites/manifest.js"></script>
+<script src="elements.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>

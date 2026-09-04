@@ -1,0 +1,214 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: #1a1d24;
+  color: #d8dee9;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------- 顶部工具栏 ---------- */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #232733;
+  border-bottom: 1px solid #333a48;
+  flex-wrap: wrap;
+}
+#toolbar .title {
+  font-weight: bold;
+  font-size: 15px;
+  color: #ffd75e;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+#toolbar button {
+  background: #313747;
+  color: #d8dee9;
+  border: 1px solid #454d61;
+  border-radius: 5px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#toolbar button:hover { background: #3d4458; }
+#toolbar button.active {
+  background: #2d6cdf;
+  border-color: #4a86f0;
+  color: #fff;
+}
+#toolbar .sep {
+  width: 1px;
+  height: 22px;
+  background: #454d61;
+  margin: 0 4px;
+}
+#toolbar label { font-size: 13px; color: #9aa4b8; }
+#colsInput {
+  width: 60px;
+  background: #1a1d24;
+  color: #d8dee9;
+  border: 1px solid #454d61;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 13px;
+  text-align: center;
+}
+#themeSel {
+  background: #313747;
+  color: #d8dee9;
+  border: 1px solid #454d61;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+/* ---------- 主体三栏 ---------- */
+#main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* 左侧元素栏 */
+#palette {
+  width: 240px;
+  flex-shrink: 0;
+  background: #20242e;
+  border-right: 1px solid #333a48;
+  overflow-y: auto;
+  padding: 8px;
+}
+.pal-sec { margin-bottom: 10px; }
+.pal-h {
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffd75e;
+  padding: 4px 2px;
+  border-bottom: 1px solid #333a48;
+  margin-bottom: 6px;
+  position: sticky;
+  top: -8px;
+  background: #20242e;
+}
+.pal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.pal-item {
+  background: #2b2f3a;
+  border: 1px solid #3a4152;
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  text-align: center;
+  user-select: none;
+}
+.pal-item:hover { border-color: #6b7590; background: #333a48; }
+.pal-item.sel {
+  border-color: #4a86f0;
+  background: #24395e;
+  box-shadow: 0 0 0 1px #4a86f0 inset;
+}
+.pal-thumb {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #c9d7ef;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  overflow: hidden;
+}
+.pal-thumb img {
+  max-width: 50px;
+  max-height: 50px;
+  image-rendering: pixelated;
+}
+.pal-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  color: #fff;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pal-label {
+  font-size: 11px;
+  color: #c2cad8;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 中间画布区 */
+#stage-wrap {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: #14171d;
+}
+#gutter {
+  flex-shrink: 0;
+  display: block;
+}
+#scroller {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+#stage-inner {
+  width: max-content;
+  padding-bottom: 8px;
+}
+#ruler { display: block; }
+#stage {
+  display: block;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  box-shadow: 0 0 0 1px #333a48;
+}
+
+/* 底部状态栏 */
+#statusbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 6px 12px;
+  background: #232733;
+  border-top: 1px solid #333a48;
+  font-size: 12px;
+  min-height: 46px;
+}
+#status { color: #9aa4b8; white-space: nowrap; }
+#hint {
+  color: #b8c2d6;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 滚动条 */
+#palette::-webkit-scrollbar,
+#scroller::-webkit-scrollbar { height: 10px; width: 10px; }
+#palette::-webkit-scrollbar-thumb,
+#scroller::-webkit-scrollbar-thumb { background: #454d61; border-radius: 5px; }
+#palette::-webkit-scrollbar-track,
+#scroller::-webkit-scrollbar-track { background: #1a1d24; }
