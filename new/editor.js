@@ -587,6 +587,18 @@
     requestRender();
   }
 
+  // 取消当前工具选择（右键触发）
+  function cancelTool() {
+    if (!tool) return;
+    tool = null;
+    stopBgm();
+    document.querySelectorAll('.pal-item').forEach(function (b) { b.classList.remove('sel'); });
+    document.getElementById('eraserBtn').classList.remove('active');
+    canvas.style.cursor = 'default';
+    hintEl.textContent = '已取消选择';
+    requestRender();
+  }
+
   // ---------- BGM 试听 ----------
   function playBgm(d) {
     stopBgm();
@@ -617,10 +629,8 @@
     paintedCells = {};
 
     if (ev.button === 2) {
-      // 右键：擦除
-      pushHistory();
-      inStroke = true;
-      eraseAt(cell.col, cell.row);
+      // 右键：取消当前工具选择，不擦除元素
+      cancelTool();
       selected = null;
     } else if (tool === 'eraser') {
       pushHistory();
@@ -685,7 +695,7 @@
       var k = cellKey(cell.col, cell.row);
       if (!paintedCells[k]) {
         paintedCells[k] = true;
-        if (paintBtn === 2 || tool === 'eraser') {
+        if (tool === 'eraser') {
           eraseAt(cell.col, cell.row);
         } else if (tool) {
           // 拖动连续放置：仅方块/地面类按格刷，其余只放一次
@@ -708,6 +718,11 @@
   });
   canvas.addEventListener('mouseleave', function () { hover = null; requestRender(); });
   canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  // 左侧栏右键：取消工具选择
+  paletteEl.addEventListener('contextmenu', function (ev) {
+    ev.preventDefault();
+    cancelTool();
+  });
 
   // Delete / Backspace 删除选中元素
   window.addEventListener('keydown', function (ev) {
