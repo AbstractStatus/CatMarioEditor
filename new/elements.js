@@ -35,6 +35,8 @@
       tw: 1, th: 2, mapId: 43, hint: 'stype=1，29x53 的细竖管' },
     { id: 'pipe_h', cat: 'struct', name: '管道(横向)', kind: 'vector', img: 'vector/pipe_h.png',
       tw: 2, th: 2, mapId: 44, hint: 'stype=5，39x50 的横管' },
+    { id: 'pipe_trap', cat: 'struct', name: '陷阱管道', kind: 'vector', img: 'vector/pipe_trap.png',
+      tw: 2, th: 4, stype: 50, hint: 'stype=50：伪装成管道的陷阱，玩家进入后管道加速上升挤死玩家（2格宽4格高）' },
     { id: 'goal_pole', cat: 'struct', name: '终点旗杆', kind: 'vector', img: 'vector/goal_pole.png',
       tw: 1, th: 12, mapId: 99, hint: 'stype=300：白色杆(10宽)+黄色圆球(r10)，地图99号，杆从放置行向下延伸到第12行' },
     { id: 'bg_midflag', cat: 'struct', name: '中间旗', kind: 'sprite', img: 'bg/bg_midflag.png',

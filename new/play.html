@@ -140,6 +140,15 @@ body.dragging #dropTip { display: flex; }
     bgm_star: 'snd/star4.mp3', bgm_castle: 'snd/castle.mp3', bgm_puyo: 'snd/puyo.mp3'
   };
 
+  // 通道二 C：非字节表实体（陷阱管道等）→ sa/sb/sc/sd/stype/sxtype
+  var EX_TRAP = {
+    // 陷阱管道：sa 需 +500 偏移、sc=tw*3000（非 -100）
+    // 所有管道动态分配空槽（跳过 28）；slot 28 是"屏外隐藏管道"动画借用槽：
+    //   引擎动画代码 main.cpp:1885 硬编码 t=28，玩家进入任一管道后 JS 把
+    //   该管道数据搬到 slot 28 播放动画（只对被进入的管道做动画，不联动）
+    pipe_trap: { stype: 50, sxtype: 0, tw: 2, th: 4, saOff: 500 }
+  };
+
   var ROWS = 17, COLS = 1001;
 
   function convert(level) {
@@ -148,6 +157,7 @@ body.dragging #dropTip { display: flex; }
     var grid = new Uint8Array(ROWS * COLS);
     var blocks = [];    // {x,y,ttype} 写入 t[]
     var triggers = [];  // {x,y,btype,bxtype} 写入 b[]
+    var traps = [];     // {x,y,w,h,stype,sxtype} 写入 sa[]/sb[]/sc[]/sd[]/stype[]/sxtype[]
     var bgms = [];      // {col,file}
     var spawn = null;
     var skip = {};
@@ -179,6 +189,15 @@ body.dragging #dropTip { display: flex; }
         var sp = EX_TRIGGER[id];
         var xt = (id === 'firebar') ? (e.xt || sp.xt) : sp.xt;
         triggers.push({ x: x * 100, y: y * 100, btype: sp.t, bxtype: xt });
+      } else if (EX_TRAP[id] !== undefined) {
+        // 非字节表实体（如陷阱管道 stype=50），通过 sa[] 数组运行时注入
+        var sp2 = EX_TRAP[id];
+        traps.push({
+          x: x * 100 + (sp2.saOff || 0), y: y * 100,
+          w: sp2.tw * 3000, h: sp2.th * 3000 - 200,
+          stype: sp2.stype, sxtype: e.sxtype || sp2.sxtype || 0,
+          slot: sp2.slot
+        });
       } else if (id === 'player_start') {
         spawn = { x: x, y: y };
       } else if (BGM_FILE[id]) {
@@ -189,7 +208,7 @@ body.dragging #dropTip { display: flex; }
     });
     bgms.sort(function (a, b) { return a.col - b.col; });
     return {
-      bytes: grid, blocks: blocks, triggers: triggers, bgms: bgms,
+      bytes: grid, blocks: blocks, triggers: triggers, traps: traps, bgms: bgms,
       spawn: spawn, skip: skip, used: used
     };
   }
@@ -253,6 +272,14 @@ body.dragging #dropTip { display: flex; }
    */
   var MEM = null;   // { ta, tb, ttype, ba, bb, btm, btype, bxtype, bz, ma, mb }
   var SENTINEL = -9000000;
+  // slot 28 屏外隐藏管道坐标（约 3 万格之外，渲染/碰撞均不可达）
+  var TRAP28_HIDDEN = 9999999;
+  // 陷阱管道动画借用状态：引擎动画硬编码 slot 28（main.cpp:1885 t=28），
+  // 玩家进入任一管道后把该管道数据搬到 slot 28 播放动画，结束后恢复
+  var flyState = null;   // { slot, base, frames } 或 null
+  // 下沉签名追踪（fx 定位失败时的兜底）：引擎沉入段 mtm1-16 每帧恰好 mb+=240
+  // 且 ma 不变（mxtype==0 分支 mc=0），自然下坠为加速度曲线不可能连续多帧恰好 +240
+  var sinkMa = -1, sinkMb = -1, sinkN = 0;
 
   function locateRuntimeArrays() {
     var u8 = Module.HEAPU8;
@@ -288,18 +315,89 @@ body.dragging #dropTip { display: flex; }
     }
     if (pB < 0) return null;
 
-    // 玩家出生坐标 ma/mb：进关同一帧为 ma=5600, mb=32000（相邻两格）
+    // 玩家出生坐标 ma/mb：进关首帧为 ma=5600, mb=32000（相邻两格）。
+    // 注入帧玩家已开始下坠（mb 递增），故 mb 用放宽区间，且要求全堆唯一
+    // 匹配，避免命中静态数据的假对（假对会让 spawn/动画借用全部失效）
     var maAddr = -1;
+    var maHits = 0;
     for (var i = 0; i + 1 < u32.length; i++) {
-      if (u32[i] === 5600 && u32[i + 1] === 32000) { maAddr = i; break; }
+      if (u32[i] === 5600 && u32[i + 1] >= 32000 && u32[i + 1] <= 33400) {
+        maHits++;
+        if (maAddr < 0) maAddr = i;
+      }
     }
+    if (maHits !== 1) maAddr = -1;   // 非唯一匹配视为不可靠
+
+    // 相机世界 x（fx）：进关瞬间 fx=fy=fzx=fzy=0 且 scrollx=360000（1-1 固定，
+    // main.cpp:1656/4135），五连签名 (0,0,0,0,360000) 全堆唯一匹配 → fx 地址。
+    // 关键：ma 是屏幕相对坐标（滚动时被钳制、位移累进 fx），碰撞里 xx[8]=sa[t]-fx
+    // 与 ma 同系对比；玩家世界 x = fx + ma（main.cpp:3776 scorepos=fx+ma 实证）。
+    // 之前借用逻辑拿屏幕 ma 直接对比世界坐标 baseSa → 永远匹配不上 → 完全没动画。
+    var fxa = -1;
+    var fxHits = 0;
+    for (var f = 0; f + 5 < u32.length; f++) {
+      if (u32[f] === 0 && u32[f + 1] === 0 && u32[f + 2] === 0 &&
+          u32[f + 3] === 0 && u32[f + 4] === 360000) {
+        fxHits++;
+        if (fxa < 0) fxa = f;
+      }
+    }
+    if (fxHits !== 1) fxa = -1;   // 非唯一匹配视为不可靠（走下沉签名兜底）
 
     MEM = {
       ta: pT, tb: pT + T, ttype: pT + 3 * T,
       ba: pB, bb: pB + B, btm: pB + 2 * B,
       btype: pB + 3 * B, bxtype: pB + 4 * B, bz: pB + 5 * B,
-      ma: maAddr, mb: maAddr >= 0 ? maAddr + 1 : -1
+      ma: maAddr, mb: maAddr >= 0 ? maAddr + 1 : -1,
+      fx: fxa,
+      sa: -1, sb: -1, sc: -1, sd: -1, stype: -1, sxtype: -1
     };
+
+    // sa/sb/sc/sd/stype/sxtype 数组：连续分配，各 smax=31 个 int32
+    // 优先用 stagep() 无条件写入的滚动实体签名定位
+    // （sa[0]=20*29*100+500=58500, sb[0]=-6000, stype[0]=100, stype[1]=101）
+    for (var p = 0; p + 155 < u32.length; p++) {
+      if (u32[p] === 58500 && u32[p + 31] === -6000 &&
+          u32[p + 124] === 100 && u32[p + 125] === 101 &&
+          u32[p + 126] === 102 && u32[p + 127] === 103) {
+        MEM.sa = p; MEM.sb = p + 31; MEM.sc = p + 62;
+        MEM.sd = p + 93; MEM.stype = p + 124; MEM.sxtype = p + 155;
+        break;
+      }
+    }
+    // 后备 1：col20 管道上口签名（自定义关卡有 col20 管道时）
+    if (MEM.sa < 0) {
+      for (var p = 0; p + 155 < u32.length; p++) {
+        if (u32[p] === 58000 && u32[p + 31] === 27800 &&
+            u32[p + 62] === 6000 && u32[p + 93] === 3000 && u32[p + 124] === 1) {
+          MEM.sa = p; MEM.sb = p + 31; MEM.sc = p + 62;
+          MEM.sd = p + 93; MEM.stype = p + 124; MEM.sxtype = p + 155;
+          break;
+        }
+      }
+    }
+    // 后备 2：哨兵模式（stagep 未运行时）
+    if (MEM.sa < 0) {
+      var KNOWN_ST = [0,1,2,50,51,52,100,101,102,103,300,500];
+      for (var p = 0; p + 155 < u32.length; p++) {
+        if (u32[p] !== SENTINEL && u32[p + 31] !== SENTINEL) continue;
+        var saCnt = 0, stCnt = 0, bad = false;
+        for (var q = 0; q < 31; q++) {
+          if (u32[p + q] === SENTINEL) saCnt++;
+          var st = u32[p + 124 + q];
+          if (st === SENTINEL) stCnt++;
+          else {
+            var known = false;
+            for (var s = 0; s < KNOWN_ST.length; s++) { if (st === KNOWN_ST[s]) { known = true; break; } }
+            if (!known) { bad = true; break; }
+          }
+        }
+        if (bad || saCnt < 20 || stCnt < 20) continue;
+        MEM.sa = p; MEM.sb = p + 31; MEM.sc = p + 62;
+        MEM.sd = p + 93; MEM.stype = p + 124; MEM.sxtype = p + 155;
+        break;
+      }
+    }
     return MEM;
   }
 
@@ -342,15 +440,72 @@ body.dragging #dropTip { display: flex; }
     }
 
     // C. 玩家出生点（ma=5600/mb=32000 在进关同一帧定位，此刻改写）
+    // 注入帧玩家已开始下坠（mb 递增），mb 用下坠容差区间
     var spawnOk = false;
-    if (conv.spawn && MEM.ma >= 0 && u32[MEM.ma] === 5600 && u32[MEM.mb] === 32000) {
+    if (conv.spawn && MEM.ma >= 0 && u32[MEM.ma] === 5600 &&
+        u32[MEM.mb] >= 32000 && u32[MEM.mb] <= 33400) {
       u32[MEM.ma] = conv.spawn.x * 100 + 200;
       u32[MEM.mb] = (conv.spawn.y - 30) * 100;   // 略高几格，自然落地
       spawnOk = true;
     }
 
+    // D. 非字节表实体（陷阱管道等）：全部动态分配空槽（跳过 28）
+    // slot 28 写入"屏外隐藏管道"作为引擎动画借用槽：
+    //   引擎动画硬编码 t=28（main.cpp:1885），玩家进入任一管道后 JS 把
+    //   该管道数据搬到 slot 28 播放抖动/上升动画，实现"只动画被进入的管道"
+    var wroteTraps = 0, overflowTraps = 0;
+    if (conv.traps && conv.traps.length && MEM.sa >= 0) {
+      for (var ti = 0; ti < conv.traps.length; ti++) {
+        var tp = conv.traps[ti];
+        var tslot = tp.slot;
+        if (tslot === undefined || tslot === 28) {
+          tslot = -1;
+          for (n = 0; n < 31; n++) {
+            if (n === 28) continue;
+            if (u32[MEM.sa + n] === SENTINEL) { tslot = n; break; }
+          }
+        }
+        if (tslot < 0 || tslot >= 31 || tslot === 28) { overflowTraps++; continue; }
+        u32[MEM.sa + tslot] = tp.x;
+        u32[MEM.sb + tslot] = tp.y;
+        u32[MEM.sc + tslot] = tp.w;
+        u32[MEM.sd + tslot] = tp.h;
+        u32[MEM.stype + tslot] = tp.stype;
+        u32[MEM.sxtype + tslot] = tp.sxtype;
+        tp._slot = tslot;   // 记录实际占用 slot，供 watchRuntime 检测
+        wroteTraps++;
+      }
+      // slot 28：屏外隐藏管道（渲染/碰撞都 far 屏外，玩家不可见不可触）
+      u32[MEM.sa + 28] = TRAP28_HIDDEN;
+      u32[MEM.sb + 28] = TRAP28_HIDDEN;
+      u32[MEM.sc + 28] = 6000;
+      u32[MEM.sd + 28] = 12000;
+      u32[MEM.stype + 28] = 50;
+      u32[MEM.sxtype + 28] = 0;
+    }
+
+    // 记录陷阱管道原始位置，供 watchRuntime 借用 slot 28 播放动画
+    var trapBases = [];
+    if (conv.traps && conv.traps.length && MEM.sa >= 0) {
+      for (var tbi = 0; tbi < conv.traps.length; tbi++) {
+        var tp2 = conv.traps[tbi];
+        var slot2 = tp2._slot !== undefined ? tp2._slot :
+                    (tp2.slot !== undefined ? tp2.slot : -1);
+        if (slot2 < 0 || slot2 === 28) continue;
+        trapBases.push({
+          slot: slot2,
+          baseSa: u32[MEM.sa + slot2],
+          baseSb: u32[MEM.sb + slot2]
+        });
+      }
+    }
+    conv._trapBases = trapBases;
+    flyState = null;   // 新注入后重置借用状态
+    sinkMa = -1; sinkMb = -1; sinkN = 0;   // 同步重置下沉签名追踪
+
     return { wroteBlocks: wroteBlocks, overflowBlocks: overflowBlocks,
              wroteTriggers: wroteTriggers, overflowTriggers: overflowTriggers,
+             wroteTraps: wroteTraps, overflowTraps: overflowTraps,
              spawnOk: spawnOk };
   }
 
@@ -383,6 +538,7 @@ body.dragging #dropTip { display: flex; }
   // 到不了 canvas，游戏会卡在“按任意键”过渡。window 捕获阶段统一转发给 canvas。
   (function forwardKeysToCanvas() {
     function fwd(ev) {
+      if (!ev || !ev.target || typeof ev.target.nodeType !== 'number') return;
       if (ev.target === canvas || (canvas && canvas.contains(ev.target))) return;
       var ne;
       try {
@@ -448,6 +604,7 @@ body.dragging #dropTip { display: flex; }
       infoEl.innerHTML = '「' + level.name + '」— ' + cols + ' 列 · ' + theme +
         ' · 地图元素 ' + r.used + ' 格' +
         ' · 特殊方块 ' + r.blocks.length + ' · 敌人/道具 ' + r.triggers.length +
+        (r.traps.length ? ' · 陷阱 ' + r.traps.length : '') +
         (r.bgms.length ? ' · 音乐 ' + r.bgms[0].file.split('/').pop() : '') +
         (r.spawn ? ' · 自定义起点' : '') +
         (skipTxt ? '<br><span id="skiplist">⚠ 未知元素、已跳过：' + skipTxt + '</span>' : '') +
@@ -482,19 +639,39 @@ body.dragging #dropTip { display: flex; }
     var proc;
     try { proc = M['_dlm_mainproc'](); } catch (e) { return; }
 
+    // 检测进入关卡（proc 从非1变为1）：首次进关和死亡复活都会触发
     if (prevProc !== 1 && proc === 1) {
-      // 刚进入关卡（stagecls/stage 重建数组）；隐藏标签下帧步进为 200ms，
-      // stagep 写入可能晚于预期，给足重试窗口
       injectTimer = 2;
       injectRetries = 0;
       injectedThisRun = false;
     }
-    if (proc === 1 && injectTimer > 0) {
+    // 持续检测：陷阱管道被关卡重启清空时重新注入
+    // 仅检查 stype 是否被清空（动画会修改 sa/sb 但不改 stype，
+    //   故仅检查 stype 可避免动画被重注入覆盖）
+    if (MEM && injectedThisRun && level.conv.traps && level.conv.traps.length &&
+        (proc === 1 || proc === 10)) {
+      var u32c = new Int32Array(M.HEAPU8.buffer);
+      var needReinject = false;
+      for (var ti = 0; ti < level.conv.traps.length; ti++) {
+        var tp = level.conv.traps[ti];
+        var ts = tp._slot !== undefined ? tp._slot : (tp.slot !== undefined ? tp.slot : -1);
+        if (flyState && ts === flyState.slot) continue;   // 借用中（stype 被临时清 0）
+        if (ts >= 0 && u32c[MEM.stype + ts] !== tp.stype) {
+          needReinject = true; break;
+        }
+      }
+      if (needReinject) {
+        injectedThisRun = false;
+        injectTimer = 2;
+        injectRetries = 0;
+      }
+    }
+    // proc=1（关卡初始化）或 proc=10（游戏进行）时均可执行注入
+    if ((proc === 1 || proc === 10) && injectTimer > 0) {
       injectTimer--;
       if (injectTimer === 0) {
         if (!MEM) locateRuntimeArrays();
         if (!MEM) {
-          // 签名尚未就绪：每 3 帧重试，最多 30 次（约 0.5~6 秒，覆盖低帧率）
           if (injectRetries < 30) { injectRetries++; injectTimer = 3; }
           else { injectState = '运行时数组定位失败（特殊元素未注入）'; setStatus('游戏进行中 · ' + injectState, 'err'); }
         } else if (!injectedThisRun) {
@@ -504,13 +681,134 @@ body.dragging #dropTip { display: flex; }
           var msgs = [];
           if (res.wroteBlocks) msgs.push('特殊方块 ' + res.wroteBlocks);
           if (res.wroteTriggers) msgs.push('敌人/道具 ' + res.wroteTriggers);
+          if (res.wroteTraps) msgs.push('陷阱 ' + res.wroteTraps);
           if (res.overflowBlocks) msgs.push('⚠方块槽已满少' + res.overflowBlocks);
           if (res.overflowTriggers) msgs.push('⚠敌人槽已满少' + res.overflowTriggers);
+          if (res.overflowTraps) msgs.push('⚠陷阱槽已满少' + res.overflowTraps);
           if (level.conv.spawn && !res.spawnOk) msgs.push('起点未生效（时机错过）');
           injectState = '✓ 已注入：' + (msgs.join('，') || '无特殊元素');
           setStatus('游戏进行中 · ' + injectState, 'ok');
         }
       }
+    }
+    // 陷阱管道动画借用：引擎动画硬编码 slot 28（main.cpp:1885 t=28），
+    // slot 28 平时是屏外隐藏管道。玩家进入任一陷阱管道触发动画后
+    // （slot 28 的 sa 首次变化 = 动画开始，mtm 23），JS 把被进入管道的
+    // 数据搬到 slot 28 播放抖动/上升动画 → 只对被进入的管道做动画，不联动。
+    // 动画结束（mtm 160 扣命重生）后恢复现场。
+    if (MEM && injectedThisRun &&
+        level.conv._trapBases && level.conv._trapBases.length &&
+        (proc === 1 || proc === 10)) {
+      var u32d = new Int32Array(M.HEAPU8.buffer);
+      if (!flyState) {
+        // 兜底（仅 fx 定位失败时）：下沉签名 —— mb 连续 3 帧恰好 +240 且 ma 不变，
+        // 配合管顶 y 带识别被进入管道，在玩家被传送走（mtm17 mb=-80000000）之前借用。
+        // mnobib 小猫3600/变大7300 → 触发时 mb ∈ (sb-8300, sb+1800)
+        if (MEM.fx < 0 && MEM.ma >= 0 && MEM.mb >= 0 && proc === 10) {
+          var maS = u32d[MEM.ma], mbS = u32d[MEM.mb];
+          if (maS === sinkMa && mbS - sinkMb === 240) sinkN++;
+          else sinkN = 0;
+          sinkMa = maS; sinkMb = mbS;
+          if (sinkN >= 2) {
+            var bY = null;
+            for (var yi = 0; yi < level.conv._trapBases.length; yi++) {
+              var tby = level.conv._trapBases[yi];
+              if (mbS > tby.baseSb - 8300 && mbS < tby.baseSb + 1800) { bY = tby; break; }
+            }
+            if (bY) {
+              u32d[MEM.sa + 28] = bY.baseSa;
+              u32d[MEM.sb + 28] = bY.baseSb;
+              u32d[MEM.sc + 28] = 6000;
+              u32d[MEM.sd + 28] = 12000;
+              u32d[MEM.stype + 28] = 50;
+              u32d[MEM.sxtype + 28] = 0;
+              u32d[MEM.stype + bY.slot] = 0;   // 隐藏原槽（数据已搬到 28）
+              flyState = { slot: bY.slot, base: bY, frames: 0 };
+              sinkN = 0;
+            }
+          }
+        } else if (MEM.fx >= 0) {
+          sinkN = 0;
+        }
+        if (!flyState && u32d[MEM.sa + 28] !== TRAP28_HIDDEN) {
+          // 引擎动画已启动：按玩家世界 x 找被进入的管道
+          // MEM.ma 定位失败时用瞬移特征兜底：动画 mtm 17 把玩家 mb 置
+          // -80000000（全堆唯一），扫到即 mb 地址 → ma=mb-1，缓存复用
+          if (MEM.ma < 0) {
+            for (var si = 1; si < u32d.length; si++) {
+              if (u32d[si] === -80000000 && u32d[si - 1] > 0 && u32d[si - 1] < 3000000) {
+                MEM.ma = si - 1; MEM.mb = si;
+                break;
+              }
+            }
+          }
+          // 引擎触发条件（世界坐标 wx = fx + ma）：左缘 wx < 管右(base+3000) 且
+          //   右缘 wx+mnobia > 管左+2800。mnobia 小猫3000/变大5200
+          //   → wx ∈ (base-2500, base+3000)。管道判定带互不重叠，命中即被进入者
+          var best = null;
+          if (MEM.fx >= 0 && MEM.ma >= 0) {
+            var fxNow = u32d[MEM.fx];
+            if (fxNow >= 0 && fxNow <= 400000) {
+              var wx = fxNow + u32d[MEM.ma];
+              for (var bi = 0; bi < level.conv._trapBases.length; bi++) {
+                var tb3 = level.conv._trapBases[bi];
+                if (wx > tb3.baseSa - 2500 && wx < tb3.baseSa + 3000) { best = tb3; break; }
+              }
+            }
+          }
+          if (best) {
+            u32d[MEM.sa + 28] = best.baseSa;
+            u32d[MEM.sb + 28] = best.baseSb;
+            u32d[MEM.sc + 28] = 6000;
+            u32d[MEM.sd + 28] = 12000;
+            u32d[MEM.stype + 28] = 50;
+            u32d[MEM.sxtype + 28] = 0;
+            u32d[MEM.stype + best.slot] = 0;   // 隐藏原槽（数据已搬到 28）
+            flyState = { slot: best.slot, base: best, frames: 0 };
+          }
+          // 判定带未命中（无法识别进入者）：放任引擎动画在屏外空跑，
+          // 死亡重生后重注入会恢复一切
+        }
+      } else {
+        flyState.frames++;
+        if (flyState.frames >= 158) {
+          // 借用最早发生在 mtm≈2（下沉签名兜底）/23（主路径），158 帧后
+          // 引擎 mtm≥160 动画必已结束（管道停在天外，玩家已扣命）。
+          // 恢复：slot n 保持"飞走"状态（sa=抖动终值、sb=天外终值），
+          // slot 28 还原为屏外隐藏管道；死亡重生后重注入会重置全部管道
+          u32d[MEM.sa + flyState.slot] = u32d[MEM.sa + 28];
+          u32d[MEM.sb + flyState.slot] = u32d[MEM.sb + 28];
+          u32d[MEM.sc + flyState.slot] = 6000;
+          u32d[MEM.sd + flyState.slot] = 12000;
+          u32d[MEM.stype + flyState.slot] = 50;
+          u32d[MEM.sxtype + flyState.slot] = 0;
+          u32d[MEM.sa + 28] = TRAP28_HIDDEN;
+          u32d[MEM.sb + 28] = TRAP28_HIDDEN;
+          u32d[MEM.sc + 28] = 6000;
+          u32d[MEM.sd + 28] = 12000;
+          u32d[MEM.stype + 28] = 50;
+          u32d[MEM.sxtype + 28] = 0;
+          flyState = null;
+        }
+      }
+    }
+    // TEMP DEBUG：实测借用链路（验证后删除）
+    if (MEM && MEM.sa >= 0) {
+      var u32dbg = new Int32Array(M.HEAPU8.buffer);
+      var dbg = 'DBG p=' + proc +
+        ' ma=' + (MEM.ma >= 0 ? u32dbg[MEM.ma] : 'NA') +
+        ' fx=' + (MEM.fx >= 0 ? u32dbg[MEM.fx] : 'NA') +
+        ' wx=' + (MEM.fx >= 0 && MEM.ma >= 0 ? (u32dbg[MEM.fx] + u32dbg[MEM.ma]) : 'NA') +
+        ' mb=' + (MEM.mb >= 0 ? u32dbg[MEM.mb] : 'NA') +
+        ' sa28=' + u32dbg[MEM.sa + 28] + ' st28=' + u32dbg[MEM.stype + 28] +
+        ' fly=' + (flyState ? flyState.slot + '#' + flyState.frames : '-') +
+        ' inj=' + (injectedThisRun ? 1 : 0);
+      if (level.conv._trapBases && level.conv._trapBases.length) {
+        var b0 = level.conv._trapBases[0];
+        dbg += ' s' + b0.slot + ':st' + u32dbg[MEM.stype + b0.slot] + '/sa' + u32dbg[MEM.sa + b0.slot] + '/sb' + u32dbg[MEM.sb + b0.slot];
+      }
+      statusEl.textContent = dbg;
+      statusEl.className = '';
     }
     prevProc = proc;
   }
@@ -615,7 +913,7 @@ body.dragging #dropTip { display: flex; }
 
   /* ---------- 内置示例关卡 ---------- */
   function demoLevel() {
-    var E = [{"id":"block_ground_top","col":0,"row":13},{"id":"block_ground_fill","col":0,"row":14},{"id":"bg_hill_house","col":1,"row":10},{"id":"block_ground_top","col":1,"row":13},{"id":"block_ground_fill","col":1,"row":14},{"id":"block_ground_top","col":2,"row":13},{"id":"block_ground_fill","col":2,"row":14},{"id":"block_ground_top","col":3,"row":13},{"id":"block_ground_fill","col":3,"row":14},{"id":"block_ground_top","col":4,"row":13},{"id":"block_ground_fill","col":4,"row":14},{"id":"block_ground_top","col":5,"row":13},{"id":"block_ground_fill","col":5,"row":14},{"id":"bg_cloud_face","col":6,"row":3},{"id":"block_ground_top","col":6,"row":13},{"id":"block_ground_fill","col":6,"row":14},{"id":"block_ground_top","col":7,"row":13},{"id":"block_ground_fill","col":7,"row":14},{"id":"block_ground_top","col":8,"row":13},{"id":"block_ground_fill","col":8,"row":14},{"id":"block_ground_top","col":9,"row":13},{"id":"block_ground_fill","col":9,"row":14},{"id":"enemy_syobon","col":10,"row":12},{"id":"block_ground_top","col":10,"row":13},{"id":"block_ground_fill","col":10,"row":14},{"id":"block_ground_top","col":11,"row":13},{"id":"block_ground_fill","col":11,"row":14},{"id":"block_brick","col":12,"row":9},{"id":"block_ground_top","col":12,"row":13},{"id":"block_ground_fill","col":12,"row":14},{"id":"block_hidden","col":13,"row":10},{"id":"block_ground_top","col":13,"row":13},{"id":"block_ground_fill","col":13,"row":14},{"id":"block_brick","col":14,"row":9},{"id":"block_ground_top","col":14,"row":13},{"id":"block_ground_fill","col":14,"row":14},{"id":"block_question","col":15,"row":9},{"id":"block_ground_top","col":15,"row":13},{"id":"block_ground_fill","col":15,"row":14},{"id":"block_brick","col":16,"row":9},{"id":"enemy_syobon","col":16,"row":12},{"id":"block_ground_top","col":16,"row":13},{"id":"block_ground_fill","col":16,"row":14},{"id":"block_ground_top","col":17,"row":13},{"id":"block_ground_fill","col":17,"row":14},{"id":"block_ground_top","col":18,"row":13},{"id":"block_ground_fill","col":18,"row":14},{"id":"bg_grass","col":19,"row":12},{"id":"block_ground_top","col":19,"row":13},{"id":"block_ground_fill","col":19,"row":14},{"id":"pipe_top","col":20,"row":10},{"id":"pipe_body","col":20,"row":11},{"id":"pipe_body","col":20,"row":12},{"id":"block_ground_top","col":20,"row":13},{"id":"block_ground_fill","col":20,"row":14},{"id":"block_ground_top","col":21,"row":13},{"id":"block_ground_fill","col":21,"row":14},{"id":"bg_cloud_face","col":22,"row":2},{"id":"block_ground_top","col":22,"row":13},{"id":"block_ground_fill","col":22,"row":14},{"id":"block_ground_top","col":23,"row":13},{"id":"block_ground_fill","col":23,"row":14},{"id":"block_ground_top","col":24,"row":13},{"id":"block_ground_fill","col":24,"row":14},{"id":"block_ground_top","col":25,"row":13},{"id":"block_ground_fill","col":25,"row":14},{"id":"bg_grass","col":26,"row":12},{"id":"block_ground_top","col":26,"row":13},{"id":"block_ground_fill","col":26,"row":14},{"id":"block_ground_top","col":27,"row":13},{"id":"block_ground_fill","col":27,"row":14},{"id":"block_ground_top","col":28,"row":13},{"id":"block_ground_fill","col":28,"row":14},{"id":"block_ground_top","col":29,"row":13},{"id":"block_ground_fill","col":29,"row":14},{"id":"block_ground_top","col":30,"row":13},{"id":"block_ground_fill","col":30,"row":14},{"id":"block_ground_top","col":31,"row":13},{"id":"block_ground_fill","col":31,"row":14},{"id":"block_ground_top","col":32,"row":13},{"id":"block_ground_fill","col":32,"row":14},{"id":"bg_hill_house","col":33,"row":10},{"id":"block_ground_top","col":33,"row":13},{"id":"block_ground_fill","col":33,"row":14},{"id":"block_ground_top","col":34,"row":13},{"id":"block_ground_fill","col":34,"row":14},{"id":"block_ground_top","col":35,"row":13},{"id":"block_ground_fill","col":35,"row":14},{"id":"block_ground_top","col":36,"row":13},{"id":"block_ground_fill","col":36,"row":14},{"id":"block_ground_top","col":37,"row":13},{"id":"block_ground_fill","col":37,"row":14},{"id":"block_ground_top","col":38,"row":13},{"id":"block_ground_fill","col":38,"row":14},{"id":"block_ground_top","col":39,"row":13},{"id":"block_ground_fill","col":39,"row":14},{"id":"block_hidden","col":40,"row":9},{"id":"block_ground_top","col":43,"row":13},{"id":"block_ground_fill","col":43,"row":14},{"id":"block_ground_top","col":44,"row":13},{"id":"block_ground_fill","col":44,"row":14},{"id":"block_ground_top","col":45,"row":13},{"id":"block_ground_fill","col":45,"row":14},{"id":"block_brick","col":46,"row":9},{"id":"bg_grass","col":46,"row":12},{"id":"block_ground_top","col":46,"row":13},{"id":"block_ground_fill","col":46,"row":14},{"id":"block_ground_top","col":47,"row":13},{"id":"block_ground_fill","col":47,"row":14},{"id":"enemy_syobon","col":48,"row":7},{"id":"block_brick","col":48,"row":9},{"id":"block_ground_top","col":48,"row":13},{"id":"block_ground_fill","col":48,"row":14},{"id":"block_ground_top","col":49,"row":13},{"id":"block_ground_fill","col":49,"row":14},{"id":"block_ground_top","col":50,"row":13},{"id":"block_ground_fill","col":50,"row":14},{"id":"block_ground_top","col":51,"row":13},{"id":"block_ground_fill","col":51,"row":14},{"id":"enemy_syobon","col":52,"row":3},{"id":"block_brick","col":52,"row":5},{"id":"block_ground_top","col":52,"row":13},{"id":"block_ground_fill","col":52,"row":14},{"id":"block_brick","col":53,"row":5},{"id":"block_ground_top","col":53,"row":13},{"id":"block_ground_fill","col":53,"row":14},{"id":"block_brick","col":57,"row":5},{"id":"block_ground_top","col":57,"row":13},{"id":"block_ground_fill","col":57,"row":14},{"id":"block_brick","col":58,"row":5},{"id":"block_ground_top","col":58,"row":13},{"id":"block_ground_fill","col":58,"row":14},{"id":"block_brick","col":59,"row":5},{"id":"block_ground_top","col":59,"row":13},{"id":"block_ground_fill","col":59,"row":14},{"id":"block_ground_top","col":60,"row":13},{"id":"block_ground_fill","col":60,"row":14},{"id":"enemy_syobon","col":61,"row":12},{"id":"block_ground_top","col":61,"row":13},{"id":"block_ground_fill","col":61,"row":14},{"id":"block_ground_top","col":62,"row":13},{"id":"block_ground_fill","col":62,"row":14},{"id":"enemy_syobon","col":63,"row":12},{"id":"block_ground_top","col":63,"row":13},{"id":"block_ground_fill","col":63,"row":14},{"id":"bg_cloud_face","col":64,"row":1},{"id":"block_ground_top","col":64,"row":13},{"id":"block_ground_fill","col":64,"row":14},{"id":"block_ground_top","col":65,"row":13},{"id":"block_ground_fill","col":65,"row":14},{"id":"bg_midflag","col":66,"row":7},{"id":"block_brick","col":66,"row":9},{"id":"enemy_turtle","col":66,"row":12},{"id":"block_ground_top","col":66,"row":13},{"id":"block_ground_fill","col":66,"row":14},{"id":"block_ground_top","col":67,"row":13},{"id":"block_ground_fill","col":67,"row":14},{"id":"block_ground_top","col":68,"row":13},{"id":"block_ground_fill","col":68,"row":14},{"id":"block_ground_top","col":69,"row":13},{"id":"block_ground_fill","col":69,"row":14},{"id":"block_ground_top","col":70,"row":13},{"id":"block_ground_fill","col":70,"row":14},{"id":"block_question","col":71,"row":9},{"id":"block_ground_top","col":71,"row":13},{"id":"block_ground_fill","col":71,"row":14},{"id":"block_question","col":74,"row":5},{"id":"block_question","col":74,"row":9},{"id":"block_question","col":77,"row":9},{"id":"block_ground_top","col":77,"row":13},{"id":"block_ground_fill","col":77,"row":14},{"id":"bg_grass","col":78,"row":12},{"id":"block_ground_top","col":78,"row":13},{"id":"block_ground_fill","col":78,"row":14},{"id":"block_ground_top","col":79,"row":13},{"id":"block_ground_fill","col":79,"row":14},{"id":"block_ground_top","col":80,"row":13},{"id":"block_ground_fill","col":80,"row":14},{"id":"block_ground_top","col":81,"row":13},{"id":"block_ground_fill","col":81,"row":14},{"id":"block_stair","col":82,"row":12},{"id":"block_ground_top","col":82,"row":13},{"id":"block_ground_fill","col":82,"row":14},{"id":"block_stair","col":83,"row":11},{"id":"block_stair","col":83,"row":12},{"id":"block_ground_top","col":83,"row":13},{"id":"block_ground_fill","col":83,"row":14},{"id":"block_stair","col":84,"row":10},{"id":"block_stair","col":84,"row":11},{"id":"block_stair","col":84,"row":12},{"id":"block_ground_top","col":84,"row":13},{"id":"block_ground_fill","col":84,"row":14},{"id":"block_stair","col":88,"row":10},{"id":"block_stair","col":88,"row":11},{"id":"block_stair","col":88,"row":12},{"id":"block_ground_top","col":88,"row":13},{"id":"block_ground_fill","col":88,"row":14},{"id":"block_hidden","col":89,"row":6},{"id":"block_stair","col":89,"row":11},{"id":"block_stair","col":89,"row":12},{"id":"block_ground_top","col":89,"row":13},{"id":"block_ground_fill","col":89,"row":14},{"id":"block_hidden","col":90,"row":10},{"id":"block_ground_top","col":90,"row":13},{"id":"block_ground_fill","col":90,"row":14},{"id":"block_hidden","col":91,"row":10},{"id":"block_ground_top","col":91,"row":13},{"id":"block_ground_fill","col":91,"row":14},{"id":"block_hidden","col":92,"row":10},{"id":"block_ground_top","col":92,"row":13},{"id":"block_ground_fill","col":92,"row":14},{"id":"block_hidden","col":93,"row":10},{"id":"block_ground_top","col":93,"row":13},{"id":"block_ground_fill","col":93,"row":14},{"id":"block_hidden","col":94,"row":10},{"id":"pipe_top","col":95,"row":10},{"id":"pipe_body","col":95,"row":11},{"id":"pipe_body","col":95,"row":12},{"id":"block_ground_top","col":95,"row":13},{"id":"block_ground_fill","col":95,"row":14},{"id":"block_ground_top","col":96,"row":13},{"id":"block_ground_fill","col":96,"row":14},{"id":"block_ground_top","col":97,"row":13},{"id":"block_ground_fill","col":97,"row":14},{"id":"block_ground_top","col":98,"row":13},{"id":"block_ground_fill","col":98,"row":14},{"id":"block_brick","col":99,"row":9},{"id":"block_ground_top","col":99,"row":13},{"id":"block_ground_fill","col":99,"row":14},{"id":"block_brick","col":100,"row":9},{"id":"block_ground_top","col":100,"row":13},{"id":"block_ground_fill","col":100,"row":14},{"id":"block_question","col":101,"row":9},{"id":"enemy_syobon","col":101,"row":12},{"id":"block_ground_top","col":101,"row":13},{"id":"block_ground_fill","col":101,"row":14},{"id":"block_brick","col":102,"row":9},{"id":"block_ground_top","col":102,"row":13},{"id":"block_ground_fill","col":102,"row":14},{"id":"enemy_syobon","col":103,"row":12},{"id":"block_ground_top","col":103,"row":13},{"id":"block_ground_fill","col":103,"row":14},{"id":"block_ground_top","col":104,"row":13},{"id":"block_ground_fill","col":104,"row":14},{"id":"block_ground_top","col":105,"row":13},{"id":"block_ground_fill","col":105,"row":14},{"id":"pipe_top","col":106,"row":11},{"id":"pipe_body","col":106,"row":12},{"id":"block_ground_top","col":106,"row":13},{"id":"block_ground_fill","col":106,"row":14},{"id":"block_ground_top","col":107,"row":13},{"id":"block_ground_fill","col":107,"row":14},{"id":"block_stair","col":108,"row":12},{"id":"block_ground_top","col":108,"row":13},{"id":"block_ground_fill","col":108,"row":14},{"id":"block_stair","col":109,"row":11},{"id":"block_stair","col":109,"row":12},{"id":"block_ground_top","col":109,"row":13},{"id":"block_ground_fill","col":109,"row":14},{"id":"block_stair","col":110,"row":10},{"id":"block_stair","col":110,"row":11},{"id":"block_stair","col":110,"row":12},{"id":"block_ground_top","col":110,"row":13},{"id":"block_ground_fill","col":110,"row":14},{"id":"block_stair","col":111,"row":9},{"id":"block_stair","col":111,"row":10},{"id":"block_stair","col":111,"row":11},{"id":"block_stair","col":111,"row":12},{"id":"block_ground_top","col":111,"row":13},{"id":"block_ground_fill","col":111,"row":14},{"id":"block_stair","col":112,"row":8},{"id":"block_stair","col":112,"row":9},{"id":"block_stair","col":112,"row":10},{"id":"block_stair","col":112,"row":11},{"id":"block_stair","col":112,"row":12},{"id":"block_ground_top","col":112,"row":13},{"id":"block_ground_fill","col":112,"row":14},{"id":"block_stair","col":113,"row":7},{"id":"block_stair","col":113,"row":8},{"id":"block_stair","col":113,"row":9},{"id":"block_stair","col":113,"row":10},{"id":"block_stair","col":113,"row":11},{"id":"block_stair","col":113,"row":12},{"id":"block_ground_top","col":113,"row":13},{"id":"block_ground_fill","col":113,"row":14},{"id":"block_stair","col":114,"row":6},{"id":"block_stair","col":114,"row":7},{"id":"block_stair","col":114,"row":8},{"id":"block_stair","col":114,"row":9},{"id":"block_stair","col":114,"row":10},{"id":"block_stair","col":114,"row":11},{"id":"block_stair","col":114,"row":12},{"id":"block_ground_top","col":114,"row":13},{"id":"block_ground_fill","col":114,"row":14},{"id":"block_stair","col":115,"row":5},{"id":"block_stair","col":115,"row":6},{"id":"block_stair","col":115,"row":7},{"id":"block_stair","col":115,"row":8},{"id":"block_stair","col":115,"row":9},{"id":"block_stair","col":115,"row":10},{"id":"block_stair","col":115,"row":11},{"id":"block_stair","col":115,"row":12},{"id":"block_ground_top","col":115,"row":13},{"id":"block_ground_fill","col":115,"row":14},{"id":"block_stair","col":116,"row":5},{"id":"block_stair","col":116,"row":6},{"id":"block_stair","col":116,"row":7},{"id":"block_stair","col":116,"row":8},{"id":"block_stair","col":116,"row":9},{"id":"block_stair","col":116,"row":10},{"id":"block_stair","col":116,"row":11},{"id":"block_stair","col":116,"row":12},{"id":"block_ground_top","col":116,"row":13},{"id":"block_ground_fill","col":116,"row":14},{"id":"block_ground_top","col":117,"row":13},{"id":"block_ground_fill","col":117,"row":14},{"id":"block_ground_top","col":118,"row":13},{"id":"block_ground_fill","col":118,"row":14},{"id":"block_ground_top","col":119,"row":13},{"id":"block_ground_fill","col":119,"row":14},{"id":"block_ground_top","col":120,"row":13},{"id":"block_ground_fill","col":120,"row":14},{"id":"block_ground_top","col":121,"row":13},{"id":"block_ground_fill","col":121,"row":14},{"id":"block_ground_top","col":122,"row":13},{"id":"block_ground_fill","col":122,"row":14},{"id":"goal_pole","col":123,"row":2},{"id":"block_stair","col":123,"row":12},{"id":"block_ground_top","col":123,"row":13},{"id":"block_ground_fill","col":123,"row":14},{"id":"bg_grass","col":124,"row":12},{"id":"block_ground_top","col":124,"row":13},{"id":"block_ground_fill","col":124,"row":14},{"id":"block_ground_top","col":125,"row":13},{"id":"block_ground_fill","col":125,"row":14},{"id":"block_ground_top","col":126,"row":13},{"id":"block_ground_fill","col":126,"row":14},{"id":"block_ground_top","col":127,"row":13},{"id":"block_ground_fill","col":127,"row":14},{"id":"bg_tree","col":128,"row":10},{"id":"block_ground_top","col":128,"row":13},{"id":"block_ground_fill","col":128,"row":14},{"id":"block_ground_top","col":129,"row":13},{"id":"block_ground_fill","col":129,"row":14},{"id":"block_q_mushroom","col":8,"row":9},{"id":"block_q_poison","col":13,"row":9},{"id":"block_q_enemy","col":14,"row":5},{"id":"block_q_badstar","col":35,"row":8},{"id":"block_q_poison_mass","col":47,"row":9},{"id":"block_q_coin_mass","col":59,"row":9},{"id":"block_q_badstar","col":67,"row":9},{"id":"enemy_syobon","col":27,"row":9},{"id":"enemy_cloud_face","col":103,"row":5},{"id":"player_start","col":1,"row":12},{"id":"bgm_field","col":0,"row":0}];
+    var E = [{"id":"block_ground_top","col":0,"row":13},{"id":"block_ground_fill","col":0,"row":14},{"id":"bg_hill_house","col":1,"row":10},{"id":"block_ground_top","col":1,"row":13},{"id":"block_ground_fill","col":1,"row":14},{"id":"block_ground_top","col":2,"row":13},{"id":"block_ground_fill","col":2,"row":14},{"id":"block_ground_top","col":3,"row":13},{"id":"block_ground_fill","col":3,"row":14},{"id":"block_ground_top","col":4,"row":13},{"id":"block_ground_fill","col":4,"row":14},{"id":"block_ground_top","col":5,"row":13},{"id":"block_ground_fill","col":5,"row":14},{"id":"bg_cloud_face","col":6,"row":3},{"id":"block_ground_top","col":6,"row":13},{"id":"block_ground_fill","col":6,"row":14},{"id":"block_ground_top","col":7,"row":13},{"id":"block_ground_fill","col":7,"row":14},{"id":"block_ground_top","col":8,"row":13},{"id":"block_ground_fill","col":8,"row":14},{"id":"block_ground_top","col":9,"row":13},{"id":"block_ground_fill","col":9,"row":14},{"id":"enemy_syobon","col":10,"row":12},{"id":"block_ground_top","col":10,"row":13},{"id":"block_ground_fill","col":10,"row":14},{"id":"block_ground_top","col":11,"row":13},{"id":"block_ground_fill","col":11,"row":14},{"id":"block_brick","col":12,"row":9},{"id":"block_ground_top","col":12,"row":13},{"id":"block_ground_fill","col":12,"row":14},{"id":"block_hidden","col":13,"row":10},{"id":"block_ground_top","col":13,"row":13},{"id":"block_ground_fill","col":13,"row":14},{"id":"block_brick","col":14,"row":9},{"id":"block_ground_top","col":14,"row":13},{"id":"block_ground_fill","col":14,"row":14},{"id":"block_question","col":15,"row":9},{"id":"block_ground_top","col":15,"row":13},{"id":"block_ground_fill","col":15,"row":14},{"id":"block_brick","col":16,"row":9},{"id":"enemy_syobon","col":16,"row":12},{"id":"block_ground_top","col":16,"row":13},{"id":"block_ground_fill","col":16,"row":14},{"id":"block_ground_top","col":17,"row":13},{"id":"block_ground_fill","col":17,"row":14},{"id":"block_ground_top","col":18,"row":13},{"id":"block_ground_fill","col":18,"row":14},{"id":"bg_grass","col":19,"row":12},{"id":"block_ground_top","col":19,"row":13},{"id":"block_ground_fill","col":19,"row":14},{"id":"pipe_top","col":20,"row":10},{"id":"pipe_body","col":20,"row":11},{"id":"pipe_body","col":20,"row":12},{"id":"pipe_trap","col":29,"row":9},{"id":"block_ground_top","col":20,"row":13},{"id":"block_ground_fill","col":20,"row":14},{"id":"block_ground_top","col":21,"row":13},{"id":"block_ground_fill","col":21,"row":14},{"id":"bg_cloud_face","col":22,"row":2},{"id":"block_ground_top","col":22,"row":13},{"id":"block_ground_fill","col":22,"row":14},{"id":"block_ground_top","col":23,"row":13},{"id":"block_ground_fill","col":23,"row":14},{"id":"block_ground_top","col":24,"row":13},{"id":"block_ground_fill","col":24,"row":14},{"id":"block_ground_top","col":25,"row":13},{"id":"block_ground_fill","col":25,"row":14},{"id":"bg_grass","col":26,"row":12},{"id":"block_ground_top","col":26,"row":13},{"id":"block_ground_fill","col":26,"row":14},{"id":"block_ground_top","col":27,"row":13},{"id":"block_ground_fill","col":27,"row":14},{"id":"block_ground_top","col":28,"row":13},{"id":"block_ground_fill","col":28,"row":14},{"id":"block_ground_top","col":29,"row":13},{"id":"block_ground_fill","col":29,"row":14},{"id":"block_ground_top","col":30,"row":13},{"id":"block_ground_fill","col":30,"row":14},{"id":"block_ground_top","col":31,"row":13},{"id":"block_ground_fill","col":31,"row":14},{"id":"block_ground_top","col":32,"row":13},{"id":"block_ground_fill","col":32,"row":14},{"id":"bg_hill_house","col":33,"row":10},{"id":"block_ground_top","col":33,"row":13},{"id":"block_ground_fill","col":33,"row":14},{"id":"block_ground_top","col":34,"row":13},{"id":"block_ground_fill","col":34,"row":14},{"id":"block_ground_top","col":35,"row":13},{"id":"block_ground_fill","col":35,"row":14},{"id":"block_ground_top","col":36,"row":13},{"id":"block_ground_fill","col":36,"row":14},{"id":"block_ground_top","col":37,"row":13},{"id":"block_ground_fill","col":37,"row":14},{"id":"block_ground_top","col":38,"row":13},{"id":"block_ground_fill","col":38,"row":14},{"id":"block_ground_top","col":39,"row":13},{"id":"block_ground_fill","col":39,"row":14},{"id":"block_hidden","col":40,"row":9},{"id":"block_ground_top","col":43,"row":13},{"id":"block_ground_fill","col":43,"row":14},{"id":"block_ground_top","col":44,"row":13},{"id":"block_ground_fill","col":44,"row":14},{"id":"block_ground_top","col":45,"row":13},{"id":"block_ground_fill","col":45,"row":14},{"id":"block_brick","col":46,"row":9},{"id":"bg_grass","col":46,"row":12},{"id":"block_ground_top","col":46,"row":13},{"id":"block_ground_fill","col":46,"row":14},{"id":"block_ground_top","col":47,"row":13},{"id":"block_ground_fill","col":47,"row":14},{"id":"enemy_syobon","col":48,"row":7},{"id":"block_brick","col":48,"row":9},{"id":"block_ground_top","col":48,"row":13},{"id":"block_ground_fill","col":48,"row":14},{"id":"block_ground_top","col":49,"row":13},{"id":"block_ground_fill","col":49,"row":14},{"id":"block_ground_top","col":50,"row":13},{"id":"block_ground_fill","col":50,"row":14},{"id":"block_ground_top","col":51,"row":13},{"id":"block_ground_fill","col":51,"row":14},{"id":"enemy_syobon","col":52,"row":3},{"id":"block_brick","col":52,"row":5},{"id":"block_ground_top","col":52,"row":13},{"id":"block_ground_fill","col":52,"row":14},{"id":"block_brick","col":53,"row":5},{"id":"block_ground_top","col":53,"row":13},{"id":"block_ground_fill","col":53,"row":14},{"id":"block_brick","col":57,"row":5},{"id":"block_ground_top","col":57,"row":13},{"id":"block_ground_fill","col":57,"row":14},{"id":"block_brick","col":58,"row":5},{"id":"block_ground_top","col":58,"row":13},{"id":"block_ground_fill","col":58,"row":14},{"id":"block_brick","col":59,"row":5},{"id":"block_ground_top","col":59,"row":13},{"id":"block_ground_fill","col":59,"row":14},{"id":"block_ground_top","col":60,"row":13},{"id":"block_ground_fill","col":60,"row":14},{"id":"enemy_syobon","col":61,"row":12},{"id":"block_ground_top","col":61,"row":13},{"id":"block_ground_fill","col":61,"row":14},{"id":"block_ground_top","col":62,"row":13},{"id":"block_ground_fill","col":62,"row":14},{"id":"enemy_syobon","col":63,"row":12},{"id":"block_ground_top","col":63,"row":13},{"id":"block_ground_fill","col":63,"row":14},{"id":"bg_cloud_face","col":64,"row":1},{"id":"block_ground_top","col":64,"row":13},{"id":"block_ground_fill","col":64,"row":14},{"id":"block_ground_top","col":65,"row":13},{"id":"block_ground_fill","col":65,"row":14},{"id":"bg_midflag","col":66,"row":7},{"id":"block_brick","col":66,"row":9},{"id":"enemy_turtle","col":66,"row":12},{"id":"block_ground_top","col":66,"row":13},{"id":"block_ground_fill","col":66,"row":14},{"id":"block_ground_top","col":67,"row":13},{"id":"block_ground_fill","col":67,"row":14},{"id":"block_ground_top","col":68,"row":13},{"id":"block_ground_fill","col":68,"row":14},{"id":"block_ground_top","col":69,"row":13},{"id":"block_ground_fill","col":69,"row":14},{"id":"block_ground_top","col":70,"row":13},{"id":"block_ground_fill","col":70,"row":14},{"id":"block_question","col":71,"row":9},{"id":"block_ground_top","col":71,"row":13},{"id":"block_ground_fill","col":71,"row":14},{"id":"block_question","col":74,"row":5},{"id":"block_question","col":74,"row":9},{"id":"block_question","col":77,"row":9},{"id":"block_ground_top","col":77,"row":13},{"id":"block_ground_fill","col":77,"row":14},{"id":"bg_grass","col":78,"row":12},{"id":"block_ground_top","col":78,"row":13},{"id":"block_ground_fill","col":78,"row":14},{"id":"block_ground_top","col":79,"row":13},{"id":"block_ground_fill","col":79,"row":14},{"id":"block_ground_top","col":80,"row":13},{"id":"block_ground_fill","col":80,"row":14},{"id":"block_ground_top","col":81,"row":13},{"id":"block_ground_fill","col":81,"row":14},{"id":"block_stair","col":82,"row":12},{"id":"block_ground_top","col":82,"row":13},{"id":"block_ground_fill","col":82,"row":14},{"id":"block_stair","col":83,"row":11},{"id":"block_stair","col":83,"row":12},{"id":"block_ground_top","col":83,"row":13},{"id":"block_ground_fill","col":83,"row":14},{"id":"block_stair","col":84,"row":10},{"id":"block_stair","col":84,"row":11},{"id":"block_stair","col":84,"row":12},{"id":"block_ground_top","col":84,"row":13},{"id":"block_ground_fill","col":84,"row":14},{"id":"block_stair","col":88,"row":10},{"id":"block_stair","col":88,"row":11},{"id":"block_stair","col":88,"row":12},{"id":"block_ground_top","col":88,"row":13},{"id":"block_ground_fill","col":88,"row":14},{"id":"block_hidden","col":89,"row":6},{"id":"block_stair","col":89,"row":11},{"id":"block_stair","col":89,"row":12},{"id":"block_ground_top","col":89,"row":13},{"id":"block_ground_fill","col":89,"row":14},{"id":"block_hidden","col":90,"row":10},{"id":"block_ground_top","col":90,"row":13},{"id":"block_ground_fill","col":90,"row":14},{"id":"block_hidden","col":91,"row":10},{"id":"block_ground_top","col":91,"row":13},{"id":"block_ground_fill","col":91,"row":14},{"id":"block_hidden","col":92,"row":10},{"id":"block_ground_top","col":92,"row":13},{"id":"block_ground_fill","col":92,"row":14},{"id":"block_hidden","col":93,"row":10},{"id":"block_ground_top","col":93,"row":13},{"id":"block_ground_fill","col":93,"row":14},{"id":"block_hidden","col":94,"row":10},{"id":"pipe_top","col":95,"row":10},{"id":"pipe_body","col":95,"row":11},{"id":"pipe_body","col":95,"row":12},{"id":"block_ground_top","col":95,"row":13},{"id":"block_ground_fill","col":95,"row":14},{"id":"block_ground_top","col":96,"row":13},{"id":"block_ground_fill","col":96,"row":14},{"id":"block_ground_top","col":97,"row":13},{"id":"block_ground_fill","col":97,"row":14},{"id":"block_ground_top","col":98,"row":13},{"id":"block_ground_fill","col":98,"row":14},{"id":"block_brick","col":99,"row":9},{"id":"block_ground_top","col":99,"row":13},{"id":"block_ground_fill","col":99,"row":14},{"id":"block_brick","col":100,"row":9},{"id":"block_ground_top","col":100,"row":13},{"id":"block_ground_fill","col":100,"row":14},{"id":"block_question","col":101,"row":9},{"id":"enemy_syobon","col":101,"row":12},{"id":"block_ground_top","col":101,"row":13},{"id":"block_ground_fill","col":101,"row":14},{"id":"block_brick","col":102,"row":9},{"id":"block_ground_top","col":102,"row":13},{"id":"block_ground_fill","col":102,"row":14},{"id":"enemy_syobon","col":103,"row":12},{"id":"block_ground_top","col":103,"row":13},{"id":"block_ground_fill","col":103,"row":14},{"id":"block_ground_top","col":104,"row":13},{"id":"block_ground_fill","col":104,"row":14},{"id":"block_ground_top","col":105,"row":13},{"id":"block_ground_fill","col":105,"row":14},{"id":"pipe_top","col":106,"row":11},{"id":"pipe_body","col":106,"row":12},{"id":"block_ground_top","col":106,"row":13},{"id":"block_ground_fill","col":106,"row":14},{"id":"block_ground_top","col":107,"row":13},{"id":"block_ground_fill","col":107,"row":14},{"id":"block_stair","col":108,"row":12},{"id":"block_ground_top","col":108,"row":13},{"id":"block_ground_fill","col":108,"row":14},{"id":"block_stair","col":109,"row":11},{"id":"block_stair","col":109,"row":12},{"id":"block_ground_top","col":109,"row":13},{"id":"block_ground_fill","col":109,"row":14},{"id":"block_stair","col":110,"row":10},{"id":"block_stair","col":110,"row":11},{"id":"block_stair","col":110,"row":12},{"id":"block_ground_top","col":110,"row":13},{"id":"block_ground_fill","col":110,"row":14},{"id":"block_stair","col":111,"row":9},{"id":"block_stair","col":111,"row":10},{"id":"block_stair","col":111,"row":11},{"id":"block_stair","col":111,"row":12},{"id":"block_ground_top","col":111,"row":13},{"id":"block_ground_fill","col":111,"row":14},{"id":"block_stair","col":112,"row":8},{"id":"block_stair","col":112,"row":9},{"id":"block_stair","col":112,"row":10},{"id":"block_stair","col":112,"row":11},{"id":"block_stair","col":112,"row":12},{"id":"block_ground_top","col":112,"row":13},{"id":"block_ground_fill","col":112,"row":14},{"id":"block_stair","col":113,"row":7},{"id":"block_stair","col":113,"row":8},{"id":"block_stair","col":113,"row":9},{"id":"block_stair","col":113,"row":10},{"id":"block_stair","col":113,"row":11},{"id":"block_stair","col":113,"row":12},{"id":"block_ground_top","col":113,"row":13},{"id":"block_ground_fill","col":113,"row":14},{"id":"block_stair","col":114,"row":6},{"id":"block_stair","col":114,"row":7},{"id":"block_stair","col":114,"row":8},{"id":"block_stair","col":114,"row":9},{"id":"block_stair","col":114,"row":10},{"id":"block_stair","col":114,"row":11},{"id":"block_stair","col":114,"row":12},{"id":"block_ground_top","col":114,"row":13},{"id":"block_ground_fill","col":114,"row":14},{"id":"block_stair","col":115,"row":5},{"id":"block_stair","col":115,"row":6},{"id":"block_stair","col":115,"row":7},{"id":"block_stair","col":115,"row":8},{"id":"block_stair","col":115,"row":9},{"id":"block_stair","col":115,"row":10},{"id":"block_stair","col":115,"row":11},{"id":"block_stair","col":115,"row":12},{"id":"block_ground_top","col":115,"row":13},{"id":"block_ground_fill","col":115,"row":14},{"id":"block_stair","col":116,"row":5},{"id":"block_stair","col":116,"row":6},{"id":"block_stair","col":116,"row":7},{"id":"block_stair","col":116,"row":8},{"id":"block_stair","col":116,"row":9},{"id":"block_stair","col":116,"row":10},{"id":"block_stair","col":116,"row":11},{"id":"block_stair","col":116,"row":12},{"id":"block_ground_top","col":116,"row":13},{"id":"block_ground_fill","col":116,"row":14},{"id":"block_ground_top","col":117,"row":13},{"id":"block_ground_fill","col":117,"row":14},{"id":"block_ground_top","col":118,"row":13},{"id":"block_ground_fill","col":118,"row":14},{"id":"block_ground_top","col":119,"row":13},{"id":"block_ground_fill","col":119,"row":14},{"id":"block_ground_top","col":120,"row":13},{"id":"block_ground_fill","col":120,"row":14},{"id":"block_ground_top","col":121,"row":13},{"id":"block_ground_fill","col":121,"row":14},{"id":"block_ground_top","col":122,"row":13},{"id":"block_ground_fill","col":122,"row":14},{"id":"goal_pole","col":123,"row":2},{"id":"block_stair","col":123,"row":12},{"id":"block_ground_top","col":123,"row":13},{"id":"block_ground_fill","col":123,"row":14},{"id":"bg_grass","col":124,"row":12},{"id":"block_ground_top","col":124,"row":13},{"id":"block_ground_fill","col":124,"row":14},{"id":"block_ground_top","col":125,"row":13},{"id":"block_ground_fill","col":125,"row":14},{"id":"block_ground_top","col":126,"row":13},{"id":"block_ground_fill","col":126,"row":14},{"id":"block_ground_top","col":127,"row":13},{"id":"block_ground_fill","col":127,"row":14},{"id":"bg_tree","col":128,"row":10},{"id":"block_ground_top","col":128,"row":13},{"id":"block_ground_fill","col":128,"row":14},{"id":"block_ground_top","col":129,"row":13},{"id":"block_ground_fill","col":129,"row":14},{"id":"block_q_mushroom","col":8,"row":9},{"id":"block_q_poison","col":13,"row":9},{"id":"block_q_enemy","col":14,"row":5},{"id":"block_q_badstar","col":35,"row":8},{"id":"block_q_poison_mass","col":47,"row":9},{"id":"block_q_coin_mass","col":59,"row":9},{"id":"block_q_badstar","col":67,"row":9},{"id":"enemy_syobon","col":27,"row":9},{"id":"enemy_cloud_face","col":103,"row":5},{"id":"player_start","col":30,"row":8},{"id":"bgm_field","col":0,"row":0}];
     return { app: "catmario-level-editor", version: 1, cols: 130, theme: "overworld", elements: E };
   }
   document.getElementById('demoBtn').addEventListener('click', function () {
@@ -635,6 +933,8 @@ body.dragging #dropTip { display: flex; }
   } catch (e) {
     loadLevelObject(demoLevel(), '内置示例');
   }
+  // 试玩数据已读取，清空其余本地缓存
+  try { localStorage.clear(); } catch (e) { }
 })();
 </script>
 </body>
