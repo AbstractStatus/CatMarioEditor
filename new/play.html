@@ -77,6 +77,7 @@ body.dragging #dropTip { display: flex; }
 <div id="dropTip">松开以加载关卡 JSON</div>
 
 <script src="../../new/stage11_data.js"></script>
+<script src="../../new/soundpatch.js"></script>
 <script async src="catmario.js"></script>
 <script>
 (function () {
@@ -468,6 +469,8 @@ body.dragging #dropTip { display: flex; }
   /* ---------- 每帧：检测进关 → 定位运行时数组 → 注入特殊元素 ---------- */
   var prevProc = -1;
   var injectTimer = 0;
+  var injectRetries = 0;
+  var injectedThisRun = false;
   var injectState = '';
 
   function watchRuntime() {
@@ -477,15 +480,22 @@ body.dragging #dropTip { display: flex; }
     try { proc = M['_dlm_mainproc'](); } catch (e) { return; }
 
     if (prevProc !== 1 && proc === 1) {
-      // 刚进入关卡（stagecls/stage 已在同一帧重建数组）
+      // 刚进入关卡（stagecls/stage 重建数组）；隐藏标签下帧步进为 200ms，
+      // stagep 写入可能晚于预期，给足重试窗口
       injectTimer = 2;
+      injectRetries = 0;
+      injectedThisRun = false;
     }
     if (proc === 1 && injectTimer > 0) {
       injectTimer--;
       if (injectTimer === 0) {
         if (!MEM) locateRuntimeArrays();
-        if (!MEM) { injectState = '运行时数组定位失败（特殊元素未注入）'; }
-        else {
+        if (!MEM) {
+          // 签名尚未就绪：每 3 帧重试，最多 30 次（约 0.5~6 秒，覆盖低帧率）
+          if (injectRetries < 30) { injectRetries++; injectTimer = 3; }
+          else { injectState = '运行时数组定位失败（特殊元素未注入）'; setStatus('游戏进行中 · ' + injectState, 'err'); }
+        } else if (!injectedThisRun) {
+          injectedThisRun = true;
           var res = injectExtras(level.conv);
           ensureBgm(level.conv);
           var msgs = [];
@@ -495,8 +505,8 @@ body.dragging #dropTip { display: flex; }
           if (res.overflowTriggers) msgs.push('⚠敌人槽已满少' + res.overflowTriggers);
           if (level.conv.spawn && !res.spawnOk) msgs.push('起点未生效（时机错过）');
           injectState = '✓ 已注入：' + (msgs.join('，') || '无特殊元素');
+          setStatus('游戏进行中 · ' + injectState, 'ok');
         }
-        setStatus('游戏进行中 · ' + injectState, 'ok');
       }
     }
     prevProc = proc;
