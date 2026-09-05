@@ -57,8 +57,62 @@
   var painting = false;
   var paintBtn = 0;
   var paintedCells = null;    // 本次拖拽已处理格子
+  var inStroke = false;       // 一次 mousedown→mouseup 笔画内只记一次历史
   var debris = [];            // 碎裂粒子
   var bgmAudio = null;        // BGM 试听
+
+  // ---------- 撤销历史 ----------
+  var history = [];           // 状态快照栈，每个元素 {cols, theme, elements}
+  var MAX_HISTORY = 60;
+
+  function snapshot() {
+    return {
+      cols: state.cols,
+      theme: state.theme,
+      elements: state.elements.map(function (e) {
+        var o = { id: e.id, col: e.col, row: e.row };
+        if (e.len != null) o.len = e.len;
+        if (e.xt != null) o.xt = e.xt;
+        return o;
+      })
+    };
+  }
+  function pushHistory() {
+    history.push(snapshot());
+    if (history.length > MAX_HISTORY) history.shift();
+  }
+  function undo() {
+    if (!history.length) return false;
+    var prev = history.pop();
+    state.cols = prev.cols;
+    state.theme = prev.theme;
+    state.elements = prev.elements;
+    selected = null;
+    colsInput.value = state.cols;
+    document.getElementById('themeSel').value = state.theme;
+    persist();
+    requestRender();
+    hintEl.textContent = '已撤销（剩余 ' + history.length + ' 步）';
+    return true;
+  }
+
+  // ---------- 选中 / 拖动 ----------
+  var selected = null;        // 当前选中的元素（state.elements 中的引用）
+  var dragging = false;       // 是否正在拖动选中元素
+  var dragOrigCol = 0, dragOrigRow = 0;   // 拖动开始时元素位置
+  var dragStartCol = 0, dragStartRow = 0; // 拖动开始时鼠标所在格
+
+  // 命中测试：按图层从高到低，返回第一个覆盖 (col,row) 的元素
+  function hitTest(col, row) {
+    var list = state.elements.slice().sort(function (a, b) {
+      return layerOf(CAT.byId(b.id)) - layerOf(CAT.byId(a.id));
+    });
+    for (var i = 0; i < list.length; i++) {
+      var fp = footprintOf(list[i]);
+      if (col >= fp.c0 && col <= fp.c1 && row >= fp.r0 && row <= fp.r1) return list[i];
+    }
+    return null;
+  }
 
   function cellKey(c, r) { return c + ',' + r; }
 
@@ -97,6 +151,7 @@
 
   function placeAt(col, row) {
     if (col < 0 || row < 0) return;
+    if (!inStroke) pushHistory();
     var d = CAT.byId(tool);
     if (!d) return;
     var tw = d.tw || 1, th = d.th || 1;
@@ -133,6 +188,7 @@
   function eraseAt(col, row) {
     var hit = false;
     var before = state.elements.length;
+    if (!inStroke) pushHistory();
     state.elements = state.elements.filter(function (e) {
       var ed = CAT.byId(e.id);
       if (!ed) return false;
@@ -375,6 +431,18 @@
       ctx.strokeRect(hover.col * TILE + 1, hover.row * TILE + 1, TILE - 2, TILE - 2);
     }
 
+    // 选中高亮框
+    if (selected) {
+      var sfp = footprintOf(selected);
+      ctx.save();
+      ctx.strokeStyle = '#ff7a00';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(sfp.c0 * TILE + 1, sfp.r0 * TILE + 1,
+        (sfp.c1 - sfp.c0 + 1) * TILE - 2, (sfp.r1 - sfp.r0 + 1) * TILE - 2);
+      ctx.restore();
+    }
+
     // 碎裂粒子
     var dc = THEMES[state.theme].debris;
     for (var k = 0; k < debris.length; k++) {
@@ -547,22 +615,72 @@
     painting = true;
     paintBtn = ev.button;
     paintedCells = {};
+
     if (ev.button === 2) {
+      // 右键：擦除
+      pushHistory();
+      inStroke = true;
       eraseAt(cell.col, cell.row);
+      selected = null;
     } else if (tool === 'eraser') {
+      pushHistory();
+      inStroke = true;
       eraseAt(cell.col, cell.row);
-    } else if (tool) {
-      placeAt(cell.col, cell.row);
-      stopBgm();
+      selected = null;
+    } else {
+      var hit = hitTest(cell.col, cell.row);
+      if (hit) {
+        // 命中已有元素：选中并准备拖动
+        pushHistory();
+        inStroke = true;
+        selected = hit;
+        dragging = true;
+        dragOrigCol = hit.col;
+        dragOrigRow = hit.row;
+        dragStartCol = cell.col;
+        dragStartRow = cell.row;
+        hintEl.textContent = '已选中：' + (CAT.byId(hit.id).name || hit.id) +
+          '（按住拖动可移动，按 Delete 删除）';
+      } else if (tool) {
+        // 空白处：放置当前工具元素
+        pushHistory();
+        inStroke = true;
+        placeAt(cell.col, cell.row);
+        selected = null;
+        stopBgm();
+      } else {
+        // 无工具且点空白：取消选中
+        selected = null;
+      }
     }
     paintedCells[cellKey(cell.col, cell.row)] = true;
+    requestRender();
   });
 
   canvas.addEventListener('mousemove', function (ev) {
     var cell = evtCell(ev);
     hover = cell;
     statusEl.textContent = '位置：列 ' + cell.col + ' / 行 ' + cell.row +
-      '（共 ' + state.elements.length + ' 个元素，画布 ' + state.cols + ' 列）';
+      '（共 ' + state.elements.length + ' 个元素，画布 ' + state.cols + ' 列）' +
+      (selected ? ' · 已选中：' + (CAT.byId(selected.id).name || selected.id) : '');
+
+    if (dragging && selected) {
+      // 拖动选中元素：按鼠标位移更新位置，吸附网格并做边界钳制
+      var d = CAT.byId(selected.id);
+      var tw = (d.tw || 1), th = (d.th || 1);
+      if (d.id.indexOf('lift_') === 0) tw = liftLen(selected);
+      var nc = dragOrigCol + (cell.col - dragStartCol);
+      var nr = dragOrigRow + (cell.row - dragStartRow);
+      nc = Math.max(0, Math.min(state.cols - tw, nc));
+      nr = Math.max(0, Math.min(ROWS - th, nr));
+      if (nc !== selected.col || nr !== selected.row) {
+        selected.col = nc;
+        selected.row = nr;
+      }
+      requestRender();
+      return;
+    }
+
     if (painting) {
       var k = cellKey(cell.col, cell.row);
       if (!paintedCells[k]) {
@@ -571,17 +689,57 @@
           eraseAt(cell.col, cell.row);
         } else if (tool) {
           // 拖动连续放置：仅方块/地面类按格刷，其余只放一次
-          var d = CAT.byId(tool);
-          if (d && (d.cat === 'block')) placeAt(cell.col, cell.row);
+          var td = CAT.byId(tool);
+          if (td && (td.cat === 'block')) placeAt(cell.col, cell.row);
         }
       }
     }
     requestRender();
   });
 
-  window.addEventListener('mouseup', function () { painting = false; paintedCells = null; });
+  window.addEventListener('mouseup', function () {
+    painting = false;
+    paintedCells = null;
+    inStroke = false;
+    if (dragging) {
+      dragging = false;
+      persist();
+    }
+  });
   canvas.addEventListener('mouseleave', function () { hover = null; requestRender(); });
   canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+
+  // Delete / Backspace 删除选中元素
+  window.addEventListener('keydown', function (ev) {
+    if (!selected) return;
+    if (ev.key === 'Delete' || ev.key === 'Backspace' || ev.keyCode === 46 || ev.keyCode === 8) {
+      // 焦点在输入框时不拦截
+      var tag = (ev.target && ev.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      ev.preventDefault();
+      pushHistory();
+      var idx = state.elements.indexOf(selected);
+      if (idx >= 0) state.elements.splice(idx, 1);
+      var sd = CAT.byId(selected.id);
+      if (sd && sd.cat === 'block') spawnDebris(selected.col, selected.row);
+      var name = sd && sd.name ? sd.name : selected.id;
+      selected = null;
+      persist();
+      requestRender();
+      hintEl.textContent = '已删除：' + name;
+    }
+  });
+
+  // Ctrl+Z 撤销
+  window.addEventListener('keydown', function (ev) {
+    if (!(ev.ctrlKey || ev.metaKey)) return;
+    var k = ev.key.toLowerCase();
+    if (k !== 'z' && ev.keyCode !== 90) return;
+    var tag = (ev.target && ev.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    ev.preventDefault();
+    if (!undo()) hintEl.textContent = '没有可撤销的操作';
+  });
 
   // 竖向无滚动：滚轮统一转为横向滚动
   scroller.addEventListener('wheel', function (ev) {
@@ -601,6 +759,8 @@
   });
 
   document.getElementById('themeSel').addEventListener('change', function () {
+    if (this.value === state.theme) return;
+    pushHistory();
     state.theme = this.value;
     persist();
     requestRender();
@@ -614,6 +774,8 @@
   });
   function setCols(n) {
     n = Math.max(20, Math.min(1000, n));
+    if (n === state.cols) return;
+    pushHistory();
     state.cols = n;
     colsInput.value = n;
     persist();
@@ -671,6 +833,7 @@
 
   document.getElementById('clearBtn').addEventListener('click', function () {
     if (confirm('确定清空当前关卡的所有元素？')) {
+      pushHistory();
       state.elements = [];
       persist();
       requestRender();
@@ -702,6 +865,7 @@
 
   function loadData(data) {
     if (!data || !Array.isArray(data.elements)) throw new Error('格式不正确：缺少 elements 数组');
+    history = [];
     state.elements = data.elements.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
     }).map(function (e) {
@@ -753,56 +917,9 @@
     return e;
   }
   function loadDemo() {
-    var E = [];
-    // 地面（表+填）
-    for (var c = 0; c < 46; c++) {
-      if (c >= 14 && c <= 15) continue;            // 留个坑
-      if (c >= 33 && c <= 34) continue;
-      E.push(el('block_ground_top', c, 13));
-      E.push(el('block_ground_fill', c, 14));
-    }
-    // 坑底尖刺装饰
-    E.push(el('block_spike', 14, 14));
-    E.push(el('block_spike', 15, 14));
-    // 起点
-    E.push(el('player_start', 1, 12));
-    // 砖块 + 问号
-    E.push(el('block_brick', 6, 9));
-    E.push(el('block_question', 7, 9));
-    E.push(el('block_brick', 8, 9));
-    E.push(el('block_question', 7, 5));
-    E.push(el('block_hidden', 10, 9));
-    // 金币
-    E.push(el('item_coin', 7, 8));
-    E.push(el('item_mushroom_red', 9, 12));
-    // 敌人
-    E.push(el('enemy_syobon', 12, 12));
-    E.push(el('enemy_turtle', 24, 11));
-    // 管道
-    E.push(el('pipe_top', 19, 11));
-    E.push(el('pipe_body', 19, 12));
-    // 中间旗
-    E.push(el('bg_midflag', 26, 10));
-    // 升降台
-    E.push(el('lift_yellow', 29, 10, { len: 3 }));
-    // 楼梯
-    for (var s = 0; s < 4; s++) {
-      for (var s2 = 0; s2 <= s; s2++) E.push(el('block_stair', 38 + s, 12 - s2));
-    }
-    // 终点旗杆
-    E.push(el('goal_pole', 44, 1));
-    // 背景
-    E.push(el('bg_hill_house', 2, 10));
-    E.push(el('bg_grass', 11, 12));
-    E.push(el('bg_cloud_face', 16, 3));
-    E.push(el('bg_tree', 27, 10));
-    E.push(el('bg_cloud_angry', 35, 4));
-    // BGM
-    E.push(el('bgm_field', 0, 2));
-    E.push(el('bgm_castle', 43, 2));
-
-    loadData({ cols: 60, theme: 'overworld', elements: E });
-    hintEl.textContent = '已载入示例关卡：试试点击元素→画布放置，或擦除/保存 JSON';
+    var E = [{"id":"block_ground_top","col":0,"row":13},{"id":"block_ground_fill","col":0,"row":14},{"id":"bg_hill_house","col":1,"row":10},{"id":"block_ground_top","col":1,"row":13},{"id":"block_ground_fill","col":1,"row":14},{"id":"block_ground_top","col":2,"row":13},{"id":"block_ground_fill","col":2,"row":14},{"id":"block_ground_top","col":3,"row":13},{"id":"block_ground_fill","col":3,"row":14},{"id":"block_ground_top","col":4,"row":13},{"id":"block_ground_fill","col":4,"row":14},{"id":"block_ground_top","col":5,"row":13},{"id":"block_ground_fill","col":5,"row":14},{"id":"bg_cloud_face","col":6,"row":3},{"id":"block_ground_top","col":6,"row":13},{"id":"block_ground_fill","col":6,"row":14},{"id":"block_ground_top","col":7,"row":13},{"id":"block_ground_fill","col":7,"row":14},{"id":"block_ground_top","col":8,"row":13},{"id":"block_ground_fill","col":8,"row":14},{"id":"block_ground_top","col":9,"row":13},{"id":"block_ground_fill","col":9,"row":14},{"id":"enemy_syobon","col":10,"row":12},{"id":"block_ground_top","col":10,"row":13},{"id":"block_ground_fill","col":10,"row":14},{"id":"block_ground_top","col":11,"row":13},{"id":"block_ground_fill","col":11,"row":14},{"id":"block_brick","col":12,"row":9},{"id":"block_ground_top","col":12,"row":13},{"id":"block_ground_fill","col":12,"row":14},{"id":"block_hidden","col":13,"row":10},{"id":"block_ground_top","col":13,"row":13},{"id":"block_ground_fill","col":13,"row":14},{"id":"block_brick","col":14,"row":9},{"id":"block_ground_top","col":14,"row":13},{"id":"block_ground_fill","col":14,"row":14},{"id":"block_question","col":15,"row":9},{"id":"block_ground_top","col":15,"row":13},{"id":"block_ground_fill","col":15,"row":14},{"id":"block_brick","col":16,"row":9},{"id":"enemy_syobon","col":16,"row":12},{"id":"block_ground_top","col":16,"row":13},{"id":"block_ground_fill","col":16,"row":14},{"id":"block_ground_top","col":17,"row":13},{"id":"block_ground_fill","col":17,"row":14},{"id":"block_ground_top","col":18,"row":13},{"id":"block_ground_fill","col":18,"row":14},{"id":"bg_grass","col":19,"row":12},{"id":"block_ground_top","col":19,"row":13},{"id":"block_ground_fill","col":19,"row":14},{"id":"pipe_top","col":20,"row":10},{"id":"pipe_body","col":20,"row":11},{"id":"pipe_body","col":20,"row":12},{"id":"block_ground_top","col":20,"row":13},{"id":"block_ground_fill","col":20,"row":14},{"id":"block_ground_top","col":21,"row":13},{"id":"block_ground_fill","col":21,"row":14},{"id":"bg_cloud_face","col":22,"row":2},{"id":"block_ground_top","col":22,"row":13},{"id":"block_ground_fill","col":22,"row":14},{"id":"block_ground_top","col":23,"row":13},{"id":"block_ground_fill","col":23,"row":14},{"id":"block_ground_top","col":24,"row":13},{"id":"block_ground_fill","col":24,"row":14},{"id":"block_ground_top","col":25,"row":13},{"id":"block_ground_fill","col":25,"row":14},{"id":"bg_grass","col":26,"row":12},{"id":"block_ground_top","col":26,"row":13},{"id":"block_ground_fill","col":26,"row":14},{"id":"block_ground_top","col":27,"row":13},{"id":"block_ground_fill","col":27,"row":14},{"id":"block_ground_top","col":28,"row":13},{"id":"block_ground_fill","col":28,"row":14},{"id":"block_ground_top","col":29,"row":13},{"id":"block_ground_fill","col":29,"row":14},{"id":"block_ground_top","col":30,"row":13},{"id":"block_ground_fill","col":30,"row":14},{"id":"block_ground_top","col":31,"row":13},{"id":"block_ground_fill","col":31,"row":14},{"id":"block_ground_top","col":32,"row":13},{"id":"block_ground_fill","col":32,"row":14},{"id":"bg_hill_house","col":33,"row":10},{"id":"block_ground_top","col":33,"row":13},{"id":"block_ground_fill","col":33,"row":14},{"id":"block_ground_top","col":34,"row":13},{"id":"block_ground_fill","col":34,"row":14},{"id":"block_ground_top","col":35,"row":13},{"id":"block_ground_fill","col":35,"row":14},{"id":"block_ground_top","col":36,"row":13},{"id":"block_ground_fill","col":36,"row":14},{"id":"block_ground_top","col":37,"row":13},{"id":"block_ground_fill","col":37,"row":14},{"id":"block_ground_top","col":38,"row":13},{"id":"block_ground_fill","col":38,"row":14},{"id":"block_ground_top","col":39,"row":13},{"id":"block_ground_fill","col":39,"row":14},{"id":"block_hidden","col":40,"row":9},{"id":"block_ground_top","col":43,"row":13},{"id":"block_ground_fill","col":43,"row":14},{"id":"block_ground_top","col":44,"row":13},{"id":"block_ground_fill","col":44,"row":14},{"id":"block_ground_top","col":45,"row":13},{"id":"block_ground_fill","col":45,"row":14},{"id":"block_brick","col":46,"row":9},{"id":"bg_grass","col":46,"row":12},{"id":"block_ground_top","col":46,"row":13},{"id":"block_ground_fill","col":46,"row":14},{"id":"block_ground_top","col":47,"row":13},{"id":"block_ground_fill","col":47,"row":14},{"id":"enemy_syobon","col":48,"row":7},{"id":"block_brick","col":48,"row":9},{"id":"block_ground_top","col":48,"row":13},{"id":"block_ground_fill","col":48,"row":14},{"id":"block_ground_top","col":49,"row":13},{"id":"block_ground_fill","col":49,"row":14},{"id":"block_ground_top","col":50,"row":13},{"id":"block_ground_fill","col":50,"row":14},{"id":"block_ground_top","col":51,"row":13},{"id":"block_ground_fill","col":51,"row":14},{"id":"enemy_syobon","col":52,"row":3},{"id":"block_brick","col":52,"row":5},{"id":"block_ground_top","col":52,"row":13},{"id":"block_ground_fill","col":52,"row":14},{"id":"block_brick","col":53,"row":5},{"id":"block_ground_top","col":53,"row":13},{"id":"block_ground_fill","col":53,"row":14},{"id":"block_brick","col":57,"row":5},{"id":"block_ground_top","col":57,"row":13},{"id":"block_ground_fill","col":57,"row":14},{"id":"block_brick","col":58,"row":5},{"id":"block_ground_top","col":58,"row":13},{"id":"block_ground_fill","col":58,"row":14},{"id":"block_brick","col":59,"row":5},{"id":"block_ground_top","col":59,"row":13},{"id":"block_ground_fill","col":59,"row":14},{"id":"block_ground_top","col":60,"row":13},{"id":"block_ground_fill","col":60,"row":14},{"id":"enemy_syobon","col":61,"row":12},{"id":"block_ground_top","col":61,"row":13},{"id":"block_ground_fill","col":61,"row":14},{"id":"block_ground_top","col":62,"row":13},{"id":"block_ground_fill","col":62,"row":14},{"id":"enemy_syobon","col":63,"row":12},{"id":"block_ground_top","col":63,"row":13},{"id":"block_ground_fill","col":63,"row":14},{"id":"bg_cloud_face","col":64,"row":1},{"id":"block_ground_top","col":64,"row":13},{"id":"block_ground_fill","col":64,"row":14},{"id":"block_ground_top","col":65,"row":13},{"id":"block_ground_fill","col":65,"row":14},{"id":"bg_midflag","col":66,"row":7},{"id":"block_brick","col":66,"row":9},{"id":"enemy_turtle","col":66,"row":12},{"id":"block_ground_top","col":66,"row":13},{"id":"block_ground_fill","col":66,"row":14},{"id":"block_ground_top","col":67,"row":13},{"id":"block_ground_fill","col":67,"row":14},{"id":"block_ground_top","col":68,"row":13},{"id":"block_ground_fill","col":68,"row":14},{"id":"block_ground_top","col":69,"row":13},{"id":"block_ground_fill","col":69,"row":14},{"id":"block_ground_top","col":70,"row":13},{"id":"block_ground_fill","col":70,"row":14},{"id":"block_question","col":71,"row":9},{"id":"block_ground_top","col":71,"row":13},{"id":"block_ground_fill","col":71,"row":14},{"id":"block_question","col":74,"row":5},{"id":"block_question","col":74,"row":9},{"id":"block_question","col":77,"row":9},{"id":"block_ground_top","col":77,"row":13},{"id":"block_ground_fill","col":77,"row":14},{"id":"bg_grass","col":78,"row":12},{"id":"block_ground_top","col":78,"row":13},{"id":"block_ground_fill","col":78,"row":14},{"id":"block_ground_top","col":79,"row":13},{"id":"block_ground_fill","col":79,"row":14},{"id":"block_ground_top","col":80,"row":13},{"id":"block_ground_fill","col":80,"row":14},{"id":"block_ground_top","col":81,"row":13},{"id":"block_ground_fill","col":81,"row":14},{"id":"block_stair","col":82,"row":12},{"id":"block_ground_top","col":82,"row":13},{"id":"block_ground_fill","col":82,"row":14},{"id":"block_stair","col":83,"row":11},{"id":"block_stair","col":83,"row":12},{"id":"block_ground_top","col":83,"row":13},{"id":"block_ground_fill","col":83,"row":14},{"id":"block_stair","col":84,"row":10},{"id":"block_stair","col":84,"row":11},{"id":"block_stair","col":84,"row":12},{"id":"block_ground_top","col":84,"row":13},{"id":"block_ground_fill","col":84,"row":14},{"id":"block_stair","col":88,"row":10},{"id":"block_stair","col":88,"row":11},{"id":"block_stair","col":88,"row":12},{"id":"block_ground_top","col":88,"row":13},{"id":"block_ground_fill","col":88,"row":14},{"id":"block_hidden","col":89,"row":6},{"id":"block_stair","col":89,"row":11},{"id":"block_stair","col":89,"row":12},{"id":"block_ground_top","col":89,"row":13},{"id":"block_ground_fill","col":89,"row":14},{"id":"block_hidden","col":90,"row":10},{"id":"block_ground_top","col":90,"row":13},{"id":"block_ground_fill","col":90,"row":14},{"id":"block_hidden","col":91,"row":10},{"id":"block_ground_top","col":91,"row":13},{"id":"block_ground_fill","col":91,"row":14},{"id":"block_hidden","col":92,"row":10},{"id":"block_ground_top","col":92,"row":13},{"id":"block_ground_fill","col":92,"row":14},{"id":"block_hidden","col":93,"row":10},{"id":"block_ground_top","col":93,"row":13},{"id":"block_ground_fill","col":93,"row":14},{"id":"block_hidden","col":94,"row":10},{"id":"pipe_top","col":95,"row":10},{"id":"pipe_body","col":95,"row":11},{"id":"pipe_body","col":95,"row":12},{"id":"block_ground_top","col":95,"row":13},{"id":"block_ground_fill","col":95,"row":14},{"id":"block_ground_top","col":96,"row":13},{"id":"block_ground_fill","col":96,"row":14},{"id":"block_ground_top","col":97,"row":13},{"id":"block_ground_fill","col":97,"row":14},{"id":"block_ground_top","col":98,"row":13},{"id":"block_ground_fill","col":98,"row":14},{"id":"block_brick","col":99,"row":9},{"id":"block_ground_top","col":99,"row":13},{"id":"block_ground_fill","col":99,"row":14},{"id":"block_brick","col":100,"row":9},{"id":"block_ground_top","col":100,"row":13},{"id":"block_ground_fill","col":100,"row":14},{"id":"block_question","col":101,"row":9},{"id":"enemy_syobon","col":101,"row":12},{"id":"block_ground_top","col":101,"row":13},{"id":"block_ground_fill","col":101,"row":14},{"id":"block_brick","col":102,"row":9},{"id":"block_ground_top","col":102,"row":13},{"id":"block_ground_fill","col":102,"row":14},{"id":"enemy_syobon","col":103,"row":12},{"id":"block_ground_top","col":103,"row":13},{"id":"block_ground_fill","col":103,"row":14},{"id":"block_ground_top","col":104,"row":13},{"id":"block_ground_fill","col":104,"row":14},{"id":"block_ground_top","col":105,"row":13},{"id":"block_ground_fill","col":105,"row":14},{"id":"pipe_top","col":106,"row":11},{"id":"pipe_body","col":106,"row":12},{"id":"block_ground_top","col":106,"row":13},{"id":"block_ground_fill","col":106,"row":14},{"id":"block_ground_top","col":107,"row":13},{"id":"block_ground_fill","col":107,"row":14},{"id":"block_stair","col":108,"row":12},{"id":"block_ground_top","col":108,"row":13},{"id":"block_ground_fill","col":108,"row":14},{"id":"block_stair","col":109,"row":11},{"id":"block_stair","col":109,"row":12},{"id":"block_ground_top","col":109,"row":13},{"id":"block_ground_fill","col":109,"row":14},{"id":"block_stair","col":110,"row":10},{"id":"block_stair","col":110,"row":11},{"id":"block_stair","col":110,"row":12},{"id":"block_ground_top","col":110,"row":13},{"id":"block_ground_fill","col":110,"row":14},{"id":"block_stair","col":111,"row":9},{"id":"block_stair","col":111,"row":10},{"id":"block_stair","col":111,"row":11},{"id":"block_stair","col":111,"row":12},{"id":"block_ground_top","col":111,"row":13},{"id":"block_ground_fill","col":111,"row":14},{"id":"block_stair","col":112,"row":8},{"id":"block_stair","col":112,"row":9},{"id":"block_stair","col":112,"row":10},{"id":"block_stair","col":112,"row":11},{"id":"block_stair","col":112,"row":12},{"id":"block_ground_top","col":112,"row":13},{"id":"block_ground_fill","col":112,"row":14},{"id":"block_stair","col":113,"row":7},{"id":"block_stair","col":113,"row":8},{"id":"block_stair","col":113,"row":9},{"id":"block_stair","col":113,"row":10},{"id":"block_stair","col":113,"row":11},{"id":"block_stair","col":113,"row":12},{"id":"block_ground_top","col":113,"row":13},{"id":"block_ground_fill","col":113,"row":14},{"id":"block_stair","col":114,"row":6},{"id":"block_stair","col":114,"row":7},{"id":"block_stair","col":114,"row":8},{"id":"block_stair","col":114,"row":9},{"id":"block_stair","col":114,"row":10},{"id":"block_stair","col":114,"row":11},{"id":"block_stair","col":114,"row":12},{"id":"block_ground_top","col":114,"row":13},{"id":"block_ground_fill","col":114,"row":14},{"id":"block_stair","col":115,"row":5},{"id":"block_stair","col":115,"row":6},{"id":"block_stair","col":115,"row":7},{"id":"block_stair","col":115,"row":8},{"id":"block_stair","col":115,"row":9},{"id":"block_stair","col":115,"row":10},{"id":"block_stair","col":115,"row":11},{"id":"block_stair","col":115,"row":12},{"id":"block_ground_top","col":115,"row":13},{"id":"block_ground_fill","col":115,"row":14},{"id":"block_stair","col":116,"row":5},{"id":"block_stair","col":116,"row":6},{"id":"block_stair","col":116,"row":7},{"id":"block_stair","col":116,"row":8},{"id":"block_stair","col":116,"row":9},{"id":"block_stair","col":116,"row":10},{"id":"block_stair","col":116,"row":11},{"id":"block_stair","col":116,"row":12},{"id":"block_ground_top","col":116,"row":13},{"id":"block_ground_fill","col":116,"row":14},{"id":"block_ground_top","col":117,"row":13},{"id":"block_ground_fill","col":117,"row":14},{"id":"block_ground_top","col":118,"row":13},{"id":"block_ground_fill","col":118,"row":14},{"id":"block_ground_top","col":119,"row":13},{"id":"block_ground_fill","col":119,"row":14},{"id":"block_ground_top","col":120,"row":13},{"id":"block_ground_fill","col":120,"row":14},{"id":"block_ground_top","col":121,"row":13},{"id":"block_ground_fill","col":121,"row":14},{"id":"block_ground_top","col":122,"row":13},{"id":"block_ground_fill","col":122,"row":14},{"id":"goal_pole","col":123,"row":2},{"id":"block_stair","col":123,"row":12},{"id":"block_ground_top","col":123,"row":13},{"id":"block_ground_fill","col":123,"row":14},{"id":"bg_grass","col":124,"row":12},{"id":"block_ground_top","col":124,"row":13},{"id":"block_ground_fill","col":124,"row":14},{"id":"block_ground_top","col":125,"row":13},{"id":"block_ground_fill","col":125,"row":14},{"id":"block_ground_top","col":126,"row":13},{"id":"block_ground_fill","col":126,"row":14},{"id":"block_ground_top","col":127,"row":13},{"id":"block_ground_fill","col":127,"row":14},{"id":"bg_tree","col":128,"row":10},{"id":"block_ground_top","col":128,"row":13},{"id":"block_ground_fill","col":128,"row":14},{"id":"block_ground_top","col":129,"row":13},{"id":"block_ground_fill","col":129,"row":14},{"id":"block_q_mushroom","col":8,"row":9},{"id":"block_q_poison","col":13,"row":9},{"id":"block_q_enemy","col":14,"row":5},{"id":"block_q_badstar","col":35,"row":8},{"id":"block_q_poison_mass","col":47,"row":9},{"id":"block_q_coin_mass","col":59,"row":9},{"id":"block_q_badstar","col":67,"row":9},{"id":"enemy_syobon","col":27,"row":9},{"id":"enemy_cloud_face","col":103,"row":5},{"id":"player_start","col":1,"row":12},{"id":"bgm_field","col":0,"row":0}];
+    loadData({ cols: 130, theme: "overworld", elements: E });
+    hintEl.textContent = "已载入原版 1-1 示例关卡：共 355 个元素，130 列";
     scroller.scrollLeft = 0;
   }
 
