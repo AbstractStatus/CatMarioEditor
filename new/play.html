@@ -143,9 +143,8 @@ body.dragging #dropTip { display: flex; }
   // 通道二 C：非字节表实体（陷阱管道等）→ sa/sb/sc/sd/stype/sxtype
   var EX_TRAP = {
     // 陷阱管道：sa 需 +500 偏移、sc=tw*3000（非 -100）
-    // 所有管道动态分配空槽（跳过 28）；slot 28 是"屏外隐藏管道"动画借用槽：
-    //   引擎动画代码 main.cpp:1885 硬编码 t=28，玩家进入任一管道后 JS 把
-    //   该管道数据搬到 slot 28 播放动画（只对被进入的管道做动画，不联动）
+    // 第一个陷阱管道直接放入 slot 28（引擎硬编码动画槽 main.cpp:1885 t=28），
+    // 动画在正确坐标上运行。多余管道动态分配空槽（仅声效，无动画）。
     pipe_trap: { stype: 50, sxtype: 0, tw: 2, th: 4, saOff: 500 }
   };
 
@@ -222,7 +221,7 @@ body.dragging #dropTip { display: flex; }
 
   function patchMemory(bytes) {
     var heap = Module.HEAPU8;
-    if (!heap) return { ok: false, msg: '无法访问引擎内存（Module.HEAPU8 不存在）' };
+    if (!heap) return Promise.resolve({ ok: false, msg: '无法访问引擎内存（Module.HEAPU8 不存在）' });
     var orig = b64ToBytes(window.STAGE11_IMAGE_B64);
     // 选取权重最高的 16 字节窗口作探针（非零最多、最独特）
     var best = 0, bestScore = -1;
@@ -234,32 +233,140 @@ body.dragging #dropTip { display: flex; }
     var probe = orig.subarray(best, best + 16);
     var H = heap.length, n = orig.length;
 
-    // 快扫探针
-    var cands = [];
-    for (var i = 0; i + n <= H; i++) {
-      if (heap[i] !== probe[0]) continue;
-      var ok = true;
-      for (var k = 1; k < 16; k++) {
-        if (heap[i + k] !== probe[k]) { ok = false; break; }
-      }
-      if (ok) { cands.push(i); i += 15; }
-    }
-    // 逐一完整校验并替换
+    // 策略一：完整连续匹配（引擎内可能存在运行时连续副本）
     var hits = 0;
-    for (var m = 0; m < cands.length; m++) {
-      var pos = cands[m] - best;
-      if (pos < 0 || pos + n > H) continue;
-      var same = true;
-      for (var p = 0; p < n; p += 1) {
-        if (heap[pos + p] !== orig[p]) { same = false; break; }
+    (function () {
+      var cands = [];
+      for (var i = 0; i + n <= H; i++) {
+        if (heap[i] !== probe[0]) continue;
+        var ok = true;
+        for (var k = 1; k < 16; k++) {
+          if (heap[i + k] !== probe[k]) { ok = false; break; }
+        }
+        if (ok) { cands.push(i); i += 15; }
       }
-      if (!same) continue;
-      heap.set(bytes, pos);
-      hits++;
+      for (var m = 0; m < cands.length; m++) {
+        var pos = cands[m] - best;
+        if (pos < 0 || pos + n > H) continue;
+        var same = true;
+        for (var p = 0; p < n; p += 1) {
+          if (heap[pos + p] !== orig[p]) { same = false; break; }
+        }
+        if (!same) continue;
+        heap.set(bytes, pos);
+        hits++;
+      }
+    })();
+    if (hits > 0) return Promise.resolve({ ok: true, msg: '已替换内存中 ' + hits + ' 处 1-1 关卡数据' });
+
+    // 策略二：引擎 stagedatex 在 asm.js 中按 allocate() 分块写入静态内存
+    // （各块地址不连续，完整镜像不连续），解析 catmario.js 的 allocate 块，
+    // 按"块→镜像偏移"映射逐块定位并替换重叠段。
+    if (!__engBlocksP) {
+      __engBlocksP = fetch('catmario.js').then(function (r) { return r.text(); })
+        .then(function (t) {
+          var blocks = [], re = /allocate\(\[([\d,]*)\],"i8",ALLOC_NONE,Runtime\.GLOBAL_BASE\+\d+\)/g, m;
+          while ((m = re.exec(t))) {
+            var parts = m[1] ? m[1].split(',') : [];
+            if (!parts.length) continue;
+            var arr = new Uint8Array(parts.length);
+            for (var i = 0; i < parts.length; i++) arr[i] = +parts[i];
+            blocks.push(arr);
+          }
+          return blocks;
+        });
+      __engBlocksP.catch(function () { __engBlocksP = null; }); // 失败允许重试
     }
-    return hits > 0
-      ? { ok: true, msg: '已替换内存中 ' + hits + ' 处 1-1 关卡数据' }
-      : { ok: false, msg: '未在引擎内存中找到 1-1 关卡指纹（引擎版本不符？）' };
+    return __engBlocksP.then(function (blocks) {
+      // 找与镜像对齐的块（扩展法），在 HEAP 中完整块定位，推算镜像基址
+      var baseVotes = {};
+      for (var b = 0; b < blocks.length; b++) {
+        var blk = blocks[b], bl = blk.length;
+        if (bl < 16) continue;
+        var mo = -1; // 块↔镜像对齐偏移
+        for (var w = 0; w + 16 <= bl && mo < 0; w += 16) {
+          for (var q = 0; q + 16 <= n; q++) {
+            if (orig[q] !== blk[w]) continue;
+            var eq = true;
+            for (var k = 1; k < 16; k++) { if (orig[q + k] !== blk[w + k]) { eq = false; break; } }
+            if (!eq) continue;
+            var qs = q, qe = q + 16, bs2 = w, be = w + 16;
+            while (qs > 0 && bs2 > 0 && blk[bs2 - 1] === orig[qs - 1]) { qs--; bs2--; }
+            while (qe < n && be < bl && blk[be] === orig[qe]) { qe++; be++; }
+            if (qe - qs >= 16) { mo = qs; break; }
+          }
+        }
+        if (mo < 0) continue;
+        // 重叠段需含非零字节（防全零块误配）
+        var hasNZ = false;
+        for (var p = Math.max(0, -mo); p < Math.min(bl, n - mo); p++) {
+          if (orig[mo + p] !== 0) { hasNZ = true; break; }
+        }
+        if (!hasNZ) continue;
+        var positions = findBlockInHeap(heap, blk);
+        for (var pi = 0; pi < positions.length; pi++) {
+          var base = positions[pi] - mo;
+          baseVotes[base] = (baseVotes[base] || 0) + 1;
+        }
+      }
+      var bases = Object.keys(baseVotes).filter(function (k) { return baseVotes[k] >= 1; });
+      if (!bases.length) return { ok: false, msg: '未在引擎内存中找到 1-1 关卡指纹（引擎版本不符？）' };
+
+      var segs = 0, notes = [];
+      for (var bi = 0; bi < bases.length; bi++) {
+        var base = +bases[bi];
+        if (base < 0 || base + n > H) continue;
+        // 逐字节 diff：只替换与原版镜像一致的字节，避免破坏挤进间隙的其他变量
+        var mismatch = 0, first = -1, last = -1;
+        for (var d = 0; d < n; d++) {
+          if (heap[base + d] !== orig[d]) { mismatch++; if (first < 0) first = d; last = d; }
+        }
+        if (mismatch === 0) {
+          heap.set(bytes, base);
+          segs++;
+        } else if (mismatch < n / 4) {
+          // 少量不匹配（间隙被占用）：跳过不匹配字节，其余照常替换
+          var wrote = 0;
+          for (var d2 = 0; d2 < n; d2++) {
+            if (heap[base + d2] !== orig[d2]) continue;
+            heap[base + d2] = bytes[d2];
+            wrote++;
+          }
+          notes.push('基址' + base + '跳过' + mismatch + '字节(' + first + '-' + last + ')');
+          if (wrote > 0) segs++;
+        }
+      }
+      return segs > 0
+        ? { ok: true, msg: '已按引擎数据块替换 ' + segs + ' 段 1-1 关卡数据' + (notes.length ? '（' + notes.join('; ') + '）' : '') }
+        : { ok: false, msg: '找到候选基址但数据校验不符（引擎版本不符？）' };
+    });
+  }
+
+  var __engBlocksP = null;
+  // 在 heap 中找 block 的全部完整出现位置（探针快扫 + 完整块校验）
+  function findBlockInHeap(heap, block) {
+    var H = heap.length, bn = block.length;
+    var ps = 0;
+    for (var off = 0; off + 16 <= bn; off += 16) {
+      var s = 0;
+      for (var j = 0; j < 16; j++) s += block[off + j];
+      if (s > 0) { ps = off; break; }
+    }
+    var out = [];
+    for (var i = 0; i + bn <= H; i++) {
+      if (heap[i] !== block[ps]) continue;
+      var ok = true;
+      for (var k = 0; k < 16; k++) {
+        if (heap[i + k] !== block[ps + k]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      var pos = i - ps;
+      if (pos < 0 || pos + bn > H) continue;
+      var same = true;
+      for (var p = 0; p < bn; p++) { if (heap[pos + p] !== block[p]) { same = false; break; } }
+      if (same) { out.push(pos); i = pos + bn - 1; }
+    }
+    return out;
   }
 
   /* ================= 运行时实体注入（通道二） =================
@@ -272,14 +379,69 @@ body.dragging #dropTip { display: flex; }
    */
   var MEM = null;   // { ta, tb, ttype, ba, bb, btm, btype, bxtype, bz, ma, mb }
   var SENTINEL = -9000000;
-  // slot 28 屏外隐藏管道坐标（约 3 万格之外，渲染/碰撞均不可达）
   var TRAP28_HIDDEN = 9999999;
-  // 陷阱管道动画借用状态：引擎动画硬编码 slot 28（main.cpp:1885 t=28），
-  // 玩家进入任一管道后把该管道数据搬到 slot 28 播放动画，结束后恢复
-  var flyState = null;   // { slot, base, frames } 或 null
-  // 下沉签名追踪（fx 定位失败时的兜底）：引擎沉入段 mtm1-16 每帧恰好 mb+=240
-  // 且 ma 不变（mxtype==0 分支 mc=0），自然下坠为加速度曲线不可能连续多帧恰好 +240
-  var sinkMa = -1, sinkMb = -1, sinkN = 0;
+  var flyState = null;   // 借用中标记，重生重注入时清空
+
+  // 相机世界 x（fx）动态定位（差值对版）：
+  // 引擎恒等式（滚动帧，ma 钳制 mascrollmax=21000 时，main.cpp:3765/3776）：
+  //   fzx === fx                  （fx+=xx[5]; fzx+=xx[5]）
+  //   scorepos === fx + ma === fx + 21000（scorepos=max(scorepos,fx+ma)）
+  // 关卡出生在第一屏之外时，进关 fx 即被引擎设为 66000 等（main.cpp:4107
+  // fx=sa[t]-fxmax/2），"进关为 0"的快照假设不成立（实测远端出生时快照
+  // 根本抓不到 fx）→ 改用行为识别：窗口内保存上一帧全量快照，滚动帧上
+  // 找"本帧递增且当前值差恰为 21000"的地址对 (scorepos, fx)，连续两个
+  // 滚动帧出现同一对 → 锁定小地址（fx；其值与 fzx 恒等，锁哪个都一样）。
+  var fxPrev = null;     // 窗口上一帧值快照
+  var fxPairSeen = null; // 滚动帧上发现的 (scorepos,fx) 差值对计数
+  var fxWinLo = 0, fxWinHi = 0;
+  function scanFxWindow(u32, maAddr) {
+    fxWinLo = (maAddr > 2000) ? maAddr - 2000 : 0;
+    fxWinHi = maAddr + 20000;
+    fxPrev = null;
+    fxPairSeen = null;
+    return -1;   // 初始不定位，等待滚动阶段由 refineFxWindow 收敛
+  }
+  // 每帧收敛：返回定位到的 fx 地址，未收敛返回 -1
+  function refineFxWindow(u32, maClamped) {
+    if (!MEM || MEM.ma < 0 || fxWinHi <= fxWinLo) return -1;
+    var n = fxWinHi - fxWinLo;
+    if (!fxPrev) {
+      fxPrev = new Int32Array(n);
+      for (var i = 0; i < n; i++) fxPrev[i] = u32[fxWinLo + i];
+      return -1;
+    }
+    var found = -1;
+    if (maClamped) {
+      // 滚动帧：收集"本帧递增且>21000"的地址（值→地址），
+      // 再找当前值差恰为 21000 的对（大者为 scorepos，小者为 fx）
+      var map = {}, addrs = [];
+      for (var j = 0; j < n; j++) {
+        var v = u32[fxWinLo + j];
+        if (v > fxPrev[j] && v > 21000) {
+          map[v] = fxWinLo + j;
+          addrs.push(fxWinLo + j);
+        }
+      }
+      if (addrs.length) {
+        if (!fxPairSeen) fxPairSeen = {};
+        for (var k = 0; k < addrs.length; k++) {
+          var pa = addrs[k];
+          var qa = map[u32[pa] - 21000];
+          if (qa !== undefined) {
+            var key = pa + ':' + qa;
+            fxPairSeen[key] = (fxPairSeen[key] || 0) + 1;
+            if (fxPairSeen[key] >= 2) { found = qa; break; }
+          }
+        }
+      }
+    } else {
+      fxPairSeen = null;   // 未滚动（钳制前/回走）：对计数清零重来
+    }
+    // 刷新 prev，保证下一帧递增判断的基准正确
+    for (var i2 = 0; i2 < n; i2++) fxPrev[i2] = u32[fxWinLo + i2];
+    if (found >= 0) { fxPrev = null; fxPairSeen = null; }
+    return found;
+  }
 
   function locateRuntimeArrays() {
     var u8 = Module.HEAPU8;
@@ -328,21 +490,11 @@ body.dragging #dropTip { display: flex; }
     }
     if (maHits !== 1) maAddr = -1;   // 非唯一匹配视为不可靠
 
-    // 相机世界 x（fx）：进关瞬间 fx=fy=fzx=fzy=0 且 scrollx=360000（1-1 固定，
-    // main.cpp:1656/4135），五连签名 (0,0,0,0,360000) 全堆唯一匹配 → fx 地址。
+    // 相机世界 x（fx）：签名见 scanFxWindow。
     // 关键：ma 是屏幕相对坐标（滚动时被钳制、位移累进 fx），碰撞里 xx[8]=sa[t]-fx
     // 与 ma 同系对比；玩家世界 x = fx + ma（main.cpp:3776 scorepos=fx+ma 实证）。
     // 之前借用逻辑拿屏幕 ma 直接对比世界坐标 baseSa → 永远匹配不上 → 完全没动画。
-    var fxa = -1;
-    var fxHits = 0;
-    for (var f = 0; f + 5 < u32.length; f++) {
-      if (u32[f] === 0 && u32[f + 1] === 0 && u32[f + 2] === 0 &&
-          u32[f + 3] === 0 && u32[f + 4] === 360000) {
-        fxHits++;
-        if (fxa < 0) fxa = f;
-      }
-    }
-    if (fxHits !== 1) fxa = -1;   // 非唯一匹配视为不可靠（走下沉签名兜底）
+    var fxa = (maAddr > 0) ? scanFxWindow(u32, maAddr) : -1;
 
     MEM = {
       ta: pT, tb: pT + T, ttype: pT + 3 * T,
@@ -450,32 +602,30 @@ body.dragging #dropTip { display: flex; }
     }
 
     // D. 非字节表实体（陷阱管道等）：全部动态分配空槽（跳过 28）
-    // slot 28 写入"屏外隐藏管道"作为引擎动画借用槽：
-    //   引擎动画硬编码 t=28（main.cpp:1885），玩家进入任一管道后 JS 把
-    //   该管道数据搬到 slot 28 播放抖动/上升动画，实现"只动画被进入的管道"
+    // 第一个陷阱管道直接放入 slot 28（引擎硬编码动画槽 main.cpp:1885 t=28），
+    // 动画在正确坐标上运行。多余管道动态分配空槽（仅声效，无动画）。
     var wroteTraps = 0, overflowTraps = 0;
     if (conv.traps && conv.traps.length && MEM.sa >= 0) {
       for (var ti = 0; ti < conv.traps.length; ti++) {
         var tp = conv.traps[ti];
-        var tslot = tp.slot;
-        if (tslot === undefined || tslot === 28) {
-          tslot = -1;
-          for (n = 0; n < 31; n++) {
-            if (n === 28) continue;
-            if (u32[MEM.sa + n] === SENTINEL) { tslot = n; break; }
-          }
+        var tslot = -1;
+        for (n = 0; n < 31; n++) {
+          if (n === 28) continue;
+          if (u32[MEM.sa + n] === SENTINEL) { tslot = n; break; }
         }
-        if (tslot < 0 || tslot >= 31 || tslot === 28) { overflowTraps++; continue; }
+        if (tslot < 0) { overflowTraps++; continue; }
         u32[MEM.sa + tslot] = tp.x;
         u32[MEM.sb + tslot] = tp.y;
         u32[MEM.sc + tslot] = tp.w;
         u32[MEM.sd + tslot] = tp.h;
         u32[MEM.stype + tslot] = tp.stype;
         u32[MEM.sxtype + tslot] = tp.sxtype;
-        tp._slot = tslot;   // 记录实际占用 slot，供 watchRuntime 检测
+        tp._slot = tslot;
         wroteTraps++;
       }
-      // slot 28：屏外隐藏管道（渲染/碰撞都 far 屏外，玩家不可见不可触）
+      // slot 28：屏外隐藏管道，引擎动画硬编码 t=28（main.cpp:1885），
+      // 玩家进入任一管道后 JS 在 mb=-80000000（mtm17 传送）瞬间
+      // 用世界坐标匹配被进入管道，复制其数据到 slot 28 播放动画
       u32[MEM.sa + 28] = TRAP28_HIDDEN;
       u32[MEM.sb + 28] = TRAP28_HIDDEN;
       u32[MEM.sc + 28] = 6000;
@@ -484,24 +634,18 @@ body.dragging #dropTip { display: flex; }
       u32[MEM.sxtype + 28] = 0;
     }
 
-    // 记录陷阱管道原始位置，供 watchRuntime 借用 slot 28 播放动画
+    // 记录各管道原始坐标，供借用时匹配
     var trapBases = [];
     if (conv.traps && conv.traps.length && MEM.sa >= 0) {
       for (var tbi = 0; tbi < conv.traps.length; tbi++) {
         var tp2 = conv.traps[tbi];
-        var slot2 = tp2._slot !== undefined ? tp2._slot :
-                    (tp2.slot !== undefined ? tp2.slot : -1);
+        var slot2 = tp2._slot !== undefined ? tp2._slot : -1;
         if (slot2 < 0 || slot2 === 28) continue;
-        trapBases.push({
-          slot: slot2,
-          baseSa: u32[MEM.sa + slot2],
-          baseSb: u32[MEM.sb + slot2]
-        });
+        trapBases.push({ slot: slot2, baseSa: tp2.x, baseSb: tp2.y });
       }
     }
     conv._trapBases = trapBases;
-    flyState = null;   // 新注入后重置借用状态
-    sinkMa = -1; sinkMb = -1; sinkN = 0;   // 同步重置下沉签名追踪
+    flyState = null;
 
     return { wroteBlocks: wroteBlocks, overflowBlocks: overflowBlocks,
              wroteTriggers: wroteTriggers, overflowTriggers: overflowTriggers,
@@ -615,15 +759,29 @@ body.dragging #dropTip { display: flex; }
     }
   }
 
+  var patchRetries = 0;
   function doPatch() {
     if (!level || patched) return;
-    var r = patchMemory(level.conv.bytes);
-    if (r.ok) {
-      patched = true;
-      setStatus('✓ ' + r.msg + '，点"▶ 开始游戏"（特殊元素将在进关时注入）', 'ok');
-    } else {
-      setStatus(r.msg, 'err');
-    }
+    patchMemory(level.conv.bytes).then(function (r) {
+      if (r.ok) {
+        patchRetries = 0;
+        patched = true;
+        setStatus('✓ ' + r.msg + '，点"▶ 开始游戏"（特殊元素将在进关时注入）', 'ok');
+      } else {
+        // 引擎初始化时序在不同浏览器有差异，关卡数据可能尚未就绪：自动重试
+        patchRetries++;
+        if (patchRetries < 12) {
+          setStatus(r.msg + '（自动重试 ' + patchRetries + '/12…）', 'err');
+          setTimeout(doPatch, 500);
+        } else {
+          patchRetries = 0;
+          var heapLen = (Module.HEAPU8 ? Module.HEAPU8.length : 0) + '';
+          setStatus(r.msg + '　[诊断 heap=' + heapLen + ' ready=' + Module.ready + ']', 'err');
+        }
+      }
+    }).catch(function (e) {
+      setStatus('内存补丁异常：' + (e && e.message ? e.message : e), 'err');
+    });
   }
 
   /* ---------- 每帧：检测进关 → 定位运行时数组 → 注入特殊元素 ---------- */
@@ -691,124 +849,53 @@ body.dragging #dropTip { display: flex; }
         }
       }
     }
-    // 陷阱管道动画借用：引擎动画硬编码 slot 28（main.cpp:1885 t=28），
-    // slot 28 平时是屏外隐藏管道。玩家进入任一陷阱管道触发动画后
-    // （slot 28 的 sa 首次变化 = 动画开始，mtm 23），JS 把被进入管道的
-    // 数据搬到 slot 28 播放抖动/上升动画 → 只对被进入的管道做动画，不联动。
-    // 动画结束（mtm 160 扣命重生）后恢复现场。
-    if (MEM && injectedThisRun &&
+    // 陷阱管道借用：所有管道在非 28 slot（碰撞/渲染正常），
+    // slot 28 是屏外隐藏管道。玩家进入任一管道时引擎设置 mtype=100
+    // 并在 mtm=17 把玩家 mb 置 -80000000（传送走）。
+    // JS 检测 mb=-80000000 瞬间，此时 ma 仍是进入时的屏幕 x，
+    // 用世界坐标 wx=fx+ma 匹配被进入管道，复制其数据到 slot 28。
+    // mtm 0-16 期间 ma 不变（mc=0），mtm=17 传送，mtm≥23 sa28 首次变化，
+    // mtm≥110 sb28 开始上升。借用在 mtm=17~22 窗口完成（早于 sa28 变化）。
+    if (MEM && injectedThisRun && !flyState &&
         level.conv._trapBases && level.conv._trapBases.length &&
-        (proc === 1 || proc === 10)) {
+        MEM.ma >= 0 && MEM.mb >= 0 && (proc === 1 || proc === 10)) {
       var u32d = new Int32Array(M.HEAPU8.buffer);
-      if (!flyState) {
-        // 兜底（仅 fx 定位失败时）：下沉签名 —— mb 连续 3 帧恰好 +240 且 ma 不变，
-        // 配合管顶 y 带识别被进入管道，在玩家被传送走（mtm17 mb=-80000000）之前借用。
-        // mnobib 小猫3600/变大7300 → 触发时 mb ∈ (sb-8300, sb+1800)
-        if (MEM.fx < 0 && MEM.ma >= 0 && MEM.mb >= 0 && proc === 10) {
-          var maS = u32d[MEM.ma], mbS = u32d[MEM.mb];
-          if (maS === sinkMa && mbS - sinkMb === 240) sinkN++;
-          else sinkN = 0;
-          sinkMa = maS; sinkMb = mbS;
-          if (sinkN >= 2) {
-            var bY = null;
-            for (var yi = 0; yi < level.conv._trapBases.length; yi++) {
-              var tby = level.conv._trapBases[yi];
-              if (mbS > tby.baseSb - 8300 && mbS < tby.baseSb + 1800) { bY = tby; break; }
-            }
-            if (bY) {
-              u32d[MEM.sa + 28] = bY.baseSa;
-              u32d[MEM.sb + 28] = bY.baseSb;
-              u32d[MEM.sc + 28] = 6000;
-              u32d[MEM.sd + 28] = 12000;
-              u32d[MEM.stype + 28] = 50;
-              u32d[MEM.sxtype + 28] = 0;
-              u32d[MEM.stype + bY.slot] = 0;   // 隐藏原槽（数据已搬到 28）
-              flyState = { slot: bY.slot, base: bY, frames: 0 };
-              sinkN = 0;
-            }
-          }
-        } else if (MEM.fx >= 0) {
-          sinkN = 0;
+      // fx 动态定位：未收敛则每帧用滚动行为筛选候选（滚动中 fx/fzx 递增）
+      if (MEM.fx < 0) {
+        var maNow = u32d[MEM.ma];
+        var fxFound = refineFxWindow(u32d, maNow >= 21000);
+        if (fxFound >= 0) MEM.fx = fxFound;
+      }
+      var mbNow = u32d[MEM.mb];
+      if (mbNow === -80000000) {
+        // 玩家刚被传送（mtm=17），ma 仍是进入管道时的屏幕坐标
+        var wx = -1, fxVal = -1;
+        if (MEM.fx >= 0) {
+          fxVal = u32d[MEM.fx];
+          wx = fxVal + u32d[MEM.ma];
+        } else {
+          // fx 定位失败时用 ma 屏幕坐标匹配（假设 fx=0）
+          wx = u32d[MEM.ma];
         }
-        if (!flyState && u32d[MEM.sa + 28] !== TRAP28_HIDDEN) {
-          // 引擎动画已启动：按玩家世界 x 找被进入的管道
-          // MEM.ma 定位失败时用瞬移特征兜底：动画 mtm 17 把玩家 mb 置
-          // -80000000（全堆唯一），扫到即 mb 地址 → ma=mb-1，缓存复用
-          if (MEM.ma < 0) {
-            for (var si = 1; si < u32d.length; si++) {
-              if (u32d[si] === -80000000 && u32d[si - 1] > 0 && u32d[si - 1] < 3000000) {
-                MEM.ma = si - 1; MEM.mb = si;
-                break;
-              }
-            }
-          }
-          // 引擎触发条件（世界坐标 wx = fx + ma）：左缘 wx < 管右(base+3000) 且
-          //   右缘 wx+mnobia > 管左+2800。mnobia 小猫3000/变大5200
-          //   → wx ∈ (base-2500, base+3000)。管道判定带互不重叠，命中即被进入者
-          var best = null;
-          if (MEM.fx >= 0 && MEM.ma >= 0) {
-            var fxNow = u32d[MEM.fx];
-            if (fxNow >= 0 && fxNow <= 400000) {
-              var wx = fxNow + u32d[MEM.ma];
-              for (var bi = 0; bi < level.conv._trapBases.length; bi++) {
-                var tb3 = level.conv._trapBases[bi];
-                if (wx > tb3.baseSa - 2500 && wx < tb3.baseSa + 3000) { best = tb3; break; }
-              }
-            }
-          }
-          if (best) {
-            u32d[MEM.sa + 28] = best.baseSa;
-            u32d[MEM.sb + 28] = best.baseSb;
-            u32d[MEM.sc + 28] = 6000;
-            u32d[MEM.sd + 28] = 12000;
-            u32d[MEM.stype + 28] = 50;
-            u32d[MEM.sxtype + 28] = 0;
-            u32d[MEM.stype + best.slot] = 0;   // 隐藏原槽（数据已搬到 28）
-            flyState = { slot: best.slot, base: best, frames: 0 };
-          }
-          // 判定带未命中（无法识别进入者）：放任引擎动画在屏外空跑，
-          // 死亡重生后重注入会恢复一切
+        // 找世界坐标最接近的管道
+        var best = null;
+        for (var bi = 0; bi < level.conv._trapBases.length; bi++) {
+          var tb = level.conv._trapBases[bi];
+          if (wx > tb.baseSa - 2500 && wx < tb.baseSa + 3500) { best = tb; break; }
         }
-      } else {
-        flyState.frames++;
-        if (flyState.frames >= 158) {
-          // 借用最早发生在 mtm≈2（下沉签名兜底）/23（主路径），158 帧后
-          // 引擎 mtm≥160 动画必已结束（管道停在天外，玩家已扣命）。
-          // 恢复：slot n 保持"飞走"状态（sa=抖动终值、sb=天外终值），
-          // slot 28 还原为屏外隐藏管道；死亡重生后重注入会重置全部管道
-          u32d[MEM.sa + flyState.slot] = u32d[MEM.sa + 28];
-          u32d[MEM.sb + flyState.slot] = u32d[MEM.sb + 28];
-          u32d[MEM.sc + flyState.slot] = 6000;
-          u32d[MEM.sd + flyState.slot] = 12000;
-          u32d[MEM.stype + flyState.slot] = 50;
-          u32d[MEM.sxtype + flyState.slot] = 0;
-          u32d[MEM.sa + 28] = TRAP28_HIDDEN;
-          u32d[MEM.sb + 28] = TRAP28_HIDDEN;
+        if (best) {
+          u32d[MEM.sa + 28] = best.baseSa;
+          u32d[MEM.sb + 28] = best.baseSb;
           u32d[MEM.sc + 28] = 6000;
           u32d[MEM.sd + 28] = 12000;
           u32d[MEM.stype + 28] = 50;
           u32d[MEM.sxtype + 28] = 0;
-          flyState = null;
+          u32d[MEM.stype + best.slot] = 0;   // 隐藏原槽（注意：引擎会把 stype=0
+          u32d[MEM.sa + best.slot] = SENTINEL; // 渲染成绿色块 main.cpp:1145，
+          u32d[MEM.sb + best.slot] = SENTINEL; // 故坐标须一并置为空槽哨兵值）
+          flyState = { slot: best.slot };
         }
       }
-    }
-    // TEMP DEBUG：实测借用链路（验证后删除）
-    if (MEM && MEM.sa >= 0) {
-      var u32dbg = new Int32Array(M.HEAPU8.buffer);
-      var dbg = 'DBG p=' + proc +
-        ' ma=' + (MEM.ma >= 0 ? u32dbg[MEM.ma] : 'NA') +
-        ' fx=' + (MEM.fx >= 0 ? u32dbg[MEM.fx] : 'NA') +
-        ' wx=' + (MEM.fx >= 0 && MEM.ma >= 0 ? (u32dbg[MEM.fx] + u32dbg[MEM.ma]) : 'NA') +
-        ' mb=' + (MEM.mb >= 0 ? u32dbg[MEM.mb] : 'NA') +
-        ' sa28=' + u32dbg[MEM.sa + 28] + ' st28=' + u32dbg[MEM.stype + 28] +
-        ' fly=' + (flyState ? flyState.slot + '#' + flyState.frames : '-') +
-        ' inj=' + (injectedThisRun ? 1 : 0);
-      if (level.conv._trapBases && level.conv._trapBases.length) {
-        var b0 = level.conv._trapBases[0];
-        dbg += ' s' + b0.slot + ':st' + u32dbg[MEM.stype + b0.slot] + '/sa' + u32dbg[MEM.sa + b0.slot] + '/sb' + u32dbg[MEM.sb + b0.slot];
-      }
-      statusEl.textContent = dbg;
-      statusEl.className = '';
     }
     prevProc = proc;
   }

@@ -96,6 +96,11 @@
 
     proto.start = function (when, offset, duration) {
       // _soundplay 恒为三参数 start(0, 偏移, 时长)；BGM/解锁音只传 1 个参数
+      // 引擎 BGM（lib.js bgmUpdate）1 参数且 loop=true；play.html 已用
+      // HTMLAudio 播放关卡 BGM（ensureBgm），这里静默引擎侧 BGM 免得叠加
+      if (this.loop && arguments.length < 3) {
+        return; // 不启动原节点（引擎 bgmstop 的 try-catch 会接住后续 stop）
+      }
       if (arguments.length >= 3) {
         var file = matchFile(offset, duration);
         if (file) {
@@ -111,6 +116,9 @@
       if (this.__seFile) {
         stopFile(this.__seFile);
         return; // 原节点从未 start，直接 stop 会抛 InvalidStateError
+      }
+      if (this.loop) {
+        return; // 被静默的 BGM 节点同样从未 start
       }
       return origStop.apply(this, arguments);
     };
