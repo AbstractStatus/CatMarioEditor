@@ -676,7 +676,47 @@ body.dragging #dropTip { display: flex; }
       if (pr && pr.catch) pr.catch(function () {});
     }
   }
-  window.addEventListener('keydown', function () { retryBgmAfterGesture(); }, true);
+  window.addEventListener('keydown', function () { if (!deathPending && !goalHold) retryBgmAfterGesture(); }, true);
+
+  /* ---------- 阵亡处理：停 BGM + 自动继续（无需按任意键） ----------
+   * 引擎在 mhp<=0 瞬间播放 death.mp3（main.cpp:1840），soundpatch 转发为
+   * catmario-death 事件。流程：
+   *   1. 事件到达 → 立即暂停页面侧 BGM（引擎侧 BGM 已被 soundpatch 静音）
+   *   2. 死亡动画结束进入按键等待画面（mainproc=10）→ watchRuntime 自动虚拟
+   *      按下 Enter 并保持 400ms（引擎 30fps 轮询需要按住；Enter =
+   *      PAD_INPUT_CLICK 0x20，正常游戏中无其他用途，不会误触发跳跃/移动）
+   *   3. 引擎回到 mainproc=1（继续游戏）→ BGM 从头重播 */
+  var deathPending = false;
+  var deathNextPress = 0;
+  var goalHold = false;
+  window.addEventListener('catmario-death', function () {
+    deathPending = true;
+    deathNextPress = 0;
+    if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+  });
+  // 通关（触碰终点旗杆）→ 停 BGM（胜利音效 goal.mp3 照常播放）。
+  // 之后接原版 1-2 进关注入时 ensureBgm 会自动从头重播
+  window.addEventListener('catmario-goal', function () {
+    goalHold = true;
+    if (bgmAudio && !bgmAudio.paused) bgmAudio.pause();
+  });
+  function pressEnterOnce() {
+    var down;
+    try {
+      down = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
+      Object.defineProperty(down, 'keyCode', { get: function () { return 13; } });
+      Object.defineProperty(down, 'which', { get: function () { return 13; } });
+    } catch (e) { return; }
+    canvas.dispatchEvent(down);
+    setTimeout(function () {
+      try {
+        var up = new KeyboardEvent('keyup', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter' });
+        Object.defineProperty(up, 'keyCode', { get: function () { return 13; } });
+        Object.defineProperty(up, 'which', { get: function () { return 13; } });
+        canvas.dispatchEvent(up);
+      } catch (e) { }
+    }, 400);
+  }
 
   // 引擎把键盘监听挂在 canvas（捕获阶段）上：当焦点在按钮/其他元素上时按键
   // 到不了 canvas，游戏会卡在“按任意键”过渡。window 捕获阶段统一转发给 canvas。
@@ -897,6 +937,25 @@ body.dragging #dropTip { display: flex; }
         }
       }
     }
+    // 通关后接原版下一关（proc 10→1）：解除停 BGM 状态（BGM 由进关注入的
+    // ensureBgm 从头重播）
+    if (prevProc !== 1 && proc === 1 && goalHold) goalHold = false;
+    // 阵亡自动继续：按键等待画面(mainproc=10)自动按 Enter（先展示约 0.6s
+    // 阵亡画面，未生效则每 900ms 重试）；回到游戏(mainproc=1)后重播 BGM
+    if (deathPending) {
+      if (prevProc !== 1 && proc === 1) {
+        deathPending = false;
+        if (bgmAudio) {
+          try { bgmAudio.currentTime = 0; } catch (e) { }
+          var prBgm = bgmAudio.play();
+          if (prBgm && prBgm.catch) prBgm.catch(function () { });
+        }
+      } else if (proc === 10) {
+        var nowT = Date.now();
+        if (deathNextPress === 0) deathNextPress = nowT + 600;
+        else if (nowT >= deathNextPress) { deathNextPress = nowT + 900; pressEnterOnce(); }
+      }
+    }
     prevProc = proc;
   }
 
@@ -955,6 +1014,8 @@ body.dragging #dropTip { display: flex; }
     if (!M.ready) return;
     if (level && !patched) doPatch();
     if (level && !patched) { alert('关卡未能写入引擎内存，无法开始'); return; }
+    deathPending = false;
+    goalHold = false;
     if (level) ensureBgm(level.conv);
     retryBgmAfterGesture();
     M['_dlm_start']();
@@ -962,6 +1023,8 @@ body.dragging #dropTip { display: flex; }
   });
 
   retryBtn.addEventListener('click', function () {
+    deathPending = false;
+    goalHold = false;
     window.Module['_dlm_title']();
     canvas.focus();
   });

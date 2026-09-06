@@ -78,6 +78,14 @@
     stats[name] = (stats[name] || 0) + 1;
     var pr = el.play();
     if (pr && pr.catch) pr.catch(function () { /* 浏览器尚未解锁音频时忽略 */ });
+    // 玩家阵亡信号（引擎 main.cpp:1840 mhp<=0 时 soundplay(12) → death.mp3）
+    if (name === 'death.mp3') {
+      try { window.dispatchEvent(new CustomEvent('catmario-death')); } catch (e) { }
+    }
+    // 通关信号（引擎 main.cpp:2659 触碰终点旗杆时 soundplay(11) → goal.mp3）
+    else if (name === 'goal.mp3') {
+      try { window.dispatchEvent(new CustomEvent('catmario-goal')); } catch (e) { }
+    }
   }
 
   function stopFile(name) {
