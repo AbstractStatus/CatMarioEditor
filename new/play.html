@@ -496,12 +496,23 @@ body.dragging #dropTip { display: flex; }
     // 之前借用逻辑拿屏幕 ma 直接对比世界坐标 baseSa → 永远匹配不上 → 完全没动画。
     var fxa = (maAddr > 0) ? scanFxWindow(u32, maAddr) : -1;
 
+    // 玩家状态变量：C++ 声明顺序连续（main.cpp:129-133）
+    //   ma,mb,mnobia,mnobib,mhp | mc,md,macttype,atkon,atktm,mactsok,msstar,mactp,mact | mtype,mxtype,mtm,mzz
+    // 用 mnobia=3000 / mnobib=3600（出生帧 main.cpp:1651）校验布局
+    var mtypeAddr = -1, mtmAddr = -1, mhpAddr = -1;
+    if (maAddr >= 0 && u32[maAddr + 2] === 3000 && u32[maAddr + 3] === 3600) {
+      mhpAddr = maAddr + 4;
+      mtypeAddr = maAddr + 14;
+      mtmAddr = maAddr + 16;
+    }
+
     MEM = {
       ta: pT, tb: pT + T, ttype: pT + 3 * T,
       ba: pB, bb: pB + B, btm: pB + 2 * B,
       btype: pB + 3 * B, bxtype: pB + 4 * B, bz: pB + 5 * B,
       ma: maAddr, mb: maAddr >= 0 ? maAddr + 1 : -1,
-      fx: fxa,
+      mhp: mhpAddr, mtype: mtypeAddr, mtm: mtmAddr,
+      fx: fxa, fzx: -1,
       sa: -1, sb: -1, sc: -1, sd: -1, stype: -1, sxtype: -1
     };
 
@@ -831,6 +842,34 @@ body.dragging #dropTip { display: flex; }
   var injectedThisRun = false;
   var injectState = '';
 
+  // 镜头向左滚动补丁
+  // 引擎 main.cpp:3758-3765 只实现了向右滚动（ma>mascrollmax(21000) 时 fx+=delta, ma=21000），
+  // 原作者把向左滚动注释掉了（"戻りなし"）。这里在每帧 watchRuntime（_dlm_frame 之后）补上：
+  //   当 ma < mascrollmax-500(20500) 且 fzx > 700（未到关卡起点）时，
+  //   fx -= delta, fzx -= delta, ma = 20500。
+  // 仅在玩家正常可控状态（mtype<=9 且 mhp>=1）执行，避开管道/死亡/终点等脚本动画。
+  function applyLeftScroll(u32) {
+    if (!MEM || MEM.ma < 0 || MEM.fx < 0 || MEM.fzx < 0) return;
+    if (MEM.mtype < 0 || MEM.mhp < 0) return;
+    var mt = u32[MEM.mtype];
+    if (mt > 9) return;            // 管道(100)/死亡(200)/终点(300)等状态不介入
+    if (u32[MEM.mhp] < 1) return;  // 阵亡动画中不介入
+    if (flyState) return;          // 陷阱管道借用中不介入
+
+    var maVal = u32[MEM.ma];
+    var LEFT_BOUND = 20500;        // mascrollmax - 500
+    var MIN_SCROLL = 700;          // 不回退到关卡起点（与引擎原注释代码一致）
+    if (maVal < LEFT_BOUND) {
+      var fzxVal = u32[MEM.fzx];
+      if (fzxVal > MIN_SCROLL) {
+        var delta = LEFT_BOUND - maVal;
+        u32[MEM.ma] = LEFT_BOUND;
+        u32[MEM.fx] -= delta;
+        u32[MEM.fzx] -= delta;
+      }
+    }
+  }
+
   function watchRuntime() {
     var M = window.Module;
     if (!M.ready || !patched || !level) return;
@@ -906,6 +945,17 @@ body.dragging #dropTip { display: flex; }
         var fxFound = refineFxWindow(u32d, maNow >= 21000);
         if (fxFound >= 0) MEM.fx = fxFound;
       }
+      // fzx 解析：C++ 声明顺序 fx,fy,fzx,...（main.cpp:209），fzx 与 fx 恒等
+      if (MEM.fx >= 0 && MEM.fzx < 0) {
+        var cand = MEM.fx + 2;
+        if (u32d[cand] === u32d[MEM.fx]) MEM.fzx = cand;
+        else {
+          for (var oo = -8; oo <= 8 && MEM.fzx < 0; oo++) {
+            if (oo === 0) continue;
+            if (u32d[MEM.fx + oo] === u32d[MEM.fx]) MEM.fzx = MEM.fx + oo;
+          }
+        }
+      }
       var mbNow = u32d[MEM.mb];
       if (mbNow === -80000000) {
         // 玩家刚被传送（mtm=17），ma 仍是进入管道时的屏幕坐标
@@ -957,6 +1007,12 @@ body.dragging #dropTip { display: flex; }
       }
     }
     prevProc = proc;
+
+    // 镜头向左滚动：每帧（游戏进行中）补齐引擎被注释掉的左滚逻辑
+    if (proc === 1 && MEM) {
+      var u32s = new Int32Array(M.HEAPU8.buffer);
+      applyLeftScroll(u32s);
+    }
   }
 
   /* ---------- 引擎装载（参照原版 load.js 的最小实现） ---------- */
