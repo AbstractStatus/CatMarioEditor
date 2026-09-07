@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>猫里奥 - 新引擎</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    #wrap {
+      position: relative;
+      width: 480px;
+      height: 420px;
+    }
+    canvas {
+      display: block;
+      width: 480px;
+      height: 420px;
+      image-rendering: pixelated;
+      background: #000;
+      touch-action: none;
+    }
+    #hint {
+      position: absolute;
+      top: 4px; left: 4px;
+      color: #fff;
+      font-size: 10px;
+      text-shadow: 1px 1px 2px #000;
+      pointer-events: none;
+      white-space: pre;
+    }
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: #000;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="480" height="420"></canvas>
+    <div id="loading">加载中...</div>
+    <div id="hint"></div>
+  </div>
+
+  <!-- 关卡数据 -->
+  <script src="../stage11_data.js?v=1"></script>
+  <!-- 精灵清单 -->
+  <script src="../assets/sprites/manifest.js?v=1"></script>
+  <!-- 引擎模块 -->
+  <script src="constants.js?v=3"></script>
+  <script src="sprites.js?v=2"></script>
+  <script src="audio.js?v=5"></script>
+  <script src="input.js?v=3"></script>
+  <script src="elements.js?v=2"></script>
+  <script src="levels.js?v=1"></script>
+  <script src="engine.js?v=44"></script>
+
+  <script>
+    (function () {
+      var canvas = document.getElementById('game');
+      var hint = document.getElementById('hint');
+      var loading = document.getElementById('loading');
+
+      GameEngine.init(canvas);
+
+      // 首次用户交互解锁音频
+      var audioUnlocked = false;
+      function unlockAudio() {
+        if (!audioUnlocked) {
+          audioUnlocked = true;
+          if (window.AudioSys) AudioSys.unlock();
+        }
+      }
+      canvas.addEventListener('click', unlockAudio);
+      window.addEventListener('keydown', unlockAudio);
+
+      // 点击画布开始游戏（标题画面）
+      canvas.addEventListener('click', function () {
+        if (GameEngine.getState().proc === 100) {
+          GameEngine.startGame();
+        }
+      });
+
+      // 标题提示
+      var titleShown = false;
+      setInterval(function () {
+        if (GameEngine.getState) {
+          var s = GameEngine.getState();
+          if (s.proc === 100 && !titleShown) {
+            titleShown = true;
+            hint.textContent = '← → 移动   ↑/空格 跳跃   ↓ 下蹲/进管道';
+          } else if (s.proc === 1) {
+            hint.textContent = '';
+          } else {
+            titleShown = false;
+          }
+        }
+      }, 200);
+
+      // 隐藏加载提示
+      setTimeout(function () {
+        loading.style.display = 'none';
+      }, 500);
+    })();
+  </script>
+</body>
+</html>

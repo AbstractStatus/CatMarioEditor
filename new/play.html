@@ -870,6 +870,30 @@ body.dragging #dropTip { display: flex; }
     }
   }
 
+  // 敌人回溯重生补丁
+  // 引擎敌人生成点 b[]：首次生成后 bz 置 0，且 btype>=10 时 btm=9999999（几乎永不再生）。
+  // 原设计单向卷轴，玩家不回头；开启左滚后回头，敌人已生成过的 bz=0 且右边缘生成窗口
+  // 依赖 mc（左行时 mc<0 导致窗口无效），故敌人不会重生。
+  // 做法：每帧把视野外（左/右）生成点的 bz 重置为 1、btm 重置为 -1，
+  // 使引擎条件3（bz==1 且在视野内，main.cpp:2942）在敌人回到屏幕时重新生成。
+  function resetOffscreenEnemySpawns(u32) {
+    if (!MEM || MEM.ba < 0 || MEM.fx < 0) return;
+    var B = 81;
+    var fxVal = u32[MEM.fx];
+    var fxmax = 48000;
+    var RIGHT_OFF = fxmax + 6000;   // 右边缘外（条件3上限 fxmax+4000 + 余量）
+    var LEFT_OFF = -6000;           // 左边缘外
+    for (var i = 0; i < B; i++) {
+      var baVal = u32[MEM.ba + i];
+      if (baVal < -80000) continue;   // 无效生成点（main.cpp:2930）
+      var sx = baVal - fxVal;
+      if (sx > RIGHT_OFF || sx < LEFT_OFF) {
+        if (u32[MEM.bz + i] !== 1) u32[MEM.bz + i] = 1;
+        if (u32[MEM.btm + i] !== -1) u32[MEM.btm + i] = -1;
+      }
+    }
+  }
+
   function watchRuntime() {
     var M = window.Module;
     if (!M.ready || !patched || !level) return;
@@ -925,6 +949,25 @@ body.dragging #dropTip { display: flex; }
           if (level.conv.spawn && !res.spawnOk) msgs.push('起点未生效（时机错过）');
           injectState = '✓ 已注入：' + (msgs.join('，') || '无特殊元素');
           setStatus('游戏进行中 · ' + injectState, 'ok');
+        }
+      }
+    }
+    // fx/fzx 动态定位（独立于陷阱逻辑，无陷阱关卡也需解析以支持左滚动）
+    if (MEM && injectedThisRun && MEM.ma >= 0 && (proc === 1 || proc === 10)) {
+      var u32f = new Int32Array(M.HEAPU8.buffer);
+      if (MEM.fx < 0) {
+        var maNowF = u32f[MEM.ma];
+        var fxF = refineFxWindow(u32f, maNowF >= 21000);
+        if (fxF >= 0) MEM.fx = fxF;
+      }
+      if (MEM.fx >= 0 && MEM.fzx < 0) {
+        var cF = MEM.fx + 2;
+        if (u32f[cF] === u32f[MEM.fx]) MEM.fzx = cF;
+        else {
+          for (var oF = -8; oF <= 8 && MEM.fzx < 0; oF++) {
+            if (oF === 0) continue;
+            if (u32f[MEM.fx + oF] === u32f[MEM.fx]) MEM.fzx = MEM.fx + oF;
+          }
         }
       }
     }
@@ -1008,10 +1051,11 @@ body.dragging #dropTip { display: flex; }
     }
     prevProc = proc;
 
-    // 镜头向左滚动：每帧（游戏进行中）补齐引擎被注释掉的左滚逻辑
+    // 镜头向左滚动 + 敌人回溯重生：每帧（游戏进行中）补齐引擎被注释掉的左滚逻辑
     if (proc === 1 && MEM) {
       var u32s = new Int32Array(M.HEAPU8.buffer);
       applyLeftScroll(u32s);
+      resetOffscreenEnemySpawns(u32s);
     }
   }
 
