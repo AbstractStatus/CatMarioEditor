@@ -10,9 +10,28 @@
   // 每次进入编辑器清空本地缓存，恢复初始示例状态
   try { localStorage.clear(); } catch (e) { }
 
-  var TILE = CAT.TILE;       // 29
+  var TILE = CAT.TILE;       // 基础 29（会动态放大）
   var ROWS = CAT.ROWS;       // 17
   var ASSETS = 'assets/';
+
+  // 响应式：TILE 放大到让整个关卡高度占页面的 ~80%
+  function updateTileSize() {
+    // 可用高度 = 窗口高度 - 工具栏 - 状态栏 - 一些 padding
+    var availH = window.innerHeight - 56 - 46 - 20;
+    var tileByH = Math.floor(availH / ROWS);
+    // 放大 tiles，最大到基础的 4 倍
+    var newTile = Math.min(tileByH, CAT.TILE * 4);
+    if (newTile < CAT.TILE) newTile = CAT.TILE;
+    if (newTile !== TILE) {
+      TILE = newTile;
+      // 重新渲染所有 canvas
+      render();
+      renderGutter();
+      renderRuler();
+    }
+  }
+
+  window.addEventListener('resize', updateTileSize);
 
   var THEMES = {
     overworld: { name: '地上', sky: '#9fc4ff', debris: [144, 96, 48] },
@@ -52,6 +71,26 @@
       imgCache[el.img] = im;
     }
     return imgCache[el.img];
+  }
+
+  // ---------- 背景设计尺寸（来自 manifest，与图片实际分辨率无关） ----------
+  // 背景装饰（山/云/草/树等）跨多格，manifest 的 w/h 是设计像素（TILE=29 基准），
+  // 游戏内即按此虚拟尺寸渲染；编辑器随动态 TILE 等比放大。
+  var designSize = {};
+  (function () {
+    var sp = window.SPRITE_MANIFEST && window.SPRITE_MANIFEST.sprites;
+    if (sp) for (var i = 0; i < sp.length; i++) {
+      if (sp[i].file) designSize[sp[i].file] = { w: sp[i].w, h: sp[i].h };
+    }
+  })();
+
+  function bgDrawSize(def, im) {
+    var d = designSize[def.img];
+    var k = TILE / CAT.TILE;
+    return {
+      w: Math.round((d ? d.w : im.naturalWidth) * k),
+      h: Math.round((d ? d.h : im.naturalHeight) * k)
+    };
   }
 
   // ---------- 工具 ----------
@@ -251,19 +290,23 @@
     return 5; // audio / 起点标记
   }
 
+  // TILE 比例的工具：原始设计按 TILE=29，所以任何硬编码 px 都除以 29 再乘 TILE
+  function tilePx(n) { return Math.round(n / CAT.TILE * TILE); }
+
   function drawSprite(el, def, x, y, alpha) {
     var im = getImg(def);
     if (!im || !im.complete || im.naturalWidth === 0) return;
-    var w = im.naturalWidth, h = im.naturalHeight;
     ctx.globalAlpha = alpha == null ? 1 : alpha;
     if (def.cat === 'bg') {
-      ctx.drawImage(im, Math.round(x), Math.round(y));
+      // 背景图：按 manifest 设计尺寸随 TILE 等比放大（跨多格，按锚点位置放置）
+      var bs = bgDrawSize(def, im);
+      ctx.drawImage(im, Math.round(x), Math.round(y), bs.w, bs.h);
     } else {
-      // 与游戏一致：以格子为锚点顶部对齐、水平居中
-      var dx = x + (TILE - w) / 2;
-      var dy = y;
-      if (def.id === 'player_start') dy = y - (h - TILE); // 起点：脚在格底
-      ctx.drawImage(im, Math.round(dx), Math.round(dy));
+      // 所有非背景元素：强制缩放到 TILE × TILE
+      var dx = Math.round(x);
+      var dy = Math.round(y);
+      if (def.id === 'player_start') dy = Math.round(y - (TILE - TILE)); // 脚在格底（dh=TILE）
+      ctx.drawImage(im, dx, dy, TILE, TILE);
     }
     ctx.globalAlpha = 1;
   }
@@ -272,31 +315,31 @@
     var d = CAT.byId(e.id);
     if (!d) return;
     var x = e.col * TILE, y = e.row * TILE;
+    var a = alpha == null ? 1 : alpha;
 
     if (d.cat === 'audio') {
-      var cx = x + 14, cy = y + 14;
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
+      var cx = x + TILE / 2, cy = y + TILE / 2;
+      ctx.globalAlpha = a;
       ctx.fillStyle = d.color;
-      ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, TILE / 4, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = 'bold ' + tilePx(14) + 'px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('♪', cx, cy + 1);
-      ctx.font = '9px sans-serif';
-      ctx.fillText(String(d.bgmId), cx, cy + 20);
+      ctx.font = tilePx(9) + 'px sans-serif';
+      ctx.fillText(String(d.bgmId), cx, cy + TILE / 2 + 4);
       ctx.globalAlpha = 1;
       return;
     }
 
     if (d.kind === 'vector' && d.id === 'firebar') {
-      // 火焰棒：一串橙色圆（fillarc r8 + 黑圈），编辑器按 xt 个数横排显示
       var n = e.xt || d.xt || 5;
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
+      ctx.globalAlpha = a;
       for (var i = 0; i < n; i++) {
-        var fx = x + 14 + i * 17, fy = y + TILE + 6;
+        var fx = x + TILE / 2 + i * tilePx(17), fy = y + TILE + tilePx(6);
         ctx.fillStyle = '#e67800';
-        ctx.beginPath(); ctx.arc(fx, fy, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(fx, fy, TILE / 3.5, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -304,89 +347,86 @@
     }
 
     if (d.id.indexOf('lift_') === 0) {
-      // 升降台：按 len 拉伸预渲染图
       var im = getImg(d);
       var Lw = liftLen(e) * TILE;
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
+      ctx.globalAlpha = a;
       if (im && im.complete && im.naturalWidth) {
-        // 预渲染图为 90x18（3格87px+余量），条体在顶部15px，游戏中位于格内 y+7
-        ctx.drawImage(im, Math.round(x - 1), Math.round(y + 7), Lw + 2, im.naturalHeight);
+        ctx.drawImage(im, Math.round(x - 1), Math.round(y + tilePx(7)), Lw + 2, tilePx(14));
       } else {
         ctx.fillStyle = d.img.indexOf('yellow') >= 0 ? '#dcdc00' :
                         d.img.indexOf('green') >= 0 ? '#00dcdc' : '#b0b0b0';
-        ctx.fillRect(x, y + 7, Lw, 14);
+        ctx.fillRect(x, y + tilePx(7), Lw, tilePx(14));
       }
       ctx.globalAlpha = 1;
       return;
     }
 
     if (d.id === 'block_hidden') {
-      ctx.globalAlpha = alpha == null ? 0.35 : alpha * 0.35;
+      ctx.globalAlpha = a * 0.35;
       var him = getImg(d);
       if (him && him.complete) {
-        ctx.drawImage(him, Math.round(x - 0.5), Math.round(y - 1));
+        ctx.drawImage(him, Math.round(x), Math.round(y), TILE, TILE);
       }
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
+      ctx.globalAlpha = 1;
       ctx.setLineDash([4, 3]);
       ctx.strokeStyle = '#c00';
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = Math.max(1.5, TILE / 20);
       ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
       ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
       return;
     }
 
     if (d.id === 'player_start') {
-      drawSprite(e, d, x, y, alpha);
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
-      ctx.fillStyle = '#0a7d20';
-      ctx.fillRect(x + 1, y - 9, 26, 8);
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 7px sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('起点', x + 14, y - 5);
-      ctx.strokeStyle = '#0a7d20';
-      ctx.strokeRect(x + 0.5, y - 9.5, 27, TILE + 9);
+      drawSprite(e, d, x, y, a);
       ctx.globalAlpha = 1;
+      // 绿色小旗子（硬编码比例缩放）
+      var fh = tilePx(8), fw = TILE - tilePx(3);
+      ctx.fillStyle = '#0a7d20';
+      ctx.fillRect(x, y - fh, fw, fh);
+      ctx.strokeStyle = '#0a7d20';
+      ctx.strokeRect(x + 0.5, y - fh - 0.5, TILE - 1, TILE + fh);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold ' + tilePx(7) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('起点', x + TILE / 2, y - fh / 2 - 0.5);
       return;
     }
 
-    // 陷阱管道：用 pipe_top + 3 个 pipe_body 拼接成 2x4 格
+    // 陷阱管道：pipe_top + 3 个 pipe_body 拼成 2x4 格（管口/管身横跨 2 格，宽 2*TILE）
     if (d.id === 'pipe_trap') {
       var pt = getImg(CAT.byId('pipe_top')), pb = getImg(CAT.byId('pipe_body'));
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
-      if (pt && pt.complete) ctx.drawImage(pt, x, y - 1);
+      ctx.globalAlpha = a;
+      if (pt && pt.complete) ctx.drawImage(pt, x, y, 2 * TILE, TILE);
       for (var py = 1; py < 4; py++) {
-        if (pb && pb.complete) ctx.drawImage(pb, x + 4, y + py * TILE - 1);
+        if (pb && pb.complete) ctx.drawImage(pb, x, y + py * TILE, 2 * TILE, TILE);
       }
       ctx.globalAlpha = 1;
       return;
     }
 
-    // 其余精灵 / 管道 / 旗杆等矢量预渲染图
+    // 剩余所有元素：按 tw/th 声明的格数缩放
     var im2 = getImg(d);
     if (im2 && im2.complete && im2.naturalWidth) {
-      ctx.globalAlpha = alpha == null ? 1 : alpha;
-      var iw = im2.naturalWidth, ih = im2.naturalHeight;
-      var dx, dy;
+      ctx.globalAlpha = a;
+      var dx2, dy2, dw2, dh2;
+      var tw = d.tw || 1, th = d.th || 1;
       if (d.cat === 'bg') {
-        dx = x; dy = y;
-      } else if (d.cat === 'struct') {
-        // 矢量预渲染图各自带 1px 黑边余量，按 main.cpp 的绘制坐标对齐
-        switch (d.id) {
-          case 'pipe_top':  dx = x;     dy = y - 1; break;  // 绿块 60x30
-          case 'pipe_body': dx = x + 4; dy = y - 1; break;  // 管身 50x30（居中于60宽上口）
-          case 'pipe_h':    dx = x + 9; dy = y + 2; break;  // 横管 39x50 居中于 2x2 格
-          case 'pipe_v2':   dx = x;     dy = y + 4; break;  // 29x53
-          case 'goal_pole':
-          case 'fake_pole': dx = x;     dy = y;     break;  // 球心在格顶，杆向下延伸
-          default:          dx = x;     dy = y;              // bg_midflag 等精灵
-        }
+        // 背景：按 manifest 设计尺寸随 TILE 等比放大（与游戏内虚拟比例一致）
+        var bs2 = bgDrawSize(d, im2);
+        dx2 = x; dy2 = y;
+        dw2 = bs2.w; dh2 = bs2.h;
+        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
+      } else if (d.cat === 'struct' || d.cat === 'enemy') {
+        // 管道/旗杆/假旗杆/大敌人：按 tw/th 格数等比缩放
+        dx2 = x; dy2 = y;
+        dw2 = tw * TILE;
+        dh2 = th * TILE;
+        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
       } else {
-        dx = x + (TILE - iw) / 2;
-        dy = y;
+        // 方块/物品（都是 1×1）：强制一格
+        dx2 = x; dy2 = y; dw2 = TILE; dh2 = TILE;
+        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
       }
-      ctx.drawImage(im2, Math.round(dx), Math.round(dy));
       ctx.globalAlpha = 1;
     }
   }
@@ -398,6 +438,9 @@
     var H = ROWS * TILE;
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
+
+    // 关掉插值：所有 drawImage 用 nearest-neighbor，保持像素艺术锐利
+    ctx.imageSmoothingEnabled = false;
 
     // 天空
     ctx.fillStyle = THEMES[state.theme].sky;
@@ -842,7 +885,7 @@
 
   document.getElementById('demoBtn').addEventListener('click', loadDemo);
 
-  // 试玩：把当前关卡交给 play.html（原版引擎 + 内存补丁）
+  // 试玩：把当前关卡交给 play.html（新引擎 game/engine.js，JSON 直接转关卡定义）
   document.getElementById('playBtn').addEventListener('click', function () {
     var data = {
       app: 'catmario-level-editor',
@@ -955,6 +998,7 @@
 
   // ---------- 初始化 ----------
   buildPalette();
+  updateTileSize();   // 首次计算响应式 tile 大小
   renderGutter();
   colsInput.value = state.cols;
   document.getElementById('gridBtn').classList.add('active');

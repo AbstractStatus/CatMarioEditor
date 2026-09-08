@@ -110,6 +110,8 @@
           p.mb + p.mnobib > xx[9] - 1000 && p.mb + p.mnobib < xx[9] + xx[1] + 3000 &&
           p.mzimen === 1 && p.actaon[3] === 1 && p.mtype === 0) {
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = s.sxtype;
+        // sxtype===0 为陷阱管道：记录管道对象，动画期间驱动管道本体抖动/上升
+        p._trapPipe = (s.sxtype === 0) ? s : null;
         return true;
       }
       return false;

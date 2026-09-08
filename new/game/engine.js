@@ -147,6 +147,23 @@
     (def.lifts || []).forEach(function (l) {
       state.lifts.push(l);
     });
+
+    // 自定义关卡 BGM（试玩页注入；默认地上 100）
+    state.bgmId = def.bgm || 100;
+
+    // 自定义出生点（def.spawn：像素单位，与 blocks 的 x/y 同系）
+    // 新引擎 ma/mb 为世界坐标；进关直接把玩家放到出生点并把镜头居中，
+    // 远端出生不再依赖首帧相机追赶
+    if (def.spawn && state.player) {
+      state.player.ma = def.spawn.x * 100 + 200;
+      state.player.mb = (def.spawn.y - 30) * 100;   // 略高几格，自然落地
+      state.scorepos = state.player.ma;
+      var fxp = state.player.ma - C.FXMAX / 2;
+      if (fxp > 700 && fxp < state.scrollx) {
+        state.fx = fxp;
+        state.fzx = fxp;
+      }
+    }
   }
 
   // ==================== 敌人生成 ====================
@@ -302,10 +319,23 @@
       if (p.mtype === C.MTYPE.PIPE) {
         if (p.mxtype === 0) {
           p.mc = 0; p.md = 0;
-          if (p.mtm <= 16) p.mb += 240;
+          var tp = p._trapPipe;
+          // 玩家沉入管道（mtm<=16）后移出屏幕（17）
+          if (p.mtm <= 16) { p.mb += 240; p.mzz = 100; }
           if (p.mtm === 17) p.mb = -80000000;
-          if (p.mtm >= 110) { p.mb -= 80; }
-          if (p.mtm === 160) { p.mtype = 0; p.mhp--; _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit' }); }
+          // 陷阱管道动画：玩家已离屏，此时驱动管道本体（对应原版 main.cpp 的 sa/sb[28]）
+          if (tp) {
+            if (p.mtm === 23) tp.sa -= 100;
+            if (p.mtm >= 44 && p.mtm <= 60) tp.sa += (p.mtm % 2 === 0) ? 200 : -200;
+            if (p.mtm >= 61 && p.mtm <= 77) tp.sa += (p.mtm % 2 === 0) ? 400 : -400;
+            if (p.mtm >= 78 && p.mtm <= 94) tp.sa += (p.mtm % 2 === 0) ? 600 : -600;
+            if (p.mtm >= 110) {
+              tp.sb -= p.mzz;
+              p.mzz += 80;
+              if (p.mzz > 1600) p.mzz = 1600;
+            }
+          }
+          if (p.mtm === 160) { p._trapPipe = null; p.mtype = 0; p.mhp--; _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit' }); }
         } else {
           p.mc = 0; p.md = 0;
           if (p.mtm <= 16) p.mb += 240;
@@ -878,14 +908,20 @@
     var p = state.player;
     if (state.kscroll !== 1 && state.kscroll !== 2) {
       var screenX = p.ma - state.fx;
-      if (screenX > C.MASCROLLMAX && state.fzx < state.scrollx) {
-        xx[5] = screenX - C.MASCROLLMAX;
-        state.fx += xx[5]; state.fzx += xx[5];
+      // 触发阈值：屏幕宽度的 1/3 和 2/3 处（动态，适配镜头变宽后的 FXMAX）
+      var leftTrigger  = C.FXMAX / 3;
+      var rightTrigger = C.FXMAX * 2 / 3;
+      // 右滚：玩家超过 2/3 屏幕宽时才推镜头（保留右边 1/3 缓冲）
+      if (screenX > rightTrigger && state.fzx < state.scrollx) {
+        var push = screenX - rightTrigger;
+        state.fx  += push;
+        state.fzx += push;
       }
-      // 左滚（原生支持）
-      if (screenX < C.MASCROLLMIN && state.fzx > 700) {
-        xx[5] = C.MASCROLLMIN - screenX;
-        state.fx -= xx[5]; state.fzx -= xx[5];
+      // 左滚：玩家退到 1/3 屏幕宽以下才拉镜头（保留左边 1/3 缓冲）
+      if (screenX < leftTrigger && state.fzx > 700) {
+        var pull = leftTrigger - screenX;
+        state.fx  -= pull;
+        state.fzx -= pull;
       }
     }
     if (state.fx < 0) state.fx = 0;
@@ -893,6 +929,16 @@
 
   // ==================== 渲染 ====================
   function render(ctx) {
+    // 关掉插值：所有 drawImage 用 nearest-neighbor
+    // 高清 PNG → 缩到虚拟坐标 → setTransform 放大到屏幕
+    // 两次 nearest 保证每个原始像素最终还是锐利大方块（Win10 图片查看器那种效果）
+    ctx.imageSmoothingEnabled = false;
+
+    // 等比例缩放：所有虚拟坐标乘 _baseScale 渲染到实际像素
+    // 虚拟宽度 C.CANVAS_W 已由 resizeCanvas() 动态扩展（镜头变宽），
+    // 画面本身不拉伸（X/Y 用同一个 _baseScale）
+    ctx.setTransform(_baseScale, 0, 0, _baseScale, 0, 0);
+
     // 背景
     var bgColor = '#000';
     if (state.stagecolor === 1) bgColor = '#a0b4fa';
@@ -964,20 +1010,6 @@
         ctx.fillRect(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), Math.floor(l.src / 100), h);
         ctx.strokeStyle = ctx.fillStyle;
         ctx.strokeRect(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), Math.floor(l.src / 100), h);
-      }
-    });
-
-    // 管道/墙体
-    // 管道/墙体：通过 PipeTypes 注册表渲染
-    state.pipes.forEach(function (s) {
-      if (s.sa < -8000000) return;
-      xx[0] = s.sa - state.fx; xx[1] = s.sb - state.fy;
-      if (xx[0] + s.sc < -10 || xx[0] > C.FXMAX) return;
-      var x = Math.floor(xx[0] / 100), y = Math.floor(xx[1] / 100);
-      var w = Math.floor(s.sc / 100), h = Math.floor(s.sd / 100);
-      var ptype = PT.get(s.stype);
-      if (ptype && ptype.render) {
-        ptype.render(ctx, s, x, y, w, h, state);
       }
     });
 
@@ -1074,6 +1106,20 @@
       }
     });
 
+    // 管道/墙体：放在玩家、敌人之后绘制（对应原版 main.cpp 的“描画上書き(土管)”），
+    // 不透明绿色管体盖住正在进入/探出管道的玩家与敌人，避免透视
+    state.pipes.forEach(function (s) {
+      if (s.sa < -8000000) return;
+      xx[0] = s.sa - state.fx; xx[1] = s.sb - state.fy;
+      if (xx[0] + s.sc < -10 || xx[0] > C.FXMAX) return;
+      var x = Math.floor(xx[0] / 100), y = Math.floor(xx[1] / 100);
+      var w = Math.floor(s.sc / 100), h = Math.floor(s.sd / 100);
+      var ptype = PT.get(s.stype);
+      if (ptype && ptype.render) {
+        ptype.render(ctx, s, x, y, w, h, state);
+      }
+    });
+
     // 标题/状态文字
     ctx.fillStyle = '#fff';
     ctx.font = '14px sans-serif';
@@ -1143,7 +1189,7 @@
     state.fx = 0; state.fy = 0; state.fzx = 0;
     state.scorepos = 0; state.score = 0;
     loadStage();
-    A.bgmChange(100);
+    A.bgmChange(state.bgmId || 100);
   }
 
   // ==================== 公开接口 ====================
@@ -1155,6 +1201,45 @@
   var _renderStep = 1000 / 60;       // 渲染目标 60Hz（仅做节流，rAF 驱动）
   var _lastRenderTime = 0;
 
+  // ---- 响应式：等比例缩放 + 镜头变宽 ----
+  // 策略：
+  //   1) 以画布高度为基准，取 baseScale = canvas.height / 420（等比例缩放所有虚拟坐标）
+  //   2) 画布实际宽度除以 baseScale = virtW，作为虚拟宽度（可变，镜头变宽）
+  //   3) 动态更新 C.CANVAS_W / C.FXMAX，使剔除 / 背景 / 精灵绘制覆盖新的虚拟宽度
+  var _BASE_CANVAS_W = C.CANVAS_W;
+  var _BASE_CANVAS_H = C.CANVAS_H;
+  var _BASE_FXMAX = C.FXMAX;
+  var _baseScale = 1;       // 等比例缩放系数
+  var _virtW = C.CANVAS_W;  // 当前虚拟宽度（>= 480，可变）
+
+  function resizeCanvas() {
+    if (!canvas) return;
+    var rect = canvas.getBoundingClientRect();
+    var cssW = Math.max(10, Math.round(rect.width));
+    var cssH = Math.max(10, Math.round(rect.height));
+    var dpr = window.devicePixelRatio || 1;
+    var newW = Math.floor(cssW * dpr);
+    var newH = Math.floor(cssH * dpr);
+
+    // 只在尺寸真正变化时才重设 canvas.width/height
+    // （重设会清空 canvas 导致闪黑，所以必须节流）
+    if (canvas.width === newW && canvas.height === newH) {
+      // 即使尺寸没变也更新虚拟宽度（DPR/窗口变宽时 FXMAX 仍要刷新）
+      _baseScale = newH / _BASE_CANVAS_H;
+      _virtW = Math.max(_BASE_CANVAS_W, Math.round(newW / _baseScale));
+      C.CANVAS_W = _virtW;
+      C.FXMAX    = _virtW * 100;
+      return;
+    }
+
+    canvas.width  = newW;
+    canvas.height = newH;
+    _baseScale = newH / _BASE_CANVAS_H;
+    _virtW = Math.max(_BASE_CANVAS_W, Math.round(newW / _baseScale));
+    C.CANVAS_W = _virtW;
+    C.FXMAX    = _virtW * 100;
+  }
+
   Engine.init = function (canvasEl) {
     canvas = canvasEl;
     ctx2d = canvas.getContext('2d');
@@ -1162,6 +1247,10 @@
     A.init();
     state.proc = C.PROC.TITLE;
     S.init(function () {});
+
+    // 响应式 resize
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
 
     // 调试快捷键
     window.addEventListener('keydown', function (e) {
@@ -1215,6 +1304,9 @@
       frame();
       _accumulator -= _PHYS_STEP;
     }
+
+    // 每帧重新同步画布虚拟尺寸（窗口 / DPR 变化即时生效）
+    resizeCanvas();
 
     // 渲染节流：目标 60Hz，实际 rAF 驱动会自动适配屏幕刷新率
     // 跳过不必要的渲染可以省电/避免撕裂
@@ -1290,6 +1382,13 @@
     state.maintm = 0;
     _debugFrame = 0;
     startGame();
+  };
+
+  // 回到标题画面（试玩页"回到标题"按钮用）
+  Engine.backToTitle = function () {
+    state.proc = C.PROC.TITLE;
+    state.maintm = 0;
+    A.bgmStop();
   };
 
   // 调试：访问内部状态

@@ -1,4 +1,4 @@
-﻿#include "lib.h"
+﻿﻿﻿﻿#include "lib.h"
 #include <math.h>
 
 //#define TEST_MODE

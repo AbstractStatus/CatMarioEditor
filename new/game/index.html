@@ -9,22 +9,24 @@
     html, body {
       width: 100%; height: 100%;
       background: #000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       overflow: hidden;
       font-family: sans-serif;
     }
     #wrap {
       position: relative;
-      width: 480px;
-      height: 420px;
+      width: 100vw;
+      height: 80vh;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     canvas {
       display: block;
-      width: 480px;
-      height: 420px;
+      width: 100%;
+      height: 100%;
       image-rendering: pixelated;
+      image-rendering: crisp-edges;
       background: #000;
       touch-action: none;
     }
@@ -32,7 +34,7 @@
       position: absolute;
       top: 4px; left: 4px;
       color: #fff;
-      font-size: 10px;
+      font-size: 12px;
       text-shadow: 1px 1px 2px #000;
       pointer-events: none;
       white-space: pre;
@@ -51,7 +53,7 @@
 </head>
 <body>
   <div id="wrap">
-    <canvas id="game" width="480" height="420"></canvas>
+    <canvas id="game"></canvas>
     <div id="loading">加载中...</div>
     <div id="hint"></div>
   </div>
@@ -65,9 +67,9 @@
   <script src="sprites.js?v=2"></script>
   <script src="audio.js?v=5"></script>
   <script src="input.js?v=3"></script>
-  <script src="elements.js?v=2"></script>
+  <script src="elements.js?v=3"></script>
   <script src="levels.js?v=1"></script>
-  <script src="engine.js?v=44"></script>
+  <script src="engine.js?v=56"></script>
 
   <script>
     (function () {
