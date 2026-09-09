@@ -801,6 +801,22 @@
       xx[12] = 0; if (p.md >= 100) xx[12] = p.md;
       xx[25] = 0;
 
+      // 火焰棒特殊碰撞：检测每颗火球是否碰到玩家（而不仅仅是中心点）
+      if (e.atype === 87 && p.mmutekitm <= 0 && p.mtype !== C.MTYPE.DEAD) {
+        var fbCnt = e.axtype % 100;
+        var fbAng = e.atm * Math.PI / 180 / 2;
+        var fbR = 1600; // 火球碰撞半径（世界单位）
+        for (var fi = 0; fi <= fbCnt; fi++) {
+          var fbx = e.aa + fi * 1300 * Math.cos(fbAng);  // 1300 = 13px * 100 世界单位
+          var fby = e.ab + fi * 1300 * Math.sin(fbAng);
+          if (p.ma + p.mnobia > fbx - fbR && p.ma < fbx + fbR &&
+              p.mb + p.mnobib > fby - fbR && p.mb < fby + fbR) {
+            p.mhp -= 1;
+            break;
+          }
+        }
+      }
+
       if (p.ma + p.mnobia > xx[8] + xx[0] * 2 && p.ma < xx[8] + e.anobia - xx[0] * 2 &&
           p.mb + p.mnobib > xx[9] - xx[5] && p.mb + p.mnobib < xx[9] + xx[1] + xx[12] &&
           p.mmutekitm <= 0 && e.abrocktm <= 0) {
@@ -1008,8 +1024,9 @@
       var cnt = e.axtype % 100;
       for (var k = 0; k <= cnt; k++) {
         var ang = e.atm * Math.PI / 180 / 2;
-        var dx = k * 18 * Math.cos(ang);
-        var dy = k * 18 * Math.sin(ang);
+        // 球心距：原 18px，空隙缩小 5px → 13px
+        var dx = k * 13 * Math.cos(ang);
+        var dy = k * 13 * Math.sin(ang);
         ctx.fillStyle = '#ff6000';
         ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 6, 0, Math.PI * 2); ctx.fill();
       }
@@ -1063,9 +1080,6 @@
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(' x ' + (2 - state.life), iconX + 30, iconY + 15);
-      // 分数（左上角）
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillText('SCORE: ' + state.score, 15, 20);
       return;
     }
 
@@ -1190,15 +1204,12 @@
       }
     });
 
-    // 标题/状态文字
-    ctx.fillStyle = '#fff';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('SCORE: ' + state.score, 10, 10);
-    ctx.fillText('POS: ' + Math.floor(p.ma / 100), 10, 28);
+    // 调试状态文字（仅 CHEAT 模式显示，不显示 SCORE/POS）
     if (state.cheat) {
       ctx.fillStyle = '#ff4040';
-      ctx.fillText('CHEAT ON (C to toggle)', 10, 46);
+      ctx.font = '14px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('CHEAT ON (C to toggle)', 10, 20);
     }
   }
 

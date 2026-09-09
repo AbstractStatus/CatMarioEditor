@@ -46,10 +46,33 @@
   var state = {
     cols: 120,
     theme: 'overworld',
+    bgm: 100,         // 本关 BGM ID（关卡级设置，不放画布；100/103/104/105/106）
     grid: true,
     elements: [],     // {id, col, row, len?, xt?}
     _worldDef: null   // 载入“示例世界”时的原版关卡 def（未编辑前用于试玩 1:1 还原）
   };
+
+  // 音效表（与 game/audio.js SE_FILES 一致；仅用于音乐 TAB 试听，游戏内自动触发）
+  var SFX_LIST = [
+    { id: 1,  file: 'jump.mp3',        name: '跳跃' },
+    { id: 3,  file: 'brockbreak.mp3',  name: '砖块碎裂' },
+    { id: 4,  file: 'coin.mp3',        name: '吃金币' },
+    { id: 5,  file: 'humi.mp3',        name: '踩踏敌人' },
+    { id: 6,  file: 'koura.mp3',       name: '踢龟壳' },
+    { id: 7,  file: 'dokan.mp3',       name: '进入管道' },
+    { id: 8,  file: 'brockkinoko.mp3', name: '顶出道具' },
+    { id: 9,  file: 'powerup.mp3',     name: '获得强化' },
+    { id: 10, file: 'kirra.mp3',       name: '击中敌人' },
+    { id: 11, file: 'goal.mp3',        name: '到达终点' },
+    { id: 12, file: 'death.mp3',       name: '死亡' },
+    { id: 13, file: 'Pswitch.mp3',     name: 'P开关' },
+    { id: 14, file: 'jumpBlock.mp3',   name: '头顶砖块' },
+    { id: 15, file: 'hintBlock.mp3',   name: '提示块' },
+    { id: 16, file: '4-clear.mp3',     name: '过关结算' },
+    { id: 17, file: 'allclear.mp3',    name: '全部通关' },
+    { id: 18, file: 'tekifire.mp3',    name: '敌人喷火' }
+ ];
+  var BGM_VALID = [100, 103, 104, 105, 106];
 
   // ---------- DOM ----------
   var canvas = document.getElementById('stage');
@@ -115,6 +138,7 @@
     return {
       cols: state.cols,
       theme: state.theme,
+      bgm: state.bgm,
       elements: state.elements.map(function (e) {
         var o = { id: e.id, col: e.col, row: e.row };
         if (e.len != null) o.len = e.len;
@@ -136,10 +160,12 @@
     var prev = history.pop();
     state.cols = prev.cols;
     state.theme = prev.theme;
+    state.bgm = prev.bgm || 100;
     state.elements = prev.elements;
     selected = null;
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
+    updateBgmCard();
     persist();
     requestRender();
     hintEl.textContent = '已撤销（剩余 ' + history.length + ' 步）';
@@ -358,8 +384,9 @@
       var pcx = x + TILE / 2, pcy = y + TILE / 2;
       ctx.globalAlpha = a;
       for (var i = 0; i <= n; i++) {
-        var fbx = pcx + Math.cos(ang) * i * tilePx(18);
-        var fby = pcy + Math.sin(ang) * i * tilePx(18);
+        // 球心距：原 18px，空隙缩小 5px → 13px
+        var fbx = pcx + Math.cos(ang) * i * tilePx(13);
+        var fby = pcy + Math.sin(ang) * i * tilePx(13);
         ctx.fillStyle = '#ff6000';
         ctx.beginPath(); ctx.arc(fbx, fby, tilePx(6), 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
@@ -485,7 +512,10 @@
 
     // 网格
     if (state.grid) {
-      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      // 亮色主题（地上/空中）用半透明黑线；暗色主题（地下/城堡）用半透明白线
+      var gridStroke = (state.theme === 'overworld' || state.theme === 'sky')
+        ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)';
+      ctx.strokeStyle = gridStroke;
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (var c = 0; c <= state.cols; c++) {
@@ -517,13 +547,13 @@
         if (d.id.indexOf('lift_') === 0) fp.c1 = col + liftLen({ id: d.id, len: d.len }) - 1;
         ctx.strokeStyle = 'rgba(20,80,255,0.9)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(fp.c0 * TILE + 1, fp.r0 * TILE + 1,
+        ctx.strokeRect(fp.c0 * TILE + 1, (fp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
           (fp.c1 - fp.c0 + 1) * TILE - 2, (fp.r1 - fp.r0 + 1) * TILE - 2);
       }
     } else if (hover && tool === 'eraser') {
       ctx.strokeStyle = 'rgba(255,40,40,0.9)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(hover.col * TILE + 1, hover.row * TILE + 1, TILE - 2, TILE - 2);
+      ctx.strokeRect(hover.col * TILE + 1, (hover.row + EXTRA_TOP_ROWS) * TILE + 1, TILE - 2, TILE - 2);
     }
 
     // 选中高亮框
@@ -533,7 +563,7 @@
       ctx.strokeStyle = '#ff7a00';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
-      ctx.strokeRect(sfp.c0 * TILE + 1, sfp.r0 * TILE + 1,
+      ctx.strokeRect(sfp.c0 * TILE + 1, (sfp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
         (sfp.c1 - sfp.c0 + 1) * TILE - 2, (sfp.r1 - sfp.r0 + 1) * TILE - 2);
       ctx.restore();
     }
@@ -757,9 +787,26 @@
     }
   }
 
-  // ---------- 左侧元素面板 ----------
+  // ---------- 左侧面板（TAB：元素 / 音乐） ----------
   function buildPalette() {
-    var order = ['struct', 'block', 'item', 'enemy', 'bg', 'audio'];
+    // TAB 栏
+    var tabs = document.createElement('div');
+    tabs.id = 'palTabs';
+    [['el', '🧱 元素'], ['music', '🎵 音乐']].forEach(function (t, i) {
+      var b = document.createElement('button');
+      b.className = 'pal-tab' + (i === 0 ? ' active' : '');
+      b.dataset.tab = t[0];
+      b.textContent = t[1];
+      b.addEventListener('click', function () { switchPalTab(t[0]); });
+      tabs.appendChild(b);
+    });
+    paletteEl.appendChild(tabs);
+
+    // 元素面板（BGM 属关卡级设置，不在此列出）
+    var elPane = document.createElement('div');
+    elPane.className = 'pal-pane show';
+    elPane.id = 'palPaneEl';
+    var order = ['struct', 'block', 'item', 'enemy', 'bg'];
     order.forEach(function (cat) {
       var sec = document.createElement('div');
       sec.className = 'pal-sec';
@@ -778,18 +825,10 @@
 
         var thumb = document.createElement('div');
         thumb.className = 'pal-thumb';
-        if (d.cat === 'audio') {
-          var dot = document.createElement('div');
-          dot.className = 'pal-dot';
-          dot.style.background = d.color;
-          dot.textContent = '♪';
-          thumb.appendChild(dot);
-        } else {
-          var im = document.createElement('img');
-          im.src = ASSETS + 'sprites/' + d.img;
-          im.alt = d.name;
-          thumb.appendChild(im);
-        }
+        var im = document.createElement('img');
+        im.src = ASSETS + 'sprites/' + d.img;
+        im.alt = d.name;
+        thumb.appendChild(im);
         b.appendChild(thumb);
 
         var lb = document.createElement('div');
@@ -802,16 +841,157 @@
         if (d.ttype) tag.push('t' + d.ttype);
         if (d.atype != null && !d.mapId) tag.push('a' + d.atype);
         if (d.ntype != null) tag.push('背景' + d.ntype);
-        if (d.bgmId) tag.push('BGM' + d.bgmId);
         b.title = d.hint + (tag.length ? '\n原生ID：' + tag.join(' / ') : '');
 
         b.addEventListener('click', function () { selectTool(d.id); });
         grid.appendChild(b);
       });
       sec.appendChild(grid);
-      paletteEl.appendChild(sec);
+      elPane.appendChild(sec);
+    });
+    paletteEl.appendChild(elPane);
+
+    // 音乐面板
+    var muPane = document.createElement('div');
+    muPane.className = 'pal-pane';
+    muPane.id = 'palPaneMusic';
+    buildMusicPane(muPane);
+    paletteEl.appendChild(muPane);
+  }
+
+  function switchPalTab(name) {
+    document.querySelectorAll('.pal-tab').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    document.getElementById('palPaneEl').classList.toggle('show', name === 'el');
+    document.getElementById('palPaneMusic').classList.toggle('show', name === 'music');
+    if (name !== 'music') stopBgm();   // 离开音乐页停止 BGM 试听
+  }
+
+  // 音乐面板：BGM 卡片（点击弹单选窗）+ 音效试听网格
+  function buildMusicPane(pane) {
+    // --- BGM 区 ---
+    var sec = document.createElement('div');
+    sec.className = 'pal-sec';
+    var h = document.createElement('div');
+    h.className = 'pal-h';
+    h.textContent = CAT.CATS.audio;
+    sec.appendChild(h);
+
+    var card = document.createElement('div');
+    card.className = 'bgm-card';
+    card.id = 'bgmCard';
+    card.title = '点击选择本关背景音乐（单选弹窗）';
+    card.addEventListener('click', openBgmModal);
+    sec.appendChild(card);
+    pane.appendChild(sec);
+    updateBgmCard();
+
+    // --- 音效区 ---
+    var sec2 = document.createElement('div');
+    sec2.className = 'pal-sec';
+    var h2 = document.createElement('div');
+    h2.className = 'pal-h';
+    h2.textContent = '🔊 音效试听（游戏内自动触发）';
+    sec2.appendChild(h2);
+    var grid = document.createElement('div');
+    grid.className = 'pal-grid';
+    SFX_LIST.forEach(function (s) {
+      var b = document.createElement('div');
+      b.className = 'pal-item';
+      b.title = '试听：' + s.name + '（' + s.file + '，音效ID ' + s.id + '）';
+      var thumb = document.createElement('div');
+      thumb.className = 'pal-thumb sfx-thumb';
+      var dot = document.createElement('div');
+      dot.className = 'pal-dot';
+      dot.style.background = '#607d8b';
+      dot.textContent = '♪';
+      thumb.appendChild(dot);
+      b.appendChild(thumb);
+      var lb = document.createElement('div');
+      lb.className = 'pal-label';
+      lb.textContent = s.name;
+      b.appendChild(lb);
+      b.addEventListener('click', function () { playSfx(s); });
+      grid.appendChild(b);
+    });
+    sec2.appendChild(grid);
+    pane.appendChild(sec2);
+  }
+
+  function bgmDefById(id) {
+    for (var i = 0; i < CAT.ELEMENTS.length; i++) {
+      if (CAT.ELEMENTS[i].cat === 'audio' && CAT.ELEMENTS[i].bgmId === id) return CAT.ELEMENTS[i];
+    }
+    return null;
+  }
+
+  function updateBgmCard() {
+    var card = document.getElementById('bgmCard');
+    if (!card) return;
+    var d = bgmDefById(state.bgm);
+    card.innerHTML = '';
+    var dot = document.createElement('div');
+    dot.className = 'bgm-card-dot';
+    dot.style.background = d ? d.color : '#888';
+    dot.textContent = '♪';
+    card.appendChild(dot);
+    var info = document.createElement('div');
+    info.className = 'bgm-card-info';
+    info.innerHTML = '<div class="bgm-card-name">' + (d ? d.name : '默认 BGM') + '</div>' +
+      '<div class="bgm-card-sub">关卡级设置 · 不放画布</div>';
+    card.appendChild(info);
+    var chg = document.createElement('div');
+    chg.className = 'bgm-card-chg';
+    chg.textContent = '切换 ›';
+    card.appendChild(chg);
+  }
+
+  // ---------- BGM 单选弹窗 ----------
+  var bgmModal = document.getElementById('bgmModal');
+  var bgmListEl = document.getElementById('bgmList');
+
+  function buildBgmList() {
+    bgmListEl.innerHTML = '';
+    CAT.ELEMENTS.forEach(function (d) {
+      if (d.cat !== 'audio') return;
+      var item = document.createElement('div');
+      item.className = 'world-item bgm-item' + (d.bgmId === state.bgm ? ' sel' : '');
+      item.innerHTML = '<span class="bgm-radio">' + (d.bgmId === state.bgm ? '●' : '○') + '</span>' +
+        '<span class="bgm-dot" style="background:' + d.color + '">♪</span>' +
+        '<span class="wname">' + d.name + '</span>' +
+        '<span class="wmeta">ID ' + d.bgmId + ' · ' + d.file + '</span>';
+      item.title = d.hint;
+      item.addEventListener('click', function () {
+        if (d.bgmId !== state.bgm) {
+          pushHistory();
+          state.bgm = d.bgmId;
+          persist();
+          updateBgmCard();
+          bgmListEl.querySelectorAll('.bgm-item').forEach(function (it) {
+            it.classList.remove('sel');
+            var r = it.querySelector('.bgm-radio');
+            if (r) r.textContent = '○';
+          });
+          item.classList.add('sel');
+          var radio = item.querySelector('.bgm-radio');
+          if (radio) radio.textContent = '●';
+        }
+        playBgm(d);   // 点击即试听（含已选中项重播）
+      });
+      bgmListEl.appendChild(item);
     });
   }
+  function openBgmModal() {
+    buildBgmList();
+    bgmModal.classList.add('show');
+  }
+  function closeBgmModal() {
+    bgmModal.classList.remove('show');
+    stopBgm();
+  }
+  document.getElementById('bgmClose').addEventListener('click', closeBgmModal);
+  bgmModal.addEventListener('click', function (ev) { if (ev.target === bgmModal) closeBgmModal(); });
 
   function selectTool(id) {
     tool = id;
@@ -866,6 +1046,19 @@
   }
   function stopBgm() {
     if (bgmAudio) { bgmAudio.pause(); bgmAudio = null; }
+  }
+
+  // ---------- 音效试听（一次性，不循环） ----------
+  var sfxAudio = null;
+  function playSfx(s) {
+    if (!sfxAudio) sfxAudio = new Audio();
+    sfxAudio.pause();
+    sfxAudio.src = 'soundEffect/' + s.file;
+    sfxAudio.currentTime = 0;
+    sfxAudio.volume = 0.6;
+    var p = sfxAudio.play();
+    if (p && p.catch) p.catch(function () { /* 浏览器自动播放限制时忽略 */ });
+    hintEl.textContent = '试听音效：' + s.name + '（游戏内由对应事件自动触发）';
   }
 
   // ---------- 鼠标交互 ----------
@@ -1061,6 +1254,7 @@
       rows: ROWS,
       cols: state.cols,
       theme: state.theme,
+      bgm: state.bgm,
       elements: state.elements
     };
     var blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
@@ -1190,10 +1384,10 @@
       var col = Math.round(p.sa / 100 / 29), row = Math.round((p.sb / 100 + 12) / 29);
       note(col);
       if (p.stype === 50) {
-        var tc = Math.round((p.sa / 100 - 500) / 29);   // pipe_trap: sa = c*29*100+500
+        var tc = Math.round((p.sa - 500) / 2900);   // pipe_trap: sa = c*29*100+500（+500 为世界单位=5px，勿除以 100 后再减）
         add('pipe_trap', tc, row, { sxtype: p.sxtype || 0 });
       } else if (p.stype === 60) {
-        var wc = Math.round((p.sa / 100 - 500) / 29);   // pipe_warp 坐标同 pipe_trap
+        var wc = Math.round((p.sa - 500) / 2900);   // pipe_warp 坐标同 pipe_trap
         add('pipe_warp', wc, row, { warp: p.warp || { end: true, id: null } });
       } else if (p.stype === 5 && p.sxtype === 10) {
         add('pipe_h_mouth_l', col, row);
@@ -1230,15 +1424,20 @@
       if (W_LIFT_ID[l.srsp]) add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
       else skip++;
     });
-    // 6) 出生点 & BGM
+    // 6) 出生点（BGM 是关卡级设置，不放画布，随返回值交给 loadData）
     if (def.spawn) add('player_start', Math.round(def.spawn.x / 29), Math.round((def.spawn.y + 12) / 29));
-    if (def.bgm && W_BGM_ID[def.bgm]) add(W_BGM_ID[def.bgm], 0, 0);
-    return { elements: E, theme: W_THEME[def.stagecolor] || 'overworld', cols: maxCol + 2, skip: skip };
+    return {
+      elements: E,
+      theme: W_THEME[def.stagecolor] || 'overworld',
+      cols: maxCol + 2,
+      skip: skip,
+      bgm: (def.bgm && W_BGM_ID[def.bgm]) ? def.bgm : 100
+    };
   }
 
   function loadWorld(stage) {
     var conv = worldToElements(stage);
-    loadData({ cols: conv.cols, theme: conv.theme, elements: conv.elements });
+    loadData({ cols: conv.cols, theme: conv.theme, bgm: conv.bgm, elements: conv.elements });
     state._worldDef = stage;   // 未编辑前试玩 1:1 还原原版
     scroller.scrollLeft = 0;
     hintEl.textContent = '已载入世界 ' + stage.id + '（' + stage.name + '）：' + conv.elements.length +
@@ -1282,6 +1481,7 @@
       rows: ROWS,
       cols: state.cols,
       theme: state.theme,
+      bgm: state.bgm,
       elements: state.elements
     };
     // 载入示例世界且未编辑时，附带原版关卡 def，试玩页 1:1 还原（含编辑器未暴露的陷阱/特效机关）
@@ -1330,20 +1530,26 @@
     if (!data || !Array.isArray(data.elements)) throw new Error('格式不正确：缺少 elements 数组');
     state._worldDef = null;   // 外部载入（JSON/示例世界转换结果）默认无高保真 def；loadWorld 会在其后显式设置
     history = [];
+    var bgmFromEl = null;     // 兼容旧数据：画布上的 BGM 标记迁移为关卡级 bgm
     state.elements = data.elements.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
     }).map(function (e) {
+      var ed = CAT.byId(e.id);
+      if (ed.cat === 'audio') { if (bgmFromEl == null) bgmFromEl = ed.bgmId; return null; }
       var out = { id: e.id, col: e.col | 0, row: e.row | 0 };
       if (e.len) out.len = e.len | 0;
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
       return out;
-    });
+    }).filter(Boolean);
     if (data.cols) state.cols = Math.max(20, Math.min(1000, data.cols | 0));
     if (data.theme && THEMES[data.theme]) state.theme = data.theme;
+    if (data.bgm && BGM_VALID.indexOf(data.bgm | 0) >= 0) state.bgm = data.bgm | 0;
+    else if (bgmFromEl != null) state.bgm = bgmFromEl;
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
+    updateBgmCard();
     persist();
     requestRender();
   }
@@ -1355,7 +1561,7 @@
     saveTimer = setTimeout(function () {
       try {
         localStorage.setItem('catmario-editor-autosave', JSON.stringify({
-          cols: state.cols, theme: state.theme, grid: state.grid, elements: state.elements
+          cols: state.cols, theme: state.theme, bgm: state.bgm, grid: state.grid, elements: state.elements
         }));
       } catch (e) { /* localStorage 不可用时忽略 */ }
     }, 300);

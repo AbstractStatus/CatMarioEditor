@@ -312,11 +312,16 @@ body.dragging #dropTip { display: flex; }
     bgms.sort(function (a, b) { return a.col - b.col; });
 
     var cols = level.cols || (maxCol + 2);
+    // BGM：优先取关卡级设置 level.bgm（编辑器音乐 TAB 单选）；
+    // 兼容旧数据：画布上的 BGM 标记元素
+    var bgmId = ([100, 103, 104, 105, 106].indexOf(level.bgm | 0) >= 0)
+      ? (level.bgm | 0)
+      : (bgms.length ? bgms[0].id : 100);
     return {
       grid: grid,
       stagecolor: THEME_COLOR[level.theme] || 1,
       scrollx: Math.max(cols, 120) * 29 * 100,
-      bgm: bgms.length ? bgms[0].id : 100,
+      bgm: bgmId,
       blocks: blocks,
       pipes: pipes,
       enemies: enemies,
@@ -324,7 +329,7 @@ body.dragging #dropTip { display: flex; }
       spawn: spawn,
       // 统计信息（引擎不读，仅弹窗展示用）
       _skip: skip, _used: used, _cols: cols,
-      _bgmName: bgms.length ? bgms[0].id : 100
+      _bgmName: bgmId
     };
   }
 
