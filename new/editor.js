@@ -12,13 +12,14 @@
 
   var TILE = CAT.TILE;       // 基础 29（会动态放大）
   var ROWS = CAT.ROWS;       // 17
+  var EXTRA_TOP_ROWS = 3;   // 画布顶部额外留出 3 行，让 row<0 的超界元素（如桃色方块猫）可见
   var ASSETS = 'assets/';
 
   // 响应式：TILE 放大到让整个关卡高度占页面的 ~80%
   function updateTileSize() {
     // 可用高度 = 窗口高度 - 工具栏 - 状态栏 - 一些 padding
     var availH = window.innerHeight - 56 - 46 - 20;
-    var tileByH = Math.floor(availH / ROWS);
+    var tileByH = Math.floor(availH / (ROWS + EXTRA_TOP_ROWS));
     // 放大 tiles，最大到基础的 4 倍
     var newTile = Math.min(tileByH, CAT.TILE * 4);
     if (newTile < CAT.TILE) newTile = CAT.TILE;
@@ -199,7 +200,8 @@
   }
 
   function placeAt(col, row) {
-    if (col < 0 || row < 0) return;
+    if (col < 0 || col >= state.cols) return;
+    if (row < -EXTRA_TOP_ROWS || row >= ROWS) return;
     if (!inStroke) pushHistory();
     var d = CAT.byId(tool);
     if (!d) return;
@@ -208,7 +210,8 @@
     if (d.id.indexOf('lift_') === 0) { tw = len; }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
-    if (row < 0 || col < 0) return;
+    row = Math.max(row, -EXTRA_TOP_ROWS);
+    if (col < 0) return;
 
     var fp = footprint(d, col, row);
     if (d.id.indexOf('lift_') === 0) fp.c1 = col + len - 1;
@@ -275,7 +278,7 @@
       p.x += p.vx;
       p.y += p.vy;
       p.life--;
-      if (p.life <= 0 || p.y > ROWS * TILE + 20) debris.splice(i, 1);
+      if (p.life <= 0 || p.y > (ROWS + EXTRA_TOP_ROWS) * TILE + 20) debris.splice(i, 1);
     }
   }
 
@@ -328,7 +331,7 @@
   function drawElement(e, alpha) {
     var d = CAT.byId(e.id);
     if (!d) return;
-    var x = e.col * TILE, y = e.row * TILE;
+    var x = e.col * TILE, y = (e.row + EXTRA_TOP_ROWS) * TILE;
     var a = alpha == null ? 1 : alpha;
 
     if (d.cat === 'audio') {
@@ -454,16 +457,31 @@
     updateDebris();
 
     var W = state.cols * TILE;
-    var H = ROWS * TILE;
+    var H = (ROWS + EXTRA_TOP_ROWS) * TILE;
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
 
     // 关掉插值：所有 drawImage 用 nearest-neighbor，保持像素艺术锐利
     ctx.imageSmoothingEnabled = false;
 
-    // 天空
+    // 天空（正常区域 + 超界区域统一背景，但超界区画虚线分隔）
     ctx.fillStyle = THEMES[state.theme].sky;
     ctx.fillRect(0, 0, W, H);
+    // 超界区（row < 0）用稍暗颜色 + 虚线分隔
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(0, 0, W, EXTRA_TOP_ROWS * TILE);
+    ctx.strokeStyle = 'rgba(255,200,80,0.6)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, EXTRA_TOP_ROWS * TILE + 0.5);
+    ctx.lineTo(W, EXTRA_TOP_ROWS * TILE + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#ffcc50';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('↑ 超界区（游戏外）', 4, EXTRA_TOP_ROWS * TILE - 4);
 
     // 网格
     if (state.grid) {
@@ -474,9 +492,9 @@
         ctx.moveTo(c * TILE + 0.5, 0);
         ctx.lineTo(c * TILE + 0.5, H);
       }
-      for (var r = 0; r <= ROWS; r++) {
-        ctx.moveTo(0, r * TILE + 0.5);
-        ctx.lineTo(W, r * TILE + 0.5);
+      for (var r = -EXTRA_TOP_ROWS; r <= ROWS; r++) {
+        ctx.moveTo(0, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
+        ctx.lineTo(W, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
       }
       ctx.stroke();
     }
@@ -492,8 +510,8 @@
       var d = CAT.byId(tool);
       if (d) {
         var col = Math.min(hover.col, state.cols - (d.tw || 1));
-        var row = Math.min(hover.row, ROWS - (d.th || 1));
-        col = Math.max(col, 0); row = Math.max(row, 0);
+        var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - (d.th || 1));
+        col = Math.max(col, 0);
         drawElement({ id: d.id, col: col, row: row, len: d.len, xt: d.xt }, 0.55);
         var fp = footprint(d, col, row);
         if (d.id.indexOf('lift_') === 0) fp.c1 = col + liftLen({ id: d.id, len: d.len }) - 1;
@@ -614,9 +632,9 @@
     propTitle.textContent = '⚙ 元素属性 — ' + (d.name || selected.id);
     propBody.innerHTML = '';
 
-    // 通用：位置
+    // 通用：位置（行允许 -EXTRA_TOP_ROWS 到 ROWS-1，覆盖超界元素）
     var colInp = numInput(0, state.cols - 1, selected.col);
-    var rowInp = numInput(0, ROWS - 1, selected.row);
+    var rowInp = numInput(-EXTRA_TOP_ROWS, ROWS - 1, selected.row);
     var posRow = document.createElement('div');
     posRow.className = 'prop-row';
     var plb = document.createElement('label');
@@ -660,7 +678,7 @@
       pushHistory();
       var c = parseInt(colInp.value, 10), r = parseInt(rowInp.value, 10);
       if (isFinite(c)) selected.col = Math.max(0, Math.min(state.cols - 1, c));
-      if (isFinite(r)) selected.row = Math.max(0, Math.min(ROWS - 1, r));
+      if (isFinite(r)) selected.row = Math.max(-EXTRA_TOP_ROWS, Math.min(ROWS - 1, r));
       if (fTotal) selected.xt = Math.max(1, Math.min(20, (parseInt(fTotal.value, 10) || 6) - 1));
       if (fRot) selected.rot = ((parseInt(fRot.value, 10) || 0) % 360 + 360) % 360;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
@@ -709,20 +727,33 @@
   }
 
   function renderGutter() {
+    var totalH = (ROWS + EXTRA_TOP_ROWS) * TILE;
     gutter.width = 34;
-    gutter.height = ROWS * TILE;
+    gutter.height = totalH;
     gctx.fillStyle = '#2b2f38';
-    gctx.fillRect(0, 0, 34, ROWS * TILE);
+    gctx.fillRect(0, 0, 34, totalH);
     gctx.fillStyle = '#aab2c5';
     gctx.font = '10px monospace';
     gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    // 超界区（负数行号）
+    gctx.fillStyle = '#ffcc50';
+    for (var r = -EXTRA_TOP_ROWS; r < 0; r++) {
+      gctx.strokeStyle = '#6a5a30';
+      gctx.beginPath();
+      gctx.moveTo(28, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
+      gctx.lineTo(34, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
+      gctx.stroke();
+      gctx.fillText(String(r), 14, (r + EXTRA_TOP_ROWS) * TILE + 14);
+    }
+    // 正常区
+    gctx.fillStyle = '#aab2c5';
     for (var r = 0; r < ROWS; r++) {
       gctx.strokeStyle = '#3c4250';
       gctx.beginPath();
-      gctx.moveTo(28, r * TILE + 0.5);
-      gctx.lineTo(34, r * TILE + 0.5);
+      gctx.moveTo(28, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
+      gctx.lineTo(34, (r + EXTRA_TOP_ROWS) * TILE + 0.5);
       gctx.stroke();
-      gctx.fillText(String(r), 14, r * TILE + 14);
+      gctx.fillText(String(r), 14, (r + EXTRA_TOP_ROWS) * TILE + 14);
     }
   }
 
@@ -842,7 +873,7 @@
     var rect = canvas.getBoundingClientRect();
     var mx = ev.clientX - rect.left;
     var my = ev.clientY - rect.top;
-    return { col: Math.floor(mx / TILE), row: Math.floor(my / TILE) };
+    return { col: Math.floor(mx / TILE), row: Math.floor(my / TILE) - EXTRA_TOP_ROWS };
   }
 
   canvas.addEventListener('mousedown', function (ev) {
@@ -907,7 +938,7 @@
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
       nc = Math.max(0, Math.min(state.cols - tw, nc));
-      nr = Math.max(0, Math.min(ROWS - th, nr));
+      nr = Math.max(-EXTRA_TOP_ROWS, Math.min(ROWS - th, nr));
       if (nc !== selected.col || nr !== selected.row) {
         selected.col = nc;
         selected.row = nr;

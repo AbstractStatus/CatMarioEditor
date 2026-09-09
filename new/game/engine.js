@@ -1238,6 +1238,7 @@
       state.maintm++;
       if (state.maintm >= 30) {
         state.maintm = 0; state.proc = C.PROC.GAME;
+        A.bgmChange(state.bgmId || 100);   // 进入游戏界面后才播放 BGM
       }
     }
 
@@ -1259,7 +1260,9 @@
     state.fx = 0; state.fy = 0; state.fzx = 0;
     state.scorepos = 0; state.score = 0;
     loadStage();
-    A.bgmChange(state.bgmId || 100);
+    // BGM 延后到 STAGE_START 倒计时结束、真正进入 GAME 状态时才播放，
+    // 避免死亡界面 / 剩余生命界面期间提前播放（main.cpp bgmchange 在 startGame 里，
+    // 但原版 STAGE_START 显示剩余生命时 BGM 实际上等 proc 切换后才起）
   }
 
   // ==================== 公开接口 ====================
