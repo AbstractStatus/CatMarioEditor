@@ -968,8 +968,22 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30) {
-      S.draw(ctx, e.atype, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87) {
+      // 火焰(小) atype=9：向下运动时垂直翻转图标180°
+      var dx = Math.floor(xx[0] / 100), dy = Math.floor(xx[1] / 100);
+      if (e.atype === 9 && e.ad > 0) {
+        var sp = S.get(e.atype, 3);
+        if (sp && sp.img) {
+          ctx.save();
+          ctx.translate(dx + sp.w / 2, dy + sp.h / 2);
+          ctx.scale(1, -1);
+          if (m) ctx.scale(-1, 1);
+          ctx.drawImage(sp.img, -sp.w / 2, -sp.h / 2);
+          ctx.restore();
+        } else { S.draw(ctx, e.atype, 3, dx, dy, m); }
+      } else {
+        S.draw(ctx, e.atype, 3, dx, dy, m);
+      }
     } else if (e.atype === 30) {
       S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 6) {
@@ -1040,14 +1054,17 @@
     if (state.proc === C.PROC.STAGE_START) {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, C.CANVAS_W, C.CANVAS_H);
-      // 玩家小图标
-      S.draw(ctx, 0, 0, 190, 190);
-      // 剩余生命数（原版：2 - save.life）
+      // 玩家小图标 + 剩余生命数 居中显示
+      var iconX = Math.floor(C.CANVAS_W / 2 - 40);
+      var iconY = Math.floor(C.CANVAS_H / 2 - 12);
+      S.draw(ctx, 0, 0, iconX, iconY);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 16px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(' x ' + Math.max(0, 2 - state.life), 230, 210);
-      // 分数
+      ctx.textBaseline = 'middle';
+      ctx.fillText(' x ' + (2 - state.life), iconX + 30, iconY + 15);
+      // 分数（左上角）
+      ctx.textBaseline = 'alphabetic';
       ctx.fillText('SCORE: ' + state.score, 15, 20);
       return;
     }

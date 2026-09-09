@@ -154,7 +154,7 @@
   // 命中测试：按图层从高到低，返回第一个覆盖 (col,row) 的元素
   function hitTest(col, row) {
     var list = state.elements.slice().sort(function (a, b) {
-      return layerOf(CAT.byId(b.id)) - layerOf(CAT.byId(a.id));
+      return layerOfSorted(CAT.byId(b.id)) - layerOfSorted(CAT.byId(a.id));
     });
     for (var i = 0; i < list.length; i++) {
       var fp = footprintOf(list[i]);
@@ -297,6 +297,11 @@
     if (d.cat === 'item') return 3;
     if (d.cat === 'enemy') return 4;
     return 5; // audio / 起点标记
+  }
+  // 火焰棒特殊处理：始终在最上层渲染，不被方块/敌人遮挡
+  function layerOfSorted(d) {
+    if (d.id === 'firebar') return 10;
+    return layerOf(d);
   }
 
   // TILE 比例的工具：原始设计按 TILE=29，所以任何硬编码 px 都除以 29 再乘 TILE
@@ -478,7 +483,7 @@
 
     // 按层排序绘制
     var list = state.elements.slice().sort(function (a, b) {
-      return layerOf(CAT.byId(a.id)) - layerOf(CAT.byId(b.id));
+      return layerOfSorted(CAT.byId(a.id)) - layerOfSorted(CAT.byId(b.id));
     });
     for (var i = 0; i < list.length; i++) drawElement(list[i]);
 
@@ -1110,8 +1115,24 @@
       if (extra) Object.keys(extra).forEach(function (k) { e[k] = extra[k]; });
       E.push(e);
     }
-    // 1) 字节网格
-    var g = def.grid || [];
+    // 1) 字节网格 — 先把 stype=200 块状地面注入网格副本（原版用独立管道填充，
+    //    编辑器需要可见，游戏侧 convert 也会从网格字节正确还原）
+    var g = [];
+    var srcGrid = def.grid || [];
+    for (var gi = 0; gi < 17; gi++) g.push((srcGrid[gi] || []).slice());
+    (def.pipes || []).forEach(function (p) {
+      if (p.stype !== 200) return;
+      var c0 = Math.round(p.sa / 100 / 29), r0 = Math.round((p.sb / 100 + 12) / 29);
+      var nCols = Math.floor(p.sc / 3000), nRows = Math.floor(p.sd / 3000);
+      for (var cc = 0; cc <= nCols; cc++) {
+        for (var rr = 0; rr <= nRows; rr++) {
+          var tc = c0 + cc, tr = r0 + rr;
+          if (tr >= 0 && tr < 17 && tc >= 0 && tc < 1001) {
+            if (!g[tr][tc]) g[tr][tc] = (rr === 0) ? 5 : 6; // 5=ground_top, 6=ground_fill
+          }
+        }
+      }
+    });
     for (var t = 0; t < 17; t++) {
       var row = g[t] || [];
       for (var tt = 0; tt < 1001; tt++) {

@@ -214,11 +214,12 @@
     }
   };
 
-  // stype 200: 块状地面（使用砖块精灵铺排整片区域）
+  // stype 200: 块状地面（使用地面精灵铺排整片区域，按 stagecolor 变色）
   PipeTypes[200] = {
     solid: true,
-    render: function (ctx, s, x, y, w, h) {
-      drawTileGrid(ctx, s, x, y, w, h, 65, 1);
+    render: function (ctx, s, x, y, w, h, state) {
+      var off = stageColorOffset(state);
+      drawTileGrid(ctx, s, x, y, w, h, 5 + off, 1);
     }
   };
 
