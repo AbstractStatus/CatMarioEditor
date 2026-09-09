@@ -33,18 +33,21 @@
 
   window.addEventListener('resize', updateTileSize);
 
+  // sky 背景色与新引擎 engine.js 的 stagecolor 背景色严格对应：
+  // stagecolor 1(地上)/3(空中) → #a0b4fa 蓝；2(地下)/4(城堡) → #0a0a0a 黑
   var THEMES = {
-    overworld: { name: '地上', sky: '#9fc4ff', debris: [144, 96, 48] },
-    dungeon:   { name: '地下', sky: '#1c1c34', debris: [0, 120, 160] },
-    castle:    { name: '城堡', sky: '#5f5f5f', debris: [192, 192, 192] },
-    sky:       { name: '空中', sky: '#3a5a9e', debris: [144, 96, 48] }
+    overworld: { name: '地上', sky: '#a0b4fa', debris: [144, 96, 48] },
+    dungeon:   { name: '地下', sky: '#0a0a0a', debris: [0, 120, 160] },
+    castle:    { name: '城堡', sky: '#0a0a0a', debris: [192, 192, 192] },
+    sky:       { name: '空中', sky: '#a0b4fa', debris: [144, 96, 48] }
   };
 
   var state = {
     cols: 120,
     theme: 'overworld',
     grid: true,
-    elements: []      // {id, col, row, len?, xt?}
+    elements: [],     // {id, col, row, len?, xt?}
+    _worldDef: null   // 载入“示例世界”时的原版关卡 def（未编辑前用于试玩 1:1 还原）
   };
 
   // ---------- DOM ----------
@@ -115,11 +118,15 @@
         var o = { id: e.id, col: e.col, row: e.row };
         if (e.len != null) o.len = e.len;
         if (e.xt != null) o.xt = e.xt;
+        if (e.rot) o.rot = e.rot;
+        if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
         return o;
       })
     };
   }
   function pushHistory() {
+    // 任何编辑（增删元素/换主题/改列数/清空）都会使“原版世界高保真 def”失效
+    state._worldDef = null;
     history.push(snapshot());
     if (history.length > MAX_HISTORY) history.shift();
   }
@@ -222,7 +229,9 @@
     var ne = { id: d.id, col: col, row: row };
     if (d.id.indexOf('lift_') === 0) ne.len = len;
     if (d.xt) ne.xt = d.xt;
+    if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
     state.elements.push(ne);
+    if (d.warpable) { selected = ne; updateWarpSel(); }
     persist();
     requestRender();
   }
@@ -334,12 +343,17 @@
     }
 
     if (d.kind === 'vector' && d.id === 'firebar') {
+      // 与引擎渲染一致：第0颗火球（圆心）=格子中心，间距18px、半径6px，
+      // 链条从圆心按 e.rot 角度（顺时针，0=向右）伸出，共 xt+1 颗（含圆心）
       var n = e.xt || d.xt || 5;
+      var ang = ((e.rot || 0) * Math.PI) / 180;
+      var pcx = x + TILE / 2, pcy = y + TILE / 2;
       ctx.globalAlpha = a;
-      for (var i = 0; i < n; i++) {
-        var fx = x + TILE / 2 + i * tilePx(17), fy = y + TILE + tilePx(6);
-        ctx.fillStyle = '#e67800';
-        ctx.beginPath(); ctx.arc(fx, fy, TILE / 3.5, 0, Math.PI * 2); ctx.fill();
+      for (var i = 0; i <= n; i++) {
+        var fbx = pcx + Math.cos(ang) * i * tilePx(18);
+        var fby = pcy + Math.sin(ang) * i * tilePx(18);
+        ctx.fillStyle = '#ff6000';
+        ctx.beginPath(); ctx.arc(fbx, fby, tilePx(6), 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
       }
       ctx.globalAlpha = 1;
@@ -514,6 +528,154 @@
     if (debris.length) requestRender();
 
     renderRuler();
+    updateWarpSel();   // 同步“传送目标”下拉的显隐与取值（幂等）
+    updatePropBtn();   // 同步“属性”按钮显隐（选中元素时显示）
+  }
+
+  // ---------- 传送管道口：目标选择下拉 ----------
+  var warpSel = document.getElementById('warpSel');
+  var warpLabel = document.getElementById('warpLabel');
+  var warpSep = document.getElementById('warpSep');
+  var _warpSelBuilt = false;
+  function buildWarpSel() {
+    if (_warpSelBuilt) return;
+    _warpSelBuilt = true;
+    var html = '<option value="__end__">🚩 游戏结束（通关）</option>';
+    (window.STAGES || []).forEach(function (s) {
+      html += '<option value="' + s.id + '">🌍 ' + s.id + ' ' + s.name + '</option>';
+    });
+    warpSel.innerHTML = html;
+  }
+  function updateWarpSel() {
+    if (!warpSel) return;
+    buildWarpSel();
+    var on = selected && CAT.byId(selected.id) && CAT.byId(selected.id).warpable;
+    warpSel.style.display = on ? '' : 'none';
+    warpLabel.style.display = on ? '' : 'none';
+    warpSep.style.display = on ? '' : 'none';
+    if (on) {
+      var w = selected.warp || (selected.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' });
+      var val = w.end ? '__end__' : (w.id || '__end__');
+      if (warpSel.value !== val) {
+        // 若目标世界已不在列表（数据缺失），回退到游戏结束
+        var exists = false;
+        for (var i = 0; i < warpSel.options.length; i++) if (warpSel.options[i].value === val) { exists = true; break; }
+        warpSel.value = exists ? val : '__end__';
+      }
+    }
+  }
+  warpSel.addEventListener('change', function () {
+    if (!selected || !CAT.byId(selected.id).warpable) return;
+    pushHistory();
+    var v = warpSel.value;
+    selected.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
+    persist();
+    hintEl.textContent = '传送管道口目标已设为：' + (v === '__end__' ? '游戏结束（通关）' : '世界 ' + v);
+  });
+
+  // ---------- 元素属性弹窗 ----------
+  var propBtn = document.getElementById('propBtn');
+  var propModal = document.getElementById('propModal');
+  var propTitle = document.getElementById('propTitle');
+  var propBody = document.getElementById('propBody');
+  function updatePropBtn() {
+    if (!propBtn) return;
+    propBtn.style.display = selected ? '' : 'none';
+  }
+  function propRow(labelText, inner, note) {
+    var row = document.createElement('div');
+    row.className = 'prop-row';
+    var lb = document.createElement('label');
+    lb.textContent = labelText;
+    row.appendChild(lb);
+    row.appendChild(inner);
+    if (note) {
+      var nt = document.createElement('span');
+      nt.className = 'prop-note';
+      nt.textContent = note;
+      row.appendChild(nt);
+    }
+    return row;
+  }
+  function numInput(min, max, val) {
+    var inp = document.createElement('input');
+    inp.type = 'number'; inp.min = min; inp.max = max; inp.value = val;
+    return inp;
+  }
+  function openPropModal() {
+    if (!selected) return;
+    var d = CAT.byId(selected.id);
+    if (!d) return;
+    propTitle.textContent = '⚙ 元素属性 — ' + (d.name || selected.id);
+    propBody.innerHTML = '';
+
+    // 通用：位置
+    var colInp = numInput(0, state.cols - 1, selected.col);
+    var rowInp = numInput(0, ROWS - 1, selected.row);
+    var posRow = document.createElement('div');
+    posRow.className = 'prop-row';
+    var plb = document.createElement('label');
+    plb.textContent = '位置（列,行）';
+    posRow.appendChild(plb);
+    posRow.appendChild(colInp);
+    posRow.appendChild(rowInp);
+    propBody.appendChild(posRow);
+
+    var fTotal = null, fRot = null, fLen = null, fWarp = null;
+    if (d.id === 'firebar') {
+      // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
+      fTotal = numInput(1, 21, (selected.xt || d.xt || 5) + 1);
+      propBody.appendChild(propRow('火球总数', fTotal, '含圆心，圆心即旋转原点'));
+      fRot = numInput(0, 359, ((selected.rot || 0) % 360 + 360) % 360);
+      propBody.appendChild(propRow('初始角度', fRot, '度，顺时针，0=向右'));
+    }
+    if (d.id.indexOf('lift_') === 0) {
+      fLen = numInput(1, 50, liftLen(selected));
+      propBody.appendChild(propRow('平台长度', fLen, '格'));
+    }
+    if (d.warpable) {
+      fWarp = document.createElement('select');
+      var optEnd = document.createElement('option');
+      optEnd.value = '__end__'; optEnd.textContent = '🚩 游戏结束（通关）';
+      fWarp.appendChild(optEnd);
+      (window.STAGES || []).forEach(function (s) {
+        var op = document.createElement('option');
+        op.value = s.id; op.textContent = '🌍 ' + s.id + ' ' + s.name;
+        fWarp.appendChild(op);
+      });
+      var wv = selected.warp && !selected.warp.end ? (selected.warp.id || '__end__') : '__end__';
+      for (var oi = 0; oi < fWarp.options.length; oi++) {
+        if (fWarp.options[oi].value === wv) { fWarp.value = wv; break; }
+      }
+      propBody.appendChild(propRow('传送目标', fWarp, '进入管道后前往'));
+    }
+
+    propModal.classList.add('show');
+    propOk.onclick = function () {
+      pushHistory();
+      var c = parseInt(colInp.value, 10), r = parseInt(rowInp.value, 10);
+      if (isFinite(c)) selected.col = Math.max(0, Math.min(state.cols - 1, c));
+      if (isFinite(r)) selected.row = Math.max(0, Math.min(ROWS - 1, r));
+      if (fTotal) selected.xt = Math.max(1, Math.min(20, (parseInt(fTotal.value, 10) || 6) - 1));
+      if (fRot) selected.rot = ((parseInt(fRot.value, 10) || 0) % 360 + 360) % 360;
+      if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
+      if (fWarp) selected.warp = (fWarp.value === '__end__')
+        ? { end: true, id: null } : { end: false, id: fWarp.value };
+      persist();
+      requestRender();
+      closePropModal();
+      hintEl.textContent = '已更新属性：' + (d.name || selected.id);
+    };
+  }
+  function closePropModal() { propModal.classList.remove('show'); }
+  var propOk = document.getElementById('propOk');
+  if (propBtn) {
+    propBtn.addEventListener('click', openPropModal);
+    document.getElementById('propClose').addEventListener('click', closePropModal);
+    document.getElementById('propCancel').addEventListener('click', closePropModal);
+    propModal.addEventListener('click', function (ev) {
+      if (ev.target === propModal) closePropModal();   // 点遮罩关闭
+    });
   }
 
   function renderRuler() {
@@ -708,7 +870,7 @@
         dragStartCol = cell.col;
         dragStartRow = cell.row;
         hintEl.textContent = '已选中：' + (CAT.byId(hit.id).name || hit.id) +
-          '（按住拖动可移动，按 Delete 删除）';
+          '（按住拖动可移动，按 Delete 删除，点上方"⚙ 属性"可编辑属性）';
       } else if (tool) {
         // 空白处：放置当前工具元素
         pushHistory();
@@ -883,7 +1045,181 @@
     ev.target.value = '';
   });
 
-  document.getElementById('demoBtn').addEventListener('click', loadDemo);
+  // ---------- 示例世界：原版关卡 def（window.STAGES）→ 编辑器元素 ----------
+  // 字节网格值 → 元素 id（与 play.html TILE_VAL 互逆）
+  var W_BYTE_ID = { 1: 'block_brick', 2: 'block_question', 3: 'block_hard', 4: 'block_stair',
+    5: 'block_ground_top', 6: 'block_ground_fill', 7: 'block_hidden', 8: 'block_cat_shut',
+    9: 'item_coin', 10: 'block_spike', 30: 'bg_midflag', 40: 'pipe_top', 41: 'pipe_body',
+    43: 'pipe_v2', 44: 'pipe_h' };
+  var W_ENEMY0 = ['enemy_syobon', 'enemy_turtle', 'enemy_shell', 'enemy_ghost', 'enemy_king',
+    'enemy_tongue_cat', 'enemy_robot', 'enemy_syobon_pad', 'enemy_runner', 'enemy_flame'];
+  var W_BG0 = ['bg_hill_house', 'bg_grass', 'bg_cloud_face', 'bg_tree',
+    'bg_cloud_angry', 'bg_tree_round', 'bg_lava'];
+  function wBlockId(type, xt) {
+    xt = xt || 0;
+    if (type === 100) return 'block_brick';
+    if (type === 101) return xt === 0 ? 'block_q_enemy' : 'block_question';
+    if (type === 102) return 'block_q_mushroom';   // 红蘑菇/绿1up 问号块（绿1up 无独立元素）
+    if (type === 103) return 'block_q_poison';
+    if (type === 104) return 'block_q_badstar';
+    if (type === 110 || type === 111) return 'block_q_poison_mass';
+    if (type === 112 || type === 113) return 'block_q_coin_mass';
+    if (type === 117) return xt === 1 ? 'b2_note_peach' : 'b2_note_white';
+    if (type === 120) return 'item_jumppad';
+    if (type === 130) return 'b2_on';
+    if (type === 131) return 'b2_off';
+    if (type === 140) return 'b2_sword';
+    if (type === 141) return 'b2_blade';
+    if (type === 142) return 'b2_pineapple';
+    if (type === 300) return 'b2_hint';
+    if (type === 400) return 'b2_pswitch';
+    if (type === 800) return 'item_coin';
+    return null;
+  }
+  function wEnemyId(t) {
+    if (t >= 0 && t <= 9) return W_ENEMY0[t];
+    var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
+      105: 'item_green_question', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
+      31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 83: 'enemy_spike_ball',
+      84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 90: 'enemy_beam' };
+    return m[t] || null;
+  }
+  var W_LIFT_ID = { 0: 'lift_yellow', 2: 'lift_green', 21: 'lift_gray' };
+  var W_BGM_ID = { 100: 'bgm_field', 103: 'bgm_dungeon', 104: 'bgm_star', 105: 'bgm_castle', 106: 'bgm_puyo' };
+  var W_THEME = { 1: 'overworld', 2: 'dungeon', 3: 'sky', 4: 'castle' };
+  // 主题变体：地下/城堡关卡的网格字节用对应配色元素还原（与引擎 id+30/+60 贴图一致）
+  var W_THEME_VAR = {
+    dungeon: { block_brick: 'block_d_brick', block_question: 'block_d_question', block_hard: 'block_d_hard',
+      block_stair: 'block_d_stair', block_ground_top: 'block_d_ground_top', block_ground_fill: 'block_d_ground_fill',
+      block_spike: 'block_d_spike' },
+    castle: { block_brick: 'block_c_brick', block_question: 'block_c_question', block_hard: 'block_c_hard',
+      block_stair: 'block_c_stair', block_ground_top: 'block_c_ground_top', block_ground_fill: 'block_c_ground_fill',
+      block_spike: 'block_c_spike' }
+  };
+
+  function worldToElements(def) {
+    var E = [];
+    var skip = 0;
+    var maxCol = 0;
+    var tv = W_THEME_VAR[W_THEME[def.stagecolor] || 'overworld'] || null;
+    function vid(baseId) { return (baseId && tv && tv[baseId]) ? tv[baseId] : baseId; }
+    function note(col) { if (col > maxCol) maxCol = col; }
+    function add(id, col, row, extra) {
+      if (!id || !CAT.byId(id)) { skip++; return; }
+      var e = { id: id, col: col | 0, row: row | 0 };
+      if (extra) Object.keys(extra).forEach(function (k) { e[k] = extra[k]; });
+      E.push(e);
+    }
+    // 1) 字节网格
+    var g = def.grid || [];
+    for (var t = 0; t < 17; t++) {
+      var row = g[t] || [];
+      for (var tt = 0; tt < 1001; tt++) {
+        var v = row[tt];
+        if (!v) continue;
+        note(tt);
+        if (v === 99) add('goal_pole', tt, Math.min(t, 11));
+        else if (v >= 20 && v <= 29) add('lift_yellow', tt, t, { len: 1 });
+        else if (v >= 50 && v <= 79) add(W_ENEMY0[v - 50], tt, t);
+        else if (v >= 80 && v <= 89) add(W_BG0[v - 80], tt, t);
+        else if (W_BYTE_ID[v]) add(vid(W_BYTE_ID[v]), tt, t);
+        else skip++;
+      }
+    }
+    // 2) 特殊方块（tyobi，x/y 像素）
+    (def.blocks || []).forEach(function (b) {
+      var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
+      note(col); add(vid(wBlockId(b.type, b.xt)), col, row);
+    });
+    // 3) 独立管道/墙体（sa/sb 世界单位）
+    //    注：竖管口/身/变体/横管身由 grid 字节 40/41/43/44 恢复（见第 1 步），此处不再重复；
+    //    这里只处理不进网格字节的独立管道：陷阱管(50)、横向管道口(stype5+sxtype10/11)。
+    (def.pipes || []).forEach(function (p) {
+      var col = Math.round(p.sa / 100 / 29), row = Math.round((p.sb / 100 + 12) / 29);
+      note(col);
+      if (p.stype === 50) {
+        var tc = Math.round((p.sa / 100 - 500) / 29);   // pipe_trap: sa = c*29*100+500
+        add('pipe_trap', tc, row, { sxtype: p.sxtype || 0 });
+      } else if (p.stype === 60) {
+        var wc = Math.round((p.sa / 100 - 500) / 29);   // pipe_warp 坐标同 pipe_trap
+        add('pipe_warp', wc, row, { warp: p.warp || { end: true, id: null } });
+      } else if (p.stype === 5 && p.sxtype === 10) {
+        add('pipe_h_mouth_l', col, row);
+      } else if (p.stype === 5 && p.sxtype === 11) {
+        add('pipe_h_mouth_r', col, row);
+      } else if (p.stype === 1 || p.stype === 2 || p.stype === 5) {
+        // grid 字节已恢复，跳过（避免重复）
+      } else {
+        skip++;   // 51/52 下落块、100-103 陷阱区/火焰管/消息、40 进入管等暂不在编辑器暴露
+      }
+    });
+    // 4) 敌人/道具触发器（ba/bb 世界单位）
+    (def.enemies || []).forEach(function (en) {
+      var eid = wEnemyId(en.btype);
+      if (eid === 'firebar') {
+        // 火焰棒：圆心在第0颗火球=格子中心（ba=(col*29+14.5)*100, bb=(row*29-12+14.5)*100）；
+        // bxtype = 火球数 + (角度+100)*100（角度编码 bxtype>=10000；遗留值 101~120 是
+        // 原版 P 开关联动值，100 位非角度，按 rot=0 处理）
+        var bt = en.bxtype || 5;
+        var fbCol = Math.round((en.ba / 100 - 14.5) / 29);
+        var fbRow = Math.round((en.bb / 100 + 12 - 14.5) / 29);
+        note(fbCol);
+        add('firebar', fbCol, fbRow, { xt: bt % 100 || 5, rot: bt >= 10000 ? (Math.floor(bt / 100) - 100) % 360 : 0 });
+      } else {
+        var col = Math.round(en.ba / 100 / 29), row = Math.round((en.bb / 100 + 12) / 29);
+        note(col);
+        add(eid, col, row);
+      }
+    });
+    // 5) 升降台（sra/srb 世界单位）
+    (def.lifts || []).forEach(function (l) {
+      var col = Math.round(l.sra / 100 / 29), row = Math.round((l.srb / 100 + 12) / 29);
+      note(col);
+      if (W_LIFT_ID[l.srsp]) add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
+      else skip++;
+    });
+    // 6) 出生点 & BGM
+    if (def.spawn) add('player_start', Math.round(def.spawn.x / 29), Math.round((def.spawn.y + 12) / 29));
+    if (def.bgm && W_BGM_ID[def.bgm]) add(W_BGM_ID[def.bgm], 0, 0);
+    return { elements: E, theme: W_THEME[def.stagecolor] || 'overworld', cols: maxCol + 2, skip: skip };
+  }
+
+  function loadWorld(stage) {
+    var conv = worldToElements(stage);
+    loadData({ cols: conv.cols, theme: conv.theme, elements: conv.elements });
+    state._worldDef = stage;   // 未编辑前试玩 1:1 还原原版
+    scroller.scrollLeft = 0;
+    hintEl.textContent = '已载入世界 ' + stage.id + '（' + stage.name + '）：' + conv.elements.length +
+      ' 个元素，' + conv.cols + ' 列' +
+      (conv.skip ? '；其中 ' + conv.skip + ' 个陷阱/特效机关未在编辑器暴露（试玩仍 1:1 还原）' : '');
+  }
+
+  // 示例世界弹窗
+  var worldModal = document.getElementById('worldModal');
+  var worldListEl = document.getElementById('worldList');
+  var W_THEME_NAME = { 1: '地上', 2: '地下', 3: '空中', 4: '城堡' };
+  function buildWorldList() {
+    worldListEl.innerHTML = '';
+    (window.STAGES || []).forEach(function (s) {
+      var item = document.createElement('div');
+      item.className = 'world-item';
+      item.innerHTML = '<span class="wid">' + s.id + '</span>' +
+        '<span class="wname">' + s.name + '</span>' +
+        '<span class="wmeta">' + (W_THEME_NAME[s.stagecolor] || '') + ' · BGM ' + s.bgm + '</span>';
+      item.addEventListener('click', function () {
+        worldModal.classList.remove('show');
+        loadWorld(s);
+      });
+      worldListEl.appendChild(item);
+    });
+  }
+  document.getElementById('demoBtn').addEventListener('click', function () {
+    if (!window.STAGES || !window.STAGES.length) { hintEl.textContent = '未找到关卡数据 stages_data.js'; return; }
+    buildWorldList();
+    worldModal.classList.add('show');
+  });
+  document.getElementById('worldClose').addEventListener('click', function () { worldModal.classList.remove('show'); });
+  worldModal.addEventListener('click', function (ev) { if (ev.target === worldModal) worldModal.classList.remove('show'); });
 
   // 试玩：把当前关卡交给 play.html（新引擎 game/engine.js，JSON 直接转关卡定义）
   document.getElementById('playBtn').addEventListener('click', function () {
@@ -896,6 +1232,8 @@
       theme: state.theme,
       elements: state.elements
     };
+    // 载入示例世界且未编辑时，附带原版关卡 def，试玩页 1:1 还原（含编辑器未暴露的陷阱/特效机关）
+    if (state._worldDef) data._worldDef = state._worldDef;
     try {
       localStorage.setItem('catmario-editor-playdata', JSON.stringify(data));
       window.open('play.html');
@@ -938,6 +1276,7 @@
 
   function loadData(data) {
     if (!data || !Array.isArray(data.elements)) throw new Error('格式不正确：缺少 elements 数组');
+    state._worldDef = null;   // 外部载入（JSON/示例世界转换结果）默认无高保真 def；loadWorld 会在其后显式设置
     history = [];
     state.elements = data.elements.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
@@ -945,6 +1284,8 @@
       var out = { id: e.id, col: e.col | 0, row: e.row | 0 };
       if (e.len) out.len = e.len | 0;
       if (e.xt) out.xt = e.xt | 0;
+      if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
+      if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
       return out;
     });
     if (data.cols) state.cols = Math.max(20, Math.min(1000, data.cols | 0));
@@ -1003,7 +1344,8 @@
   colsInput.value = state.cols;
   document.getElementById('gridBtn').classList.add('active');
   if (!restore()) {
-    loadDemo();
+    if (window.STAGES && window.STAGES.length) loadWorld(window.STAGES[0]);
+    else loadDemo();
   } else {
     requestRender();
   }

@@ -68,6 +68,7 @@
   };
 
   // stype 5: 横管（只画上下横线，y偏移1px，无左右竖线）
+  // sxtype 10/11：横向管道口，在对应端（左/右）画一圈略高出管身的管口沿（凸缘）
   PipeTypes[5] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
@@ -77,6 +78,13 @@
       ctx.moveTo(x, y); ctx.lineTo(x + w, y);
       ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h);
       ctx.stroke();
+      if (s.sxtype === 10 || s.sxtype === 11) {
+        var lipW = Math.max(8, w * 0.28);
+        var lipX = s.sxtype === 10 ? x - 2 : x + w - lipW + 2;
+        var lipY = y - 4, lipH = h + 8;
+        ctx.fillStyle = '#00e600'; ctx.fillRect(lipX, lipY, lipW, lipH);
+        ctx.strokeStyle = '#000'; ctx.strokeRect(lipX, lipY, lipW, lipH);
+      }
     }
   };
 
@@ -112,6 +120,47 @@
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = s.sxtype;
         // sxtype===0 为陷阱管道：记录管道对象，动画期间驱动管道本体抖动/上升
         p._trapPipe = (s.sxtype === 0) ? s : null;
+        return true;
+      }
+      return false;
+    }
+  };
+
+  // stype 60: 传送管道口（外观同可进入竖管，管口中央有黄色菱形标记）
+  // 玩家按↓进入后，引擎在进管动画结束时调用 state.onWarp(s.warp)：
+  //   warp = { end:true }              → 游戏结束/通关
+  //   warp = { id:'1-2' }              → 传送到指定世界
+  // onWarp 返回 false 表示宿主自行处理结局（不再重载关卡）；否则引擎重载关卡。
+  PipeTypes[60] = {
+    solid: true,
+    render: function (ctx, s, x, y, w, h) {
+      // 底部竖管身（只画左右线）
+      ctx.fillStyle = '#00e600'; ctx.fillRect(x + 5, y + 30, 50, h - 30);
+      ctx.strokeStyle = '#000';
+      ctx.beginPath();
+      ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
+      ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h);
+      ctx.stroke();
+      // 顶部管口
+      ctx.fillStyle = '#00e600'; ctx.fillRect(x, y + 1, 60, 30);
+      ctx.strokeStyle = '#000'; ctx.strokeRect(x, y + 1, 60, 30);
+      // 传送标记：管口中央黄色菱形
+      var cx = x + 30, cy = y + 16;
+      ctx.fillStyle = '#ffe600';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 8); ctx.lineTo(cx + 8, cy);
+      ctx.lineTo(cx, cy + 8); ctx.lineTo(cx - 8, cy);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#000'; ctx.stroke();
+    },
+    onEnter: function (p, s, xx, state) {
+      var C = getC();
+      if (p.ma + p.mnobia > xx[8] + 2800 && p.ma < xx[8] + s.sc - 3000 &&
+          p.mb + p.mnobib > xx[9] - 1000 && p.mb + p.mnobib < xx[9] + xx[1] + 3000 &&
+          p.mzimen === 1 && p.actaon[3] === 1 && p.mtype === 0) {
+        p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
+        p._warp = s.warp || null;
+        p._trapPipe = null;
         return true;
       }
       return false;

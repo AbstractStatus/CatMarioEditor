@@ -145,6 +145,8 @@ body.dragging #dropTip { display: flex; }
 <script src="elements.js"></script>
 <script src="levels.js"></script>
 <script src="engine.js"></script>
+<!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
+<script src="../stages_data.js"></script>
 <script>
 (function () {
   'use strict';
@@ -166,9 +168,9 @@ body.dragging #dropTip { display: flex; }
     block_ground_top: 5, block_ground_fill: 6, block_hidden: 7, block_cat_shut: 8,
     item_coin: 9, block_spike: 10,
     // 地下/城堡主题变体：机制与基础方块相同，引擎按 stagecolor 自动换贴图（id+30/+60）
-    block_d_brick: 1, block_d_question: 2, block_d_hard: 3,
+    block_d_brick: 1, block_d_question: 2, block_d_hard: 3, block_d_stair: 4,
     block_d_ground_top: 5, block_d_ground_fill: 6, block_d_spike: 10,
-    block_c_brick: 1, block_c_question: 2, block_c_hard: 3,
+    block_c_brick: 1, block_c_question: 2, block_c_hard: 3, block_c_stair: 4,
     block_c_ground_top: 5, block_c_ground_fill: 6, block_c_spike: 10,
     bg_midflag: 30, pipe_top: 40, pipe_body: 41, pipe_v2: 43, pipe_h: 44,
     enemy_syobon: 50, enemy_turtle: 51, enemy_shell: 52, enemy_ghost: 53, enemy_king: 54,
@@ -223,7 +225,7 @@ body.dragging #dropTip { display: flex; }
   var LIFT_SRSP = { lift_yellow: 0, lift_green: 2, lift_gray: 21 };
 
   var BGM_ID = { bgm_field: 100, bgm_dungeon: 103, bgm_star: 104, bgm_castle: 105, bgm_puyo: 106 };
-  var THEME_COLOR = { overworld: 1, dungeon: 2, castle: 4, sky: 1 };
+  var THEME_COLOR = { overworld: 1, dungeon: 2, castle: 4, sky: 3 };
 
   function convert(level) {
     if (!level || !Array.isArray(level.elements))
@@ -263,8 +265,24 @@ body.dragging #dropTip { display: flex; }
         blocks.push({ x: x, y: y, type: sp.type, xt: sp.xt || 0 });
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];
-        var xt = (id === 'firebar') ? (e.xt || tg.xt) : tg.xt;
-        enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: xt });
+        if (id === 'firebar') {
+          // 火焰棒：第0颗火球（圆心）位于格子中心，与引擎绘制/碰撞原点一致；
+          // bxtype = 火球数 + (角度+100)*100（>=10000 表示带角度；遗留值 101~120
+          // 是原版 P 开关联动值，引擎按随机初相处理）
+          var cnt = e.xt || tg.xt;
+          var rot = (((e.rot | 0) % 360) + 360) % 360;
+          enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: tg.t, bxtype: cnt + (rot + 100) * 100 });
+        } else {
+          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt });
+        }
+      } else if (id === 'pipe_h_mouth_l' || id === 'pipe_h_mouth_r') {
+        // 横向管道口：stype=5 横管 + 端口管口沿（sxtype 10=左口、11=右口），
+        // 与“管道身(横)”(grid 字节44, stype=5/sxtype=0) 水平拼接
+        pipes.push({
+          sa: x * 100, sb: y * 100 + 700,
+          sc: 3900, sd: 5000,
+          stype: 5, sxtype: id === 'pipe_h_mouth_l' ? 10 : 11
+        });
       } else if (id === 'pipe_trap') {
         // 陷阱管道 stype=50：引擎原生支持进入动画（抖动→上升→阵亡），
         // 多根管道各自独立，无需 slot 借用
@@ -272,6 +290,16 @@ body.dragging #dropTip { display: flex; }
           sa: x * 100 + 500, sb: y * 100,
           sc: 6000, sd: 4 * 3000 - 200,
           stype: 50, sxtype: e.sxtype || 0
+        });
+      } else if (id === 'pipe_warp') {
+        // 传送管道口 stype=60：进入后按 warp 目标切关/通关（见 GameEngine.setWarpHandler）
+        pipes.push({
+          sa: x * 100 + 500, sb: y * 100,
+          sc: 6000, sd: 4 * 3000 - 200,
+          stype: 60, sxtype: 1,
+          warp: e.warp && (e.warp.end || e.warp.id)
+            ? { end: !!e.warp.end, id: e.warp.id || null }
+            : { end: true, id: null }
         });
       } else if (id === 'player_start') {
         spawn = { x: x, y: y };
@@ -349,24 +377,47 @@ body.dragging #dropTip { display: flex; }
 
   function loadLevelObject(obj, name) {
     try {
-      var conv = convert(obj);
+      var conv, isWorld = false;
+      if (obj && obj._worldDef && obj._worldDef.grid) {
+        // 编辑器载入“示例世界”且未编辑：直接用原版关卡 def，1:1 还原
+        // （含编辑器未暴露的陷阱区/火焰管/消息块/特殊平台等机关）
+        conv = obj._worldDef;
+        isWorld = true;
+        name = name + ' · 原版世界 ' + (conv.id || '');
+      } else {
+        conv = convert(obj);
+      }
       levelConv = conv;
       // 覆盖引擎关卡提供器：首次进关、死亡重开、通关后重开都会取到本关
       window.Levels.get = function () { return conv; };
       // 已在游戏中则回到标题，避免热切换造成状态不一致
       if (window.GameEngine) GameEngine.backToTitle();
 
-      var skipTxt = fmtSkip(conv._skip);
-      var theme = { overworld: '地上', dungeon: '地下', castle: '城堡', sky: '空中' }[obj.theme] || '';
       var bgmTxt = { 100: 'field', 103: 'dungeon', 104: 'star4', 105: 'castle', 106: 'puyo' }[conv.bgm] || '';
-      infoEl.innerHTML = '「' + name + '」— ' + conv._cols + ' 列 · ' + theme +
-        ' · 地图元素 ' + conv._used + ' 格' +
-        ' · 特殊方块 ' + conv.blocks.length + ' · 敌人/道具 ' + conv.enemies.length +
-        (conv.pipes.length ? ' · 陷阱管道 ' + conv.pipes.length : '') +
-        (conv.lifts.length ? ' · 升降台 ' + conv.lifts.length : '') +
-        ' · 音乐 ' + bgmTxt +
-        (conv.spawn ? ' · 自定义起点' : '') +
-        (skipTxt ? '<br><span id="skiplist">⚠ 未知元素、已跳过：' + skipTxt + '</span>' : '') +
+      var theme = { 1: '地上', 2: '地下', 3: '空中', 4: '城堡' }[conv.stagecolor] ||
+        { overworld: '地上', dungeon: '地下', castle: '城堡', sky: '空中' }[obj.theme] || '';
+      var body;
+      if (isWorld) {
+        var gc = 0;
+        for (var r = 0; r < conv.grid.length; r++)
+          for (var c = 0; c < 1001; c++) if (conv.grid[r][c]) gc = Math.max(gc, c);
+        body = '原版 1:1 还原 · ' + (gc + 2) + ' 列 · ' + theme +
+          ' · 特殊方块 ' + conv.blocks.length + ' · 敌人/道具 ' + conv.enemies.length +
+          (conv.pipes.length ? ' · 管道/机关 ' + conv.pipes.length : '') +
+          (conv.lifts.length ? ' · 升降台 ' + conv.lifts.length : '') +
+          ' · 音乐 ' + bgmTxt + (conv.spawn ? ' · 自定义起点' : '');
+      } else {
+        var skipTxt = fmtSkip(conv._skip);
+        body = conv._cols + ' 列 · ' + theme +
+          ' · 地图元素 ' + conv._used + ' 格' +
+          ' · 特殊方块 ' + conv.blocks.length + ' · 敌人/道具 ' + conv.enemies.length +
+          (conv.pipes.length ? ' · 陷阱管道 ' + conv.pipes.length : '') +
+          (conv.lifts.length ? ' · 升降台 ' + conv.lifts.length : '') +
+          ' · 音乐 ' + bgmTxt +
+          (conv.spawn ? ' · 自定义起点' : '') +
+          (skipTxt ? '<br><span id="skiplist">⚠ 未知元素、已跳过：' + skipTxt + '</span>' : '');
+      }
+      infoEl.innerHTML = '「' + name + '」— ' + body +
         '<br>点"▶ 开始游戏"或直接点击画面开始；点顶栏"ℹ️ 详情"可随时查看本信息';
       setStatus('✓ 关卡已载入新引擎', 'ok');
     } catch (err) {
@@ -378,6 +429,29 @@ body.dragging #dropTip { display: flex; }
   GameEngine.init(canvas);
   setStatus('引擎已就绪', 'ok');
   setTimeout(function () { loadingEl.style.display = 'none'; }, 500);
+
+  // 传送管道口（stype=60）：进入后按目标切换世界或游戏结束
+  GameEngine.setWarpHandler(function (warp) {
+    if (!warp || warp.end) {
+      setStatus('🏁 通关！游戏结束（由传送管道触发）', 'ok');
+      GameEngine.backToTitle();
+      return false;   // 宿主自行处理结局，引擎不重载
+    }
+    var stages = window.STAGES || [];
+    var target = null;
+    for (var i = 0; i < stages.length; i++) {
+      if (stages[i].id === warp.id) { target = stages[i]; break; }
+    }
+    if (!target) {
+      setStatus('传送失败：找不到目标世界「' + warp.id + '」', 'err');
+      GameEngine.backToTitle();
+      return false;
+    }
+    levelConv = target;
+    window.Levels.get = function () { return target; };
+    setStatus('✈ 已传送到世界 ' + target.id + '（' + target.name + '）', 'ok');
+    return true;    // 让引擎重载到目标关卡
+  });
 
   // 首次用户交互解锁音频（与 game/index.html 一致）
   var audioUnlocked = false;

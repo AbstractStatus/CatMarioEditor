@@ -135,7 +135,10 @@
 
     // 管道
     def.pipes.forEach(function (p) {
-      state.pipes.push({ sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0 });
+      var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0 };
+      // stype=60 传送管道口：保留传送目标 {end,id}
+      if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
+      state.pipes.push(pipe);
     });
 
     // 敌人触发器
@@ -186,7 +189,11 @@
     };
     if (e.aa <= state.player.ma + state.player.mnobia / 2) e.amuki = 1;
     else e.amuki = 0;
-    if (xtype === 87) e.atm = Math.floor(Math.random() * 179) - 90;
+    // 火焰棒：axtype>=10000 时高位编码初始角度（axtype = 火球数 + (角度+100)*100），
+    // 旧数据 axtype=101..110 无角度语义（旧引擎仅 %100 取球数），仍走随机初相
+    if (xtype === 87) e.atm = xxtype >= 10000
+      ? (((Math.floor(xxtype / 100) - 100) % 360 + 360) % 360) * 2
+      : Math.floor(Math.random() * 179) - 90;
     // 生成音效（与原版 ayobi 一致）
     if (xtype === 7) A.playSE(C.SE.GHOST_SPRING);
     if (xtype === 10) A.playSE(C.SE.FIRE);
@@ -340,8 +347,19 @@
           p.mc = 0; p.md = 0;
           if (p.mtm <= 16) p.mb += 240;
           if (p.mtm === 20) {
-            state.stc++; state.fx = 0; state.blackx = 1; state.blacktm = 20;
+            // 玩家已完全沉入管道并离屏：进行关卡切换
             p.mb = -80000000; p.mtype = 0; A.bgmStop();
+            state.fx = 0;
+            var warp = p._warp; p._warp = null;
+            var proceed = true;
+            if (warp) {
+              // 传送管道口：交给宿主（试玩页）决定目标世界或游戏结束
+              // onWarp 返回 false 表示宿主自行处理结局（如回标题），引擎不再重载关卡
+              proceed = (typeof state.onWarp === 'function') ? state.onWarp(warp) !== false : false;
+            } else {
+              state.stc++;   // 普通进管：进入下一子关
+            }
+            if (proceed) { startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
           }
         }
       }
@@ -700,6 +718,8 @@
           e.azimentype = 5;
           e.ab += e.ad; e.ad += 100;
           if (e.ab >= C.FYMAX + 1000) e.ad = 900;
+          // 原版 main.cpp case 9：落出屏幕底部后瞬移回底部并向上抛出，形成上下弹跳
+          if (e.ab >= C.FYMAX + 12000) { e.ab = C.FYMAX; e.ad = -2600; }
           break;
         case 10:
           e.azimentype = 0;
@@ -729,7 +749,8 @@
           break;
         case 86:
           e.azimentype = 4;
-          if (p.ma >= e.aa - p.mnobia - 10000 && p.ma <= e.aa + e.anobia + 10000) e.atm = 1;
+          // 原版 main.cpp case 86：玩家水平范围与猫身重叠才触发下落（xx[26] 运行时≈18，几乎无余量）
+          if (p.ma >= e.aa - p.mnobia - 18 && p.ma <= e.aa + e.anobia + 18) e.atm = 1;
           if (e.atm === 1) e.ab += 1200;
           break;
         case 87:
@@ -867,6 +888,21 @@
       if (b.ta < -800000) continue;
       xx[0] = 200; xx[1] = 3000; xx[2] = 1000;
       xx[8] = b.ta; xx[9] = b.tb;
+      // 桃色方块猫(86)/光束(90)：不与方块做阻挡反弹，只要 AABB 重叠就立刻把方块撞碎
+      // （原版 main.cpp tekizimen：soundplay(3) + 4 方向碎片 eyobi + brockbreak）；
+      // 管道/墙体仍在上方管道循环中正常阻挡它们。
+      if (e.atype === 86 || e.atype === 90) {
+        if (e.aa + e.anobia > xx[8] && e.aa < xx[8] + xx[1] &&
+            e.ab + e.anobib > xx[9] && e.ab < xx[9] + xx[1]) {
+          A.playSE(C.SE.BLOCK_BREAK);
+          spawnParticle(b.ta + 1200, b.tb + 1200, 300, -1000, 0, 160, 1000, 1000, 1, 120);
+          spawnParticle(b.ta + 1200, b.tb + 1200, -300, -1000, 0, 160, 1000, 1000, 1, 120);
+          spawnParticle(b.ta + 1200, b.tb + 1200, 240, -1400, 0, 160, 1000, 1000, 1, 120);
+          spawnParticle(b.ta + 1200, b.tb + 1200, -240, -1400, 0, 160, 1000, 1000, 1, 120);
+          b.ta = -800000;
+        }
+        continue;
+      }
       if (b.ttype >= 1000) continue;
       if (b.ttype !== 7 && b.ttype !== 117) {
         if (e.aa + e.anobia > xx[8] + xx[0] && e.aa < xx[8] + xx[1] - xx[0] &&
@@ -927,6 +963,47 @@
     if (state.fx < 0) state.fx = 0;
   }
 
+  // ==================== 敌人绘制（供分层渲染复用）====================
+  function drawEnemy(ctx, e) {
+    xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
+    if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
+    var m = e.amuki === 1;
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30) {
+      S.draw(ctx, e.atype, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
+    } else if (e.atype === 30) {
+      S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 6) {
+      if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
+        S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      else
+        S.draw(ctx, 6, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 81 && e.axtype === 1) {
+      S.draw(ctx, 130, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 86) {
+      var pl = state.player;
+      var eid = (pl.ma >= e.aa - pl.mnobia - 4000 && pl.ma <= e.aa + e.anobia + 4000) ? 152 : 86;
+      S.draw(ctx, eid, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 85) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(Math.floor(xx[0] / 100) + 10, Math.floor(xx[1] / 100), 10, Math.floor(e.anobib / 100));
+      ctx.fillStyle = '#00fae0';
+      ctx.beginPath(); ctx.arc(Math.floor(xx[0] / 100) + 14, Math.floor(xx[1] / 100), 10, 0, Math.PI * 2); ctx.fill();
+    } else if (e.atype === 87) {
+      // 火焰棒旋转
+      var cx = Math.floor(xx[0] / 100), cy = Math.floor(xx[1] / 100);
+      var cnt = e.axtype % 100;
+      for (var k = 0; k <= cnt; k++) {
+        var ang = e.atm * Math.PI / 180 / 2;
+        var dx = k * 18 * Math.cos(ang);
+        var dy = k * 18 * Math.sin(ang);
+        ctx.fillStyle = '#ff6000';
+        ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (e.atype === 200) {
+      S.draw(ctx, 0, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    }
+  }
+
   // ==================== 渲染 ====================
   function render(ctx) {
     // 关掉插值：所有 drawImage 用 nearest-neighbor
@@ -941,9 +1018,9 @@
 
     // 背景
     var bgColor = '#000';
-    if (state.stagecolor === 1) bgColor = '#a0b4fa';
-    if (state.stagecolor === 2) bgColor = '#0a0a0a';
-    if (state.stagecolor === 4) bgColor = '#0a0a0a';
+    // 原版 stagecolor：1(地上)/3(空中) → setcolor(160,180,250) 蓝；2(地下)/4(城堡) → setcolor(10,10,10) 黑
+    if (state.stagecolor === 1 || state.stagecolor === 3) bgColor = '#a0b4fa';
+    if (state.stagecolor === 2 || state.stagecolor === 4) bgColor = '#0a0a0a';
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, C.CANVAS_W, C.CANVAS_H);
 
@@ -992,10 +1069,14 @@
       if (p.egtype === 0) {
         S.draw(ctx, 0, 2, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (p.egtype === 1) {
-        ctx.fillStyle = '#906030';
+        // 砖块碎片颜色随主题（原版 main.cpp 745-751：地上/空中=棕橙、地下=蓝、城堡=灰，带黑描边）
+        var sc = state.stagecolor;
+        ctx.fillStyle = (sc <= 1 || sc === 3) ? '#906030' : (sc === 2 ? '#0078a0' : '#c0c0c0');
         ctx.beginPath();
         ctx.arc(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), 7, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
       }
     });
 
@@ -1011,6 +1092,12 @@
         ctx.strokeStyle = ctx.fillStyle;
         ctx.strokeRect(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), Math.floor(l.src / 100), h);
       }
+    });
+
+    // 正从问号块/砖块中被顶出（abrocktm>0）的道具/敌人：先于方块绘制，
+    // 让不透明方块遮挡其尚在砖块内的部分，只露出砖块上方，避免“顶出时透视”
+    state.enemies.forEach(function (e) {
+      if (e.abrocktm > 0) drawEnemy(ctx, e);
     });
 
     // 方块
@@ -1066,44 +1153,10 @@
       S.draw(ctx, 3, 0, Math.floor(pmx / 100), Math.floor(pmy / 100));
     }
 
-    // 敌人
+    // 敌人（顶出中的 abrocktm>0 已在方块之前绘制，此处跳过，避免透视）
     state.enemies.forEach(function (e) {
-      xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
-      if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
-      var m = e.amuki === 1;
-      if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30) {
-        S.draw(ctx, e.atype, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
-      } else if (e.atype === 30) {
-        S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (e.atype === 6) {
-        if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
-          S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-        else
-          S.draw(ctx, 6, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (e.atype === 81 && e.axtype === 1) {
-        S.draw(ctx, 130, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (e.atype === 86) {
-        var id = (p.ma >= e.aa - p.mnobia - 4000 && p.ma <= e.aa + e.anobia + 4000) ? 152 : 86;
-        S.draw(ctx, id, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (e.atype === 85) {
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(Math.floor(xx[0] / 100) + 10, Math.floor(xx[1] / 100), 10, Math.floor(e.anobib / 100));
-        ctx.fillStyle = '#00fae0';
-        ctx.beginPath(); ctx.arc(Math.floor(xx[0] / 100) + 14, Math.floor(xx[1] / 100), 10, 0, Math.PI * 2); ctx.fill();
-      } else if (e.atype === 87) {
-        // 火焰棒旋转
-        var cx = Math.floor(xx[0] / 100), cy = Math.floor(xx[1] / 100);
-        var cnt = e.axtype % 100;
-        for (var k = 0; k <= cnt; k++) {
-          var ang = e.atm * Math.PI / 180 / 2;
-          var dx = k * 18 * Math.cos(ang);
-          var dy = k * 18 * Math.sin(ang);
-          ctx.fillStyle = '#ff6000';
-          ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 6, 0, Math.PI * 2); ctx.fill();
-        }
-      } else if (e.atype === 200) {
-        S.draw(ctx, 0, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      }
+      if (e.abrocktm > 0) return;
+      drawEnemy(ctx, e);
     });
 
     // 管道/墙体：放在玩家、敌人之后绘制（对应原版 main.cpp 的“描画上書き(土管)”），
@@ -1390,6 +1443,10 @@
     state.maintm = 0;
     A.bgmStop();
   };
+
+  // 传送管道口钩子：玩家进入 stype=60 管道、沉管动画结束时调用 fn(warp)。
+  // warp = {end:true} 或 {id:'世界id'}；fn 返回 false 表示宿主自行处理结局（引擎不重载关卡）。
+  Engine.setWarpHandler = function (fn) { state.onWarp = fn; };
 
   // 调试：访问内部状态
   Engine._state = state;

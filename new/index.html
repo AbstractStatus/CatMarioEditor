@@ -13,7 +13,7 @@
     <button id="saveBtn" title="将当前关卡保存为 JSON 文件">💾 保存JSON</button>
     <button id="loadBtn" title="读取之前保存的 JSON 关卡（也可直接把 .json 拖进窗口）">📂 读取JSON</button>
     <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
-    <button id="demoBtn">✨ 示例关卡</button>
+    <button id="demoBtn" title="从原版猫里奥全部关卡（世界）中选择一个载入">🌍 示例世界</button>
     <button id="playBtn" title="把当前关卡转换成游戏数据，在新标签页用新引擎试玩">▶ 试玩</button>
     <button id="clearBtn">🗑 清空</button>
     <span class="sep"></span>
@@ -25,12 +25,16 @@
     <label>主题：</label>
     <select id="themeSel">
       <option value="overworld">地上（蓝）</option>
-      <option value="dungeon">地下（暗）</option>
-      <option value="castle">城堡（灰）</option>
-      <option value="sky">空中（深蓝）</option>
+      <option value="dungeon">地下（黑）</option>
+      <option value="castle">城堡（黑）</option>
+      <option value="sky">空中（蓝）</option>
     </select>
     <button id="gridBtn" title="显示/隐藏网格">▦ 网格</button>
     <button id="eraserBtn" title="橡皮工具（也可在画布上右键擦除）">🧽 橡皮</button>
+    <button id="propBtn" title="编辑选中元素的属性（位置/长度/角度/传送目标等）" style="display:none">⚙ 属性</button>
+    <span class="sep" id="warpSep" style="display:none"></span>
+    <label id="warpLabel" for="warpSel" style="display:none">传送目标：</label>
+    <select id="warpSel" style="display:none" title="选中“传送管道口”后设置进入后前往的世界，或游戏结束"></select>
   </div>
 
   <!-- 主体：左侧元素栏 + 中间横向滚动画布 -->
@@ -54,8 +58,36 @@
   </div>
 </div>
 
+<!-- 示例世界选择弹窗 -->
+<div id="worldModal" class="world-mask">
+  <div class="world-dialog">
+    <div class="world-head">
+      <span>🌍 选择要载入的世界（读取自旧引擎全部关卡）</span>
+      <button id="worldClose" title="关闭">✕</button>
+    </div>
+    <div id="worldList" class="world-list"></div>
+    <div class="world-foot">点击任一世界即可载入编辑器；未修改前点“试玩”将 1:1 还原原版关卡。</div>
+  </div>
+</div>
+
+<!-- 元素属性弹窗 -->
+<div id="propModal" class="world-mask">
+  <div class="world-dialog prop-dialog">
+    <div class="world-head">
+      <span id="propTitle">⚙ 元素属性</span>
+      <button id="propClose" title="关闭">✕</button>
+    </div>
+    <div id="propBody" class="prop-body"></div>
+    <div class="prop-foot">
+      <button id="propCancel">取消</button>
+      <button id="propOk">确定</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/sprites/manifest.js"></script>
 <script src="elements.js"></script>
+<script src="stages_data.js"></script>
 <script src="editor.js"></script>
 </body>
 </html>
