@@ -138,6 +138,8 @@
       var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0 };
       // stype=60 传送管道口：保留传送目标 {end,id}
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
+      // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
+      if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
       state.pipes.push(pipe);
     });
 
@@ -586,6 +588,10 @@
 
       // 通过注册表查询该类型的实体性
       if (PT.isSolid(s.stype) && p.mtype < 10) {
+        // 自定义物理钩子（stype 51/52 坠落砖组）：必须在常规碰撞前执行；
+        // 返回 true = 本帧运动中，跳过常规实体碰撞（对应原版 xx[7]=1）
+        var ptPhys = PT.get(s.stype);
+        if (ptPhys && ptPhys.physics && ptPhys.physics(p, s, xx, state, A)) xx[7] = 1;
         // 通常地面碰撞
         if (xx[7] === 0) {
           if (p.ma + p.mnobia > xx[8] + xx[0] && p.ma < xx[8] + s.sc - xx[0] &&
@@ -1405,6 +1411,8 @@
   Engine.getState = function () {
     return { proc: state.proc, key: _debugKey, frame: _debugFrame, maintm: state.maintm, blocks: state.blocks.length, fx: state.fx, collideCount: _debugCollideCount, collideTop: _debugCollideTop, player: state.player ? { ma: state.player.ma, mb: state.player.mb, mc: state.player.mc, md: state.player.md, mzimen: state.player.mzimen, mhp: state.player.mhp, mtype: state.player.mtype } : null };
   };
+  // 调试用：暴露内部 state（含 pipes/player 完整字段），供自动化验证使用
+  Engine._rawState = function () { return state; };
 
   Engine.debugBlocks = function (xMin, xMax) {
     var result = [];

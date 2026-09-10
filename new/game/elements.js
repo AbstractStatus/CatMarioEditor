@@ -168,15 +168,101 @@
   };
 
   // stype 51: 下落块（使用砖块精灵铺排）
+  // 两种驱动方式：
+  //   1) 经典关卡（无 mov）：sxtype=0 横排砖块，玩家完全进入水平区域且在下方时坠落，
+  //      运动中无实体碰撞、碰到玩家即致死（main.cpp:2471-2501）；
+  //      sxtype=10 触发余量更小（+1200）；sxtype=3/4 按玩家高度 mb 阈值触发（1-4 城堡）；
+  //      sxtype=1/2 与陷阱管道联动，维持现状（静态实体）。
+  //   2) 通用配置 mov={axis:'x'|'y', dir:-1|1}（编辑器“坠落砖组”）：横排沿 y、竖排沿 x，
+  //      长轴“完全进入”+ 位于运动方向一侧时触发，四方向均可。
+  // physics 返回 true = 本帧运动中，引擎跳过该实体的常规碰撞。
   PipeTypes[51] = {
     solid: true,
+    physics: function (p, s, xx, state) {
+      var C = getC();
+      if (s.sgtype === 0) {
+        var triggered = false;
+        if (s.mov) {
+          // 通用砖组：长轴完全进入 + 处于运动方向一侧
+          var longIn, onSide;
+          if (s.mov.axis === 'y') {
+            longIn = p.ma + p.mnobia > s.sa + 3200 && p.ma + p.mnobia < s.sa + s.sc - 200;
+            onSide = s.mov.dir > 0
+              ? (p.mb + p.mnobib > s.sb + 3000)   // 向下：玩家在下方
+              : (p.mb < s.sb - 3000);              // 向上：玩家在上方
+          } else {
+            longIn = p.mb + p.mnobib > s.sb + 3200 && p.mb + p.mnobib < s.sb + s.sd - 200;
+            onSide = s.mov.dir < 0
+              ? (p.ma + p.mnobia < s.sa - 200)     // 向左：玩家在左侧
+              : (p.ma > s.sa + s.sc + 200);        // 向右：玩家在右侧
+          }
+          if (longIn && onSide) triggered = true;
+        } else if (s.sxtype === 0 || s.sxtype === 10) {
+          // 经典横排：右缘越过第一块砖（sxtype10 余量 1200）+ 脚底在砖组顶下方
+          var margin = s.sxtype === 10 ? 1200 : 3200;
+          if (p.ma + p.mnobia > s.sa + margin && p.ma + p.mnobia < s.sa + s.sc - 200 &&
+              p.mb + p.mnobib > s.sb + 3000) triggered = true;
+        } else if (s.sxtype === 3 || s.sxtype === 4) {
+          // 城堡二维砖块阵：玩家到达固定高度且水平进入时坠落（sxtype4 带 100 初速）
+          var hmin = s.sxtype === 3 ? 30000 : 25000;
+          if (p.mb >= hmin &&
+              p.ma + p.mnobia > s.sa + 2700 && p.ma + p.mnobia < s.sa + s.sc - 200) {
+            triggered = true;
+            s.sr = s.sxtype === 4 ? 100 : 0;
+          }
+        }
+        if (triggered) { s.sgtype = 1; if (s.sr == null) s.sr = 0; }
+      }
+
+      if (s.sgtype !== 1) return false;
+
+      // 加速运动（原版 30fps：每帧 +120，上限 1600）
+      s.sr = Math.min((s.sr || 0) + 120, 1600);
+      if (s.mov) {
+        if (s.mov.axis === 'x') s.sa += s.sr * s.mov.dir;
+        else s.sb += s.sr * s.mov.dir;
+      } else {
+        s.sb += s.sr;
+      }
+
+      // 飞出镜头范围：经典向下超过 FYMAX+18000 后冻结（与原版一致，永不复位）；
+      // 通用四方向离开镜头 20000 后置哨兵彻底停用
+      var out = false;
+      if (s.mov) {
+        if (s.mov.axis === 'x') {
+          out = s.mov.dir > 0
+            ? s.sa > state.fx + C.FXMAX + 20000
+            : s.sa < state.fx - 20000;
+        } else {
+          out = s.mov.dir > 0 ? s.sb > C.FYMAX + 20000 : s.sb < -20000;
+        }
+      } else if (s.sb > C.FYMAX + 18000) {
+        s.sgtype = 2;
+        return false;
+      }
+      if (out) { s.sa = -80000000; return false; }
+
+      // 运动中与玩家相交即致死（头顶被砸/身体触碰同理；不用无敌帧，与原版 mhp-- 一致）
+      if (p.ma + p.mnobia > s.sa + 200 && p.ma < s.sa + s.sc - 200 &&
+          p.mb + p.mnobib > s.sb && p.mb < s.sb + s.sd + 200) {
+        p.mhp--;
+      }
+      return true;
+    },
     render: function (ctx, s, x, y, w, h, state) {
       var S = getS();
       var offset = stageColorOffset(state);
       if (s.sxtype === 0) {
-        var cols = Math.floor(s.sc / 3000);
-        for (var c = 0; c <= cols; c++)
-          S && S.draw(ctx, 1 + offset, 1, x + 29 * c, y);
+        if (s.mov && s.mov.axis === 'x') {
+          // 通用竖排砖组
+          var rowsV = Math.floor(s.sd / 3000);
+          for (var rv = 0; rv <= rowsV; rv++)
+            S && S.draw(ctx, 1 + offset, 1, x, y + 29 * rv);
+        } else {
+          var cols = Math.floor(s.sc / 3000);
+          for (var c = 0; c <= cols; c++)
+            S && S.draw(ctx, 1 + offset, 1, x + 29 * c, y);
+        }
       } else if (s.sxtype === 1 || s.sxtype === 2) {
         var cols2 = Math.floor(s.sc / 3000);
         for (var c2 = 0; c2 <= cols2; c2++)
@@ -188,8 +274,25 @@
   };
 
   // stype 52: 下落块2（使用地面精灵铺排）
+  // 经典行为（main.cpp:2504-2512）：玩家深入水平区域（右缘 >sa+2200、左缘 <sa+sc-2700）
+  // 且脚底接近砖顶（>sb-3000）即坠落；保持实体（可踩、可随其移动、顶头被推），不致死。
   PipeTypes[52] = {
     solid: true,
+    physics: function (p, s) {
+      var C = getC();
+      if (s.sgtype === 0) {
+        if (p.ma + p.mnobia > s.sa + 2200 && p.ma < s.sa + s.sc - 2700 &&
+            p.mb + p.mnobib > s.sb - 3000) {
+          s.sgtype = 1; s.sr = 0;
+        }
+      }
+      if (s.sgtype === 1) {
+        if (s.sb > C.FYMAX + 18000) { s.sgtype = 2; return false; }
+        s.sr = Math.min((s.sr || 0) + 120, 1600);
+        s.sb += s.sr;
+      }
+      return false;
+    },
     render: function (ctx, s, x, y, w, h, state) {
       var S = getS();
       var offset = stageColorOffset(state);

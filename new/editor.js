@@ -192,9 +192,29 @@
 
   function cellKey(c, r) { return c + ',' + r; }
 
+  // 坠落砖组属性（元素实例缺省时取元素定义默认值）
+  function fallInfo(e) {
+    var d = CAT.byId('block_fall');
+    var ori = (e && e.ori === 'v') ? 'v' : 'h';
+    var count = (e && e.count != null) ? (e.count | 0) : (d.count || 3);
+    if (!count || count < 2) count = 2;
+    if (count > 12) count = 12;
+    var dir = (e && e.dir) || d.dir || 'down';
+    var valid = ori === 'h' ? { up: 1, down: 1 } : { left: 1, right: 1 };
+    if (!valid[dir]) dir = ori === 'h' ? 'down' : 'left';
+    return { ori: ori, count: count, dir: dir };
+  }
+
   function footprint(elDef, col, row) {
     var tw = elDef.tw || 1, th = elDef.th || 1;
     var len = elDef.len || 1;
+    if (elDef.id === 'block_fall') {
+      // 坠落砖组：横排 1×count，竖排 count×1（放置预览按定义默认属性）
+      var fc = elDef.count || 3, fhoriz = elDef.ori !== 'v';
+      return fhoriz
+        ? { c0: col, c1: col + fc - 1, r0: row, r1: row, tw: fc, th: 1 }
+        : { c0: col, c1: col, r0: row, r1: row + fc - 1, tw: 1, th: fc };
+    }
     if (elDef.cat === 'struct' && elDef.id.indexOf('lift_') === 0) {
       // 升降台长度由 len 决定
     }
@@ -209,6 +229,12 @@
 
   function footprintOf(e) {
     var d = CAT.byId(e.id);
+    if (d.id === 'block_fall') {
+      var fi = fallInfo(e);
+      return fi.ori === 'h'
+        ? { c0: e.col, c1: e.col + fi.count - 1, r0: e.row, r1: e.row, tw: fi.count, th: 1 }
+        : { c0: e.col, c1: e.col, r0: e.row, r1: e.row + fi.count - 1, tw: 1, th: fi.count };
+    }
     var fp = footprint(d, e.col, e.row);
     if (d.id.indexOf('lift_') === 0) {
       fp.c1 = e.col + liftLen(e) - 1;
@@ -234,6 +260,10 @@
     var tw = d.tw || 1, th = d.th || 1;
     var len = d.len || tw;
     if (d.id.indexOf('lift_') === 0) { tw = len; }
+    if (d.id === 'block_fall') {
+      tw = d.ori === 'v' ? 1 : (d.count || 3);
+      th = d.ori === 'v' ? (d.count || 3) : 1;
+    }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
     row = Math.max(row, -EXTRA_TOP_ROWS);
@@ -257,6 +287,7 @@
 
     var ne = { id: d.id, col: col, row: row };
     if (d.id.indexOf('lift_') === 0) ne.len = len;
+    if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
     if (d.xt) ne.xt = d.xt;
     if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
     state.elements.push(ne);
@@ -410,6 +441,34 @@
       return;
     }
 
+    if (d.id === 'block_fall') {
+      // count 张砖块精灵按横/竖拼接，中心叠加红色方向箭头标识机关
+      var fi = fallInfo(e);
+      var bimg = getImg(CAT.byId('block_brick'));
+      ctx.globalAlpha = a;
+      for (var bi = 0; bi < fi.count; bi++) {
+        var bx = fi.ori === 'h' ? x + bi * TILE : x;
+        var by = fi.ori === 'h' ? y : y + bi * TILE;
+        if (bimg && bimg.complete && bimg.naturalWidth) {
+          ctx.drawImage(bimg, Math.round(bx), Math.round(by), TILE, TILE);
+        } else {
+          ctx.fillStyle = '#b5652a';
+          ctx.fillRect(bx + 1, by + 1, TILE - 2, TILE - 2);
+        }
+      }
+      var arw = { down: '↓', up: '↑', left: '←', right: '→' }[fi.dir] || '↓';
+      var acx = x + (fi.ori === 'h' ? fi.count * TILE / 2 : TILE / 2);
+      var acy = y + (fi.ori === 'h' ? TILE / 2 : fi.count * TILE / 2);
+      ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText(arw, acx, acy + 1);
+      ctx.fillStyle = 'rgba(220,40,40,0.95)';
+      ctx.fillText(arw, acx, acy + 1);
+      ctx.globalAlpha = 1;
+      return;
+    }
+
     if (d.id === 'block_hidden') {
       ctx.globalAlpha = a * 0.35;
       var him = getImg(d);
@@ -468,8 +527,14 @@
       } else if (d.cat === 'struct' || d.cat === 'enemy') {
         // 管道/旗杆/假旗杆/大敌人：按 tw/th 格数等比缩放
         dx2 = x; dy2 = y;
-        dw2 = tw * TILE;
-        dh2 = th * TILE;
+        if (d.id === 'enemy_turtle') {
+          // 绿龟在地图上只占 1 格：按 30x43 原始比例绘制，格顶对齐、向下溢出（与游戏内一致）
+          dw2 = Math.round(im2.naturalWidth / 29 * TILE);
+          dh2 = Math.round(im2.naturalHeight / 29 * TILE);
+        } else {
+          dw2 = tw * TILE;
+          dh2 = th * TILE;
+        }
         ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
       } else {
         // 方块/物品（都是 1×1）：强制一格
@@ -675,12 +740,50 @@
     propBody.appendChild(posRow);
 
     var fTotal = null, fRot = null, fLen = null, fWarp = null;
+    var fFallOri = null, fFallCount = null, fFallDir = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
       fTotal = numInput(1, 21, (selected.xt || d.xt || 5) + 1);
       propBody.appendChild(propRow('火球总数', fTotal, '含圆心，圆心即旋转原点'));
       fRot = numInput(0, 359, ((selected.rot || 0) % 360 + 360) % 360);
       propBody.appendChild(propRow('初始角度', fRot, '度，顺时针，0=向右'));
+    }
+    if (d.id === 'block_fall') {
+      // 坠落砖组：排列（横/竖）、砖块数（2-12）、移动方向（横排=上/下，竖排=左/右）
+      var fi0 = fallInfo(selected);
+      fFallOri = document.createElement('select');
+      [['h', '横排（左右连排）'], ['v', '竖排（上下连排）']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fFallOri.appendChild(o);
+      });
+      fFallOri.value = fi0.ori;
+      propBody.appendChild(propRow('排列', fFallOri));
+
+      fFallCount = numInput(2, 12, fi0.count);
+      propBody.appendChild(propRow('砖块数', fFallCount, '2-12 格'));
+
+      fFallDir = document.createElement('select');
+      function refillDir(ori, cur) {
+        fFallDir.innerHTML = '';
+        var opts = ori === 'h'
+          ? [['down', '↓ 向下坠落（玩家在下方）'], ['up', '↑ 向上顶起（玩家在上方）']]
+          : [['left', '← 向左平移（玩家在左侧）'], ['right', '→ 向右平移（玩家在右侧）']];
+        opts.forEach(function (op) {
+          var o = document.createElement('option');
+          o.value = op[0]; o.textContent = op[1];
+          fFallDir.appendChild(o);
+        });
+        if (cur) fFallDir.value = cur;
+      }
+      refillDir(fi0.ori, fi0.dir);
+      fFallOri.addEventListener('change', function () {
+        var old = fFallDir.value;
+        refillDir(fFallOri.value, fFallOri.value === 'h'
+          ? (old === 'up' || old === 'down' ? old : 'down')
+          : (old === 'left' || old === 'right' ? old : 'left'));
+      });
+      propBody.appendChild(propRow('移动方向', fFallDir, '玩家完全进入后触发，运动中碰到即阵亡'));
     }
     if (d.id.indexOf('lift_') === 0) {
       fLen = numInput(1, 50, liftLen(selected));
@@ -712,6 +815,18 @@
       if (fTotal) selected.xt = Math.max(1, Math.min(20, (parseInt(fTotal.value, 10) || 6) - 1));
       if (fRot) selected.rot = ((parseInt(fRot.value, 10) || 0) % 360 + 360) % 360;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
+      if (fFallOri) {
+        var nOri = fFallOri.value === 'v' ? 'v' : 'h';
+        var nCnt = Math.max(2, Math.min(12, parseInt(fFallCount.value, 10) || 3));
+        var nDir = fFallDir.value;
+        var dirOk = nOri === 'h' ? (nDir === 'up' || nDir === 'down')
+                                  : (nDir === 'left' || nDir === 'right');
+        if (!dirOk) nDir = nOri === 'h' ? 'down' : 'left';
+        selected.ori = nOri; selected.count = nCnt; selected.dir = nDir;
+        // 超界钳制（横排不超右界，竖排不超底界）
+        if (nOri === 'h') selected.col = Math.min(selected.col, state.cols - nCnt);
+        else selected.row = Math.min(selected.row, ROWS - nCnt);
+      }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
         ? { end: true, id: null } : { end: false, id: fWarp.value };
       persist();
@@ -1128,6 +1243,11 @@
       var d = CAT.byId(selected.id);
       var tw = (d.tw || 1), th = (d.th || 1);
       if (d.id.indexOf('lift_') === 0) tw = liftLen(selected);
+      if (d.id === 'block_fall') {
+        var fdi = fallInfo(selected);
+        tw = fdi.ori === 'h' ? fdi.count : 1;
+        th = fdi.ori === 'h' ? 1 : fdi.count;
+      }
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
       nc = Math.max(0, Math.min(state.cols - tw, nc));
@@ -1395,8 +1515,19 @@
         add('pipe_h_mouth_r', col, row);
       } else if (p.stype === 1 || p.stype === 2 || p.stype === 5) {
         // grid 字节已恢复，跳过（避免重复）
+      } else if (p.stype === 51 && (!p.sxtype || p.sxtype === 0) && (p.mov || p.sc >= p.sd)) {
+        // 坠落砖组：经典 sxtype=0 横排（sc>=sd），或编辑器 mov 配置（支持竖排/四方向）
+        var horiz = p.mov ? (p.mov.axis !== 'x') : true;
+        var fnum = Math.round(((horiz ? p.sc : p.sd) + 1) / 3000);
+        fnum = Math.max(2, Math.min(12, fnum || 3));
+        var fori = horiz ? 'h' : 'v';
+        var fdir;
+        if (p.mov && p.mov.dir < 0) fdir = horiz ? 'up' : 'left';
+        else if (p.mov) fdir = horiz ? 'down' : 'right';
+        else fdir = 'down';
+        add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir });
       } else {
-        skip++;   // 51/52 下落块、100-103 陷阱区/火焰管/消息、40 进入管等暂不在编辑器暴露
+        skip++;   // 51 其他变体/52 下落块、100-103 陷阱区/火焰管/消息、40 进入管等暂不在编辑器暴露
       }
     });
     // 4) 敌人/道具触发器（ba/bb 世界单位）

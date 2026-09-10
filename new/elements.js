@@ -55,6 +55,9 @@
       tw: 3, th: 1, len: 3, hint: 'srsp=21 的灰色平台' },
     { id: 'firebar', cat: 'struct', name: '火焰棒(旋转)', kind: 'vector', img: 'vector/firebar.png',
       tw: 3, th: 3, atype: 87, xt: 5, hint: 'atype=87/88：一串橙色圆(fillarc r8)绕中心旋转，xt为火球个数' },
+    { id: 'block_fall', cat: 'struct', name: '坠落砖组', kind: 'vector', img: 'block/block_brick.png',
+      tw: 3, th: 1, count: 3, ori: 'h', dir: 'down',
+      hint: 'stype=51：连在一起的砖块（默认3块横排）。玩家完全进入砖组长轴区域并处于运动方向一侧时，砖组加速坠落/平移；移动中碰到玩家即阵亡。选中后在⚙属性里改排列(横/竖)、砖块数(2-12)、移动方向(上/下/左/右)' },
 
     // ================= 方块（地上主题） =================
     { id: 'block_brick', cat: 'block', name: '砖块', kind: 'sprite', img: 'block/block_brick.png',
@@ -160,7 +163,7 @@
     { id: 'enemy_syobon', cat: 'enemy', name: '白猫怪', kind: 'sprite', img: 'enemy/enemy_syobon.png',
       tw: 1, th: 1, mapId: 50, atype: 0, hint: 'atype=0：最常见的ショボン，左右走动，踩不死（会反杀）' },
     { id: 'enemy_turtle', cat: 'enemy', name: '绿龟怪', kind: 'sprite', img: 'enemy/enemy_turtle.png',
-      tw: 1, th: 2, mapId: 51, atype: 1, hint: 'atype=1：30x43 的绿龟' },
+      tw: 1, th: 1, mapId: 51, atype: 1, hint: 'atype=1：30x43 的绿龟（地图上占 1 格，精灵向下溢出绘制）' },
     { id: 'enemy_shell', cat: 'enemy', name: '龟壳', kind: 'sprite', img: 'enemy/enemy_shell.png',
       tw: 1, th: 1, mapId: 52, atype: 2, hint: 'atype=2：静止龟壳，踩后可滑动' },
     { id: 'enemy_ghost', cat: 'enemy', name: '白幽灵', kind: 'sprite', img: 'enemy/enemy_ghost.png',

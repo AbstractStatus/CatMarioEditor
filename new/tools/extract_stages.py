@@ -232,8 +232,10 @@ def main():
         stagecolor = int(sc_m.group(1)) if sc_m else 1
         bgm_m = re.search(r"bgmchange\s*\(\s*(\d+)\s*\)\s*;", body)
         bgm = int(bgm_m.group(1)) if bgm_m else 100
+        # stage() 入口默认 scrollx = 3600*100（main.cpp:4060/4135）；
+        # 仅关卡分支内显式赋值时才覆盖（如 1-2 的 scrollx=0 = 镜头锁定）
         sx_m = re.search(r"scrollx\s*=\s*([^;]+?)\s*;", body)
-        scrollx = ev(sx_m.group(1)) if sx_m else 0
+        scrollx = ev(sx_m.group(1)) if sx_m else 3600 * 100
 
         ma_m = re.search(r"\bma\s*=\s*([^;]+?)\s*;", body)
         mb_m = re.search(r"\bmb\s*=\s*([^;]+?)\s*;", body)

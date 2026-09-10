@@ -301,6 +301,22 @@ body.dragging #dropTip { display: flex; }
             ? { end: !!e.warp.end, id: e.warp.id || null }
             : { end: true, id: null }
         });
+      } else if (id === 'block_fall') {
+        // 坠落砖组 stype=51：横排沿 y / 竖排沿 x，玩家完全进入长轴区域并处于运动方向一侧时触发
+        var fOri = e.ori === 'v' ? 'v' : 'h';
+        var fCnt = Math.max(2, Math.min(12, e.count | 0 || 3));
+        var fDir = e.dir || 'down';
+        if (fOri === 'h' && fDir !== 'up' && fDir !== 'down') fDir = 'down';
+        if (fOri === 'v' && fDir !== 'left' && fDir !== 'right') fDir = 'left';
+        var fAxis = fOri === 'h' ? 'y' : 'x';
+        var fSign = (fDir === 'up' || fDir === 'left') ? -1 : 1;
+        pipes.push({
+          sa: x * 100, sb: y * 100,
+          sc: fOri === 'h' ? fCnt * 3000 - 1 : 3000,
+          sd: fOri === 'h' ? 3000 : fCnt * 3000 - 1,
+          stype: 51, sxtype: 0,
+          mov: { axis: fAxis, dir: fSign }
+        });
       } else if (id === 'player_start') {
         spawn = { x: x, y: y };
       } else if (BGM_ID[id] !== undefined) {
