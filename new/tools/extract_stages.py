@@ -161,18 +161,20 @@ def parse_enemies(body):
 
 
 def parse_lifts(body):
-    """sra[t]=..; srb[t]=..; src[t]=..; srtype[t]=..; sracttype[t]=..; sre[t]=..; [srsp[t]=..;]"""
+    """sra[t|srco]=..; srb=..; src=..; srtype=..; sracttype=..; sre=..; [srsp=..;]
+    注意：1-1/1-3 等用 sra[t]，2-3 与 2-4-2 用 sra[srco]（两种下标都必须匹配）。"""
     lifts = []
+    idx = r"\[\s*(?:t|srco)\s*\]"
     lift_re = re.compile(
-        r"sra\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*srb\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*src\[\s*t\s*\]\s*=\s*([^;]+?)\s*;")
+        r"sra" + idx + r"\s*=\s*([^;]+?)\s*;"
+        r"\s*srb" + idx + r"\s*=\s*([^;]+?)\s*;"
+        r"\s*src" + idx + r"\s*=\s*([^;]+?)\s*;")
     for m in lift_re.finditer(body):
         seg = body[m.start():m.start() + 320]
-        srtype = re.search(r"srtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
-        sracttype = re.search(r"sracttype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
-        sre = re.search(r"\bsre\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
-        srsp = re.search(r"srsp\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
+        srtype = re.search(r"srtype" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
+        sracttype = re.search(r"sracttype" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
+        sre = re.search(r"\bsre" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
+        srsp = re.search(r"srsp" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
         lifts.append({
             "sra": ev(m.group(1)), "srb": ev(m.group(2)), "src": ev(m.group(3)),
             "srtype": ev(srtype.group(1)) if srtype else 0,
@@ -237,11 +239,14 @@ def main():
         sx_m = re.search(r"scrollx\s*=\s*([^;]+?)\s*;", body)
         scrollx = ev(sx_m.group(1)) if sx_m else 3600 * 100
 
+        # ma/mb 在 stage() 顶部初始化为 5600/32000（main.cpp:1649），部分关卡在分支内
+        # 显式覆盖（如 1-2 的 ma=7500/mb=27000）。正则在分支内找不到时回退到默认值。
         ma_m = re.search(r"\bma\s*=\s*([^;]+?)\s*;", body)
         mb_m = re.search(r"\bmb\s*=\s*([^;]+?)\s*;", body)
-        spawn = None
-        if ma_m and mb_m:
-            spawn = {"x": ev(ma_m.group(1)) // 100, "y": ev(mb_m.group(1)) // 100}
+        # 直接输出世界坐标（ma/mb 同系），引擎按原单位放置；
+        # 不再换算为编辑器像素口径，避免出生点被二次偏移
+        spawn = {"ma": ev(ma_m.group(1)) if ma_m else 5600,
+                 "mb": ev(mb_m.group(1)) if mb_m else 32000}
 
         sid = "%d-%d" % (sta, stb)
         if stc:

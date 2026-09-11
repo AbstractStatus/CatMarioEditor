@@ -260,6 +260,18 @@ body.dragging #dropTip { display: flex; }
           srsp: LIFT_SRSP[id], sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0
         });
         used++;
+      } else if (id === 'platform_hang') {
+        // 悬挂站台 srsp=10：绿色台面(30px)+棕色吊柱；srh=自定义柱高(世界单位，原版写死48000)；
+        // drop=true → sracttype=1，玩家站上瞬间 sron=1，之后每帧 srf=60 加速下坠并带着玩家掉落
+        var pw = Math.max(1, Math.min(e.w | 0 || 5, 50));
+        var ph = Math.max(1, Math.min(e.h | 0 || 16, 30));
+        lifts.push({
+          sra: x * 100, srb: y * 100, src: pw * 3000,
+          srtype: 0, sracttype: e.drop ? 1 : 0, sre: 0, srf: 0,
+          srsp: 10, sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
+          srh: ph * 2900
+        });
+        used++;
       } else if (EX_BLOCK[id] !== undefined) {
         var sp = EX_BLOCK[id];
         blocks.push({ x: x, y: y, type: sp.type, xt: sp.xt || 0 });

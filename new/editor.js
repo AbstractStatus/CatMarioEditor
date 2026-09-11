@@ -205,9 +205,27 @@
     return { ori: ori, count: count, dir: dir };
   }
 
+  // 悬挂站台属性（元素实例缺省时取元素定义默认值）
+  function platInfo(e) {
+    var d = CAT.byId('platform_hang');
+    var w = (e && e.w != null) ? (e.w | 0) : (d.w || 5);
+    var h = (e && e.h != null) ? (e.h | 0) : (d.h || 16);
+    if (!w || w < 1) w = 1;
+    if (w > 50) w = 50;
+    if (!h || h < 1) h = 1;
+    if (h > 30) h = 30;
+    var drop = !!(e && e.drop);
+    return { w: w, h: h, drop: drop };
+  }
+
   function footprint(elDef, col, row) {
     var tw = elDef.tw || 1, th = elDef.th || 1;
     var len = elDef.len || 1;
+    if (elDef.id === 'platform_hang') {
+      // 悬挂站台：仅站台顶占 1 行 × w 列；吊柱向下延伸纯视觉，不占碰撞格
+      var pw = elDef.w || 5;
+      return { c0: col, c1: col + pw - 1, r0: row, r1: row, tw: pw, th: 1 };
+    }
     if (elDef.id === 'block_fall') {
       // 坠落砖组：横排 1×count，竖排 count×1（放置预览按定义默认属性）
       var fc = elDef.count || 3, fhoriz = elDef.ori !== 'v';
@@ -229,6 +247,10 @@
 
   function footprintOf(e) {
     var d = CAT.byId(e.id);
+    if (d.id === 'platform_hang') {
+      var pi = platInfo(e);
+      return { c0: e.col, c1: e.col + pi.w - 1, r0: e.row, r1: e.row, tw: pi.w, th: 1 };
+    }
     if (d.id === 'block_fall') {
       var fi = fallInfo(e);
       return fi.ori === 'h'
@@ -247,8 +269,9 @@
   }
 
   // 实体类：占格互斥（方块/管道/旗杆/升降台/机关块）
+  // player_start / bg_midflag 不参与互斥（中间旗是背景装饰，可与方块同格）
   function isSolid(d) {
-    return d.cat === 'block' || (d.cat === 'struct' && d.id !== 'player_start');
+    return d.cat === 'block' || (d.cat === 'struct' && d.id !== 'player_start' && d.id !== 'bg_midflag');
   }
 
   function placeAt(col, row) {
@@ -260,6 +283,7 @@
     var tw = d.tw || 1, th = d.th || 1;
     var len = d.len || tw;
     if (d.id.indexOf('lift_') === 0) { tw = len; }
+    if (d.id === 'platform_hang') { tw = d.w || 5; th = 1; }
     if (d.id === 'block_fall') {
       tw = d.ori === 'v' ? 1 : (d.count || 3);
       th = d.ori === 'v' ? (d.count || 3) : 1;
@@ -271,6 +295,7 @@
 
     var fp = footprint(d, col, row);
     if (d.id.indexOf('lift_') === 0) fp.c1 = col + len - 1;
+    if (d.id === 'platform_hang') fp.c1 = col + (d.w || 5) - 1;
 
     // 移除占位重叠的实体
     state.elements = state.elements.filter(function (e) {
@@ -287,6 +312,7 @@
 
     var ne = { id: d.id, col: col, row: row };
     if (d.id.indexOf('lift_') === 0) ne.len = len;
+    if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
     if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
     if (d.xt) ne.xt = d.xt;
     if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
@@ -441,6 +467,37 @@
       return;
     }
 
+    if (d.id === 'platform_hang') {
+      // 原版 main.cpp srsp=10：绿色站台顶(30px) + 棕色吊柱(宽=站台-40，高=h格)
+      var pi = platInfo(e);
+      var ppw = pi.w * TILE;
+      var pin = Math.min(tilePx(20), ppw / 4);
+      ctx.globalAlpha = a;
+      if (ppw - pin * 2 > 0 && pi.h > 0) {
+        ctx.fillStyle = '#b4783c';
+        ctx.fillRect(x + pin, y + tilePx(30), ppw - pin * 2, pi.h * TILE);
+        ctx.strokeStyle = '#645014';
+        ctx.lineWidth = Math.max(1, tilePx(2));
+        ctx.strokeRect(x + pin, y + tilePx(30), ppw - pin * 2, pi.h * TILE);
+      }
+      ctx.fillStyle = '#00c800';
+      ctx.fillRect(x, y, ppw, tilePx(30));
+      ctx.strokeStyle = '#00a000';
+      ctx.lineWidth = Math.max(1, tilePx(2));
+      ctx.strokeRect(x, y, ppw, tilePx(30));
+      if (pi.drop) {
+        var pcx = x + ppw / 2, pcy = y + tilePx(30) / 2;
+        ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeText('↓', pcx, pcy + 1);
+        ctx.fillStyle = 'rgba(200,30,30,0.95)';
+        ctx.fillText('↓', pcx, pcy + 1);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
     if (d.id === 'block_fall') {
       // count 张砖块精灵按横/竖拼接，中心叠加红色方向箭头标识机关
       var fi = fallInfo(e);
@@ -528,9 +585,15 @@
         // 管道/旗杆/假旗杆/大敌人：按 tw/th 格数等比缩放
         dx2 = x; dy2 = y;
         if (d.id === 'enemy_turtle') {
-          // 绿龟在地图上只占 1 格：按 30x43 原始比例绘制，格顶对齐、向下溢出（与游戏内一致）
+          // 绿龟在地图上只占 1 格：按 30x43 原始比例绘制，格底对齐（脚踩地面，向上溢出）
           dw2 = Math.round(im2.naturalWidth / 29 * TILE);
           dh2 = Math.round(im2.naturalHeight / 29 * TILE);
+          dy2 = y + TILE - dh2;
+        } else if (d.id === 'bg_midflag') {
+          // 中间旗：按原版 haikei(40,182,40,60) 的 40x60 像素绘制，旗底对齐放置格底
+          dw2 = Math.round(40 / 29 * TILE);
+          dh2 = Math.round(60 / 29 * TILE);
+          dy2 = y + TILE - dh2;
         } else {
           dw2 = tw * TILE;
           dh2 = th * TILE;
@@ -607,9 +670,10 @@
         var col = Math.min(hover.col, state.cols - (d.tw || 1));
         var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - (d.th || 1));
         col = Math.max(col, 0);
-        drawElement({ id: d.id, col: col, row: row, len: d.len, xt: d.xt }, 0.55);
+        drawElement({ id: d.id, col: col, row: row, len: d.len, xt: d.xt, w: d.w, h: d.h, drop: d.drop }, 0.55);
         var fp = footprint(d, col, row);
         if (d.id.indexOf('lift_') === 0) fp.c1 = col + liftLen({ id: d.id, len: d.len }) - 1;
+        if (d.id === 'platform_hang') fp.c1 = col + (d.w || 5) - 1;
         ctx.strokeStyle = 'rgba(20,80,255,0.9)';
         ctx.lineWidth = 2;
         ctx.strokeRect(fp.c0 * TILE + 1, (fp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
@@ -789,6 +853,22 @@
       fLen = numInput(1, 50, liftLen(selected));
       propBody.appendChild(propRow('平台长度', fLen, '格'));
     }
+    var fPlatW = null, fPlatH = null, fPlatDrop = null;
+    if (d.id === 'platform_hang') {
+      var pi0 = platInfo(selected);
+      fPlatW = numInput(1, 50, pi0.w);
+      propBody.appendChild(propRow('站台宽度', fPlatW, '格（绿色台面）'));
+      fPlatH = numInput(1, 30, pi0.h);
+      propBody.appendChild(propRow('吊柱高度', fPlatH, '格，纯视觉不参与碰撞（原版约16格）'));
+      fPlatDrop = document.createElement('select');
+      [['no', '否：固定站台（不会下降）'], ['yes', '是：玩家站上即加速下坠']].forEach(function (op) {
+        var po = document.createElement('option');
+        po.value = op[0]; po.textContent = op[1];
+        fPlatDrop.appendChild(po);
+      });
+      fPlatDrop.value = pi0.drop ? 'yes' : 'no';
+      propBody.appendChild(propRow('可下降', fPlatDrop, '下坠时会带着站在台上的玩家一起掉落'));
+    }
     if (d.warpable) {
       fWarp = document.createElement('select');
       var optEnd = document.createElement('option');
@@ -815,6 +895,12 @@
       if (fTotal) selected.xt = Math.max(1, Math.min(20, (parseInt(fTotal.value, 10) || 6) - 1));
       if (fRot) selected.rot = ((parseInt(fRot.value, 10) || 0) % 360 + 360) % 360;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
+      if (fPlatW) {
+        var nW = Math.max(1, Math.min(50, parseInt(fPlatW.value, 10) || 5));
+        var nH = Math.max(1, Math.min(30, parseInt(fPlatH.value, 10) || 16));
+        selected.w = nW; selected.h = nH; selected.drop = fPlatDrop.value === 'yes';
+        selected.col = Math.min(selected.col, state.cols - nW);
+      }
       if (fFallOri) {
         var nOri = fFallOri.value === 'v' ? 'v' : 'h';
         var nCnt = Math.max(2, Math.min(12, parseInt(fFallCount.value, 10) || 3));
@@ -1243,6 +1329,7 @@
       var d = CAT.byId(selected.id);
       var tw = (d.tw || 1), th = (d.th || 1);
       if (d.id.indexOf('lift_') === 0) tw = liftLen(selected);
+      if (d.id === 'platform_hang') { tw = platInfo(selected).w; th = 1; }
       if (d.id === 'block_fall') {
         var fdi = fallInfo(selected);
         tw = fdi.ori === 'h' ? fdi.count : 1;
@@ -1552,11 +1639,26 @@
     (def.lifts || []).forEach(function (l) {
       var col = Math.round(l.sra / 100 / 29), row = Math.round((l.srb / 100 + 12) / 29);
       note(col);
-      if (W_LIFT_ID[l.srsp]) add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
-      else skip++;
+      if (l.srsp >= 10 && l.srsp <= 14 && l.src >= 5000) {
+        // 悬挂站台 srsp=10~14：自定义柱高 srh（世界单位，缺省48000≈16格）；sracttype=1=可下降
+        var pw0 = Math.max(1, Math.min(50, Math.round(l.src / 3000)));
+        var ph0 = l.srh ? Math.max(1, Math.min(30, Math.round(l.srh / 2900))) : 16;
+        add('platform_hang', col, row, { w: pw0, h: ph0, drop: l.sracttype === 1 });
+      } else if (l.srsp === 1) {
+        // 易碎台 srsp=1：编辑器按普通黄台还原（踩碎陷阱不保留）
+        add('lift_yellow', col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
+      } else if (W_LIFT_ID[l.srsp]) {
+        add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
+      } else skip++;
     });
     // 6) 出生点（BGM 是关卡级设置，不放画布，随返回值交给 loadData）
-    if (def.spawn) add('player_start', Math.round(def.spawn.x / 29), Math.round((def.spawn.y + 12) / 29));
+    // 原版抽取关 spawn={ma,mb} 世界坐标；编辑器自定义关 spawn={x,y} 像素坐标
+    if (def.spawn) {
+      var sp = (typeof def.spawn.ma === 'number')
+        ? { x: def.spawn.ma / 100, y: def.spawn.mb / 100 + 12 }
+        : { x: def.spawn.x, y: def.spawn.y + 12 };
+      add('player_start', Math.round(sp.x / 29), Math.round(sp.y / 29));
+    }
     return {
       elements: E,
       theme: W_THEME[def.stagecolor] || 'overworld',
@@ -1672,6 +1774,18 @@
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
+      // 悬挂站台：宽度/吊柱高度/可下降（2-3 起始站台 drop=true 必须随载入保留）
+      if (e.id === 'platform_hang') {
+        if (e.w != null) out.w = e.w | 0;
+        if (e.h != null) out.h = e.h | 0;
+        out.drop = !!e.drop;
+      }
+      // 坠落砖组：排列方向/砖块数/移动方向
+      if (e.id === 'block_fall') {
+        if (e.ori === 'h' || e.ori === 'v') out.ori = e.ori;
+        if (e.count != null) out.count = e.count | 0;
+        if (e.dir) out.dir = String(e.dir);
+      }
       return out;
     }).filter(Boolean);
     if (data.cols) state.cols = Math.max(20, Math.min(1000, data.cols | 0));

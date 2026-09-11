@@ -148,20 +148,33 @@
       state.triggers.push({ ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false });
     });
 
-    // 升降台
+    // 升降台（透传原版字段；srh=悬挂台吊柱高，世界单位，缺省48000=原版写死480px）
     (def.lifts || []).forEach(function (l) {
-      state.lifts.push(l);
+      state.lifts.push({
+        sra: l.sra, srb: l.srb, src: l.src,
+        srtype: l.srtype || 0, sracttype: l.sracttype || 0,
+        sre: l.sre || 0, srf: l.srf || 0, srsp: l.srsp || 0,
+        sron: l.sron || 0, srmuki: l.srmuki || 0, srsok: l.srsok || 0,
+        srmove: l.srmove || 0, srmovep: l.srmovep || 0,
+        srh: l.srh || 48000
+      });
     });
 
     // 自定义关卡 BGM（试玩页注入；默认地上 100）
     state.bgmId = def.bgm || 100;
 
-    // 自定义出生点（def.spawn：像素单位，与 blocks 的 x/y 同系）
-    // 新引擎 ma/mb 为世界坐标；进关直接把玩家放到出生点并把镜头居中，
-    // 远端出生不再依赖首帧相机追赶
+    // 出生点：
+    //  - 原版抽取关卡 def.spawn={ma,mb}：与玩家世界坐标同系，直接放置
+    //  - 自定义关 def.spawn={x,y}：编辑器像素口径，沿用 +200/(-30) 转换
+    // 进关直接把玩家放到出生点并把镜头居中，远端出生不再依赖首帧相机追赶
     if (def.spawn && state.player) {
-      state.player.ma = def.spawn.x * 100 + 200;
-      state.player.mb = (def.spawn.y - 30) * 100;   // 略高几格，自然落地
+      if (typeof def.spawn.ma === 'number') {
+        state.player.ma = def.spawn.ma;
+        state.player.mb = def.spawn.mb;
+      } else {
+        state.player.ma = def.spawn.x * 100 + 200;
+        state.player.mb = (def.spawn.y - 30) * 100;   // 略高几格，自然落地
+      }
       state.scorepos = state.player.ma;
       var fxp = state.player.ma - C.FXMAX / 2;
       if (fxp > 700 && fxp < state.scrollx) {
@@ -637,6 +650,94 @@
     }
   }
 
+  // ==================== 升降台（含 srsp=10~14 悬挂站台） ====================
+  // 对应原版 main.cpp:2698-2871 的 リフト 循环。玩家 ma/mb 为世界坐标，
+  // 故站立判定直接与 sra/srb 比较（原版是屏坐标 sra-fx）。
+  function collideLifts() {
+    var p = state.player;
+    for (var i = 0; i < state.lifts.length; i++) {
+      var l = state.lifts[i];
+      if (l.sra < -8000000) continue;
+      // 水平剔除（含原版 12000 宽边距）
+      if (l.sra - state.fx + l.src < -12010 || l.sra - state.fx > C.FXMAX + 12100) continue;
+
+      // 运动积分：保存旧台底/旧速度后再移动。玩家站立判定与吸附基于「旧台底」，
+      // 随动用「旧 sre」（台本帧实际位移）→ 脚=新台底+100，始终紧贴台面不嵌入。
+      var oldSrb = l.srb;
+      var oldSre = l.sre;
+      l.srb += l.sre;
+      l.sre += l.srf;
+      l._oldSrb = oldSrb;   // 供敌人 enemyGroundCollide 随动使用
+      l._oldSre = oldSre;
+
+      switch (l.sracttype) {
+        case 1: if (l.sron === 1) l.srf = 60; break;            // 踩上即加速下坠
+        case 5:                                                  // 纵向循环（1-2-1）
+          l.srmuki = (l.srmove === 0) ? 0 : 1;
+          if (l.srb < -2100) l.srb = C.FYMAX + 2000;
+          if (l.srb > C.FYMAX + 2000) l.srb = -2100;
+          break;
+        case 6: if (l.sron === 1) l.srf = 40; break;
+      }
+
+      if (p.mtype < 10 && p.mhp >= 1) {
+        // 站立吸附窗口：脚底在台面下方 1200 世界单位内（下落速度大时放宽 900+md）
+        var win = 1200;
+        if (p.md >= 100) win = 900 + p.md;
+        if (p.md > win) win = p.md + 100;
+
+        if (p.ma + p.mnobia > l.sra + 500 && p.ma < l.sra + l.src - 500 &&
+            p.mb + p.mnobib > oldSrb && p.mb + p.mnobib < oldSrb + win && p.md >= -100) {
+          // 先吸附到旧台底（脚=旧台底+100），再随台移动 sre → 脚=新台底+100，紧贴不嵌入
+          p.mb = oldSrb - p.mnobib + 100;
+          if (l.srsp !== 12) { p.mzimen = 1; p.md = 0; }
+          else { p.md = -800; }                               // srsp=12 打滑台
+
+          // 踩上触发下坠
+          if (l.sracttype === 1 && l.sron === 0) l.sron = 1;
+          // 下坠/循环台带着玩家一起动（oldSre 是台本帧实际位移，脚=新台底+100）
+          if ((l.sracttype === 1 && l.sron === 1) || l.sracttype === 3 || l.sracttype === 5) {
+            p.mb += oldSre;
+          }
+
+          if (l.srsp === 1) {
+            // 易碎台：音效 + 两片碎块 + 消失
+            A.playSE(3);
+            spawnParticle(l.sra + 200, l.srb - 1000, -240, -1400, 0, 160, 4500, 4500, 1, 120);
+            spawnParticle(l.sra + l.src - 200, l.srb - 1000, 240, -1400, 0, 160, 4500, 4500, 1, 120);
+            l.sra = -70000000;
+          }
+
+          if (l.srsp === 2) {
+            // 绿色疲劳台：弹飞玩家，连续站立 100 帧阵亡
+            p.mc = -2400;
+            l.srmove += 1;
+            if (l.srmove >= 100) { p.mhp = 0; l.srmove = -5000; }
+          }
+        }
+
+        // 疲劳计时：未被弹飞且不在台上时逐帧回退
+        if (l.srsp === 2 && p.mc !== -2400 && l.srmove > 0) l.srmove--;
+
+        // srsp=11：靠近即自动下坠（无原版数据，编辑器也不产生，保留行为一致）
+        if (l.srsp === 11) {
+          if (p.ma + p.mnobia > l.sra - 1500 && p.ma < l.sra + l.src - 500) l.sron = 1;
+          if (l.sron === 1) { l.srf = 60; l.srb += l.sre; }
+        }
+        // sracttype=6：横向经过即触发下坠
+        if (l.sracttype === 6) {
+          if (p.ma + p.mnobia > l.sra + 500 && p.ma < l.sra + l.src - 500) l.sron = 1;
+        }
+      }
+
+      // 纵向定速运动（srsok；现有数据均为 0，保留原版结构）
+      if (l.sracttype === 3 || l.sracttype === 5) {
+        if (l.srmuki === 0) l.srb -= l.srsok;
+        if (l.srmuki === 1) l.srb += l.srsok;
+      }
+    }
+  }
+
   // ==================== 敌人触发与更新 ====================
   function updateTriggers() {
     var p = state.player;
@@ -943,6 +1044,24 @@
         }
       }
     }
+    // 与升降台碰撞（含悬挂站台 srsp=10~14）：敌人可站在台面上；
+    // collideLifts 在 updateEnemies 之前已把 srb 更新到本帧位置并记录 _oldSrb。
+    // 用旧台底判定 + 新台底吸附 + sre 随动，脚始终紧贴台面不嵌入。
+    for (var li = 0; li < state.lifts.length; li++) {
+      var lf = state.lifts[li];
+      if (lf.sra < -8000000) continue;
+      if (lf.sra + lf.src < -12000 || lf.sra > C.FXMAX + 12000) continue;
+      var lOld = lf._oldSrb != null ? lf._oldSrb : lf.srb;
+      if (e.aa + e.anobia > lf.sra + 500 && e.aa < lf.sra + lf.src - 500 &&
+          e.ab + e.anobib > lOld && e.ab + e.anobib < lOld + 1200 && e.ad >= -100) {
+        e.ab = lOld - e.anobib + 100;
+        // 随台移动（用旧 sre，与玩家一致；需存到 lift 上）
+        if ((lf.sracttype === 1 && lf.sron === 1) || lf.sracttype === 3 || lf.sracttype === 5) {
+          e.ab += (lf._oldSre != null ? lf._oldSre : lf.sre);
+        }
+        e.ad = 0; e.axzimen = 1;
+      }
+    }
   }
 
   // ==================== 粒子更新 ====================
@@ -1119,15 +1238,35 @@
 
     // 升降台
     state.lifts.forEach(function (l) {
+      if (l.sra < -8000000) return;   // 已消失（srsp=1 踩碎后）
       xx[0] = l.sra - state.fx; xx[1] = l.srb - state.fy;
-      if (xx[0] + l.src >= -10 && xx[0] <= C.FXMAX + 120) {
-        var h = 14;
+      if (xx[0] + l.src < -10 || xx[0] > C.FXMAX + 120) return;
+      var lx = Math.floor(xx[0] / 100), ly = Math.floor(xx[1] / 100), lw = Math.floor(l.src / 100);
+      if (l.srsp >= 10 && l.srsp <= 14 && l.src >= 5000) {
+        // 悬挂站台（原版 main.cpp:819-832）：棕色吊柱 + 30px 绿色台面，柱高=srh
+        var lph = Math.floor(l.srh / 100);
+        if (lw - 40 > 0 && lph > 0) {
+          ctx.fillStyle = '#b4783c';
+          ctx.fillRect(lx + 20, ly + 30, lw - 40, lph);
+          ctx.strokeStyle = '#645014';
+          ctx.strokeRect(lx + 20, ly + 30, lw - 40, lph);
+        }
+        ctx.fillStyle = '#00c800';
+        ctx.fillRect(lx, ly, lw, 30);
+        ctx.strokeStyle = '#00a000';
+        ctx.strokeRect(lx, ly, lw, 30);
+      } else {
+        var lh = l.srsp === 1 ? 12 : 14;
         ctx.fillStyle = '#dcdc00';
         if (l.srsp === 2) ctx.fillStyle = '#00dc00';
         if (l.srsp === 21) ctx.fillStyle = '#b4b4b4';
-        ctx.fillRect(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), Math.floor(l.src / 100), h);
+        ctx.fillRect(lx, ly, lw, lh);
         ctx.strokeStyle = ctx.fillStyle;
-        ctx.strokeRect(Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), Math.floor(l.src / 100), h);
+        ctx.strokeRect(lx, ly, lw, lh);
+        if (l.srsp === 15) {
+          // srsp=15：台面三块砖（grap[0][1] = 砖块）
+          for (var li = 0; li < 3; li++) S.draw(ctx, 1, 1, lx + li * 29, ly);
+        }
       }
     });
 
@@ -1234,6 +1373,7 @@
         }
         collideBlocks();
         collidePipes();
+        collideLifts();
         // キー入力初期化（原版行 2694：帧末尾重置方向输入，使摩擦生效）
         state.player.actaon[0] = 0; state.player.actaon[4] = 0;
         var p2 = state.player;
@@ -1489,6 +1629,11 @@
 
   // 调试：访问内部状态
   Engine._state = state;
+
+  // 调试/自动化：手动推进一个物理帧（30fps 基准，不驱动渲染）。
+  // 自动化浏览器在后台标签会冻结 requestAnimationFrame，可用定时器按 33ms 调用本接口
+  // 获得确定性物理；正常游戏由内部 rAF accumulator 驱动，勿在外部重复调用。
+  Engine._stepFrame = function () { frame(); };
 
   global.GameEngine = Engine;
 })(window);

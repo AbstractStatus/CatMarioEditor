@@ -46,7 +46,7 @@
     { id: 'goal_pole', cat: 'struct', name: '终点旗杆', kind: 'vector', img: 'vector/goal_pole.png',
       tw: 1, th: 12, mapId: 99, hint: 'stype=300：白色杆(10宽)+黄色圆球(r10)，地图99号，杆从放置行向下延伸到第12行' },
     { id: 'bg_midflag', cat: 'struct', name: '中间旗', kind: 'sprite', img: 'bg/bg_midflag.png',
-      tw: 2, th: 2, mapId: 30, hint: 'stype=500，haikei(40,182,40,60)，过了之后死亡从中点复活' },
+      tw: 2, th: 3, mapId: 30, hint: 'stype=500，haikei(40,182,40,60)，旗面40x60像素；编辑器按 40x60 原始比例绘制（约1.4格宽、2格高），过了之后死亡从中点复活' },
     { id: 'lift_yellow', cat: 'struct', name: '升降台(黄)', kind: 'vector', img: 'vector/lift_yellow.png',
       tw: 3, th: 1, mapId: 20, len: 3, hint: '地图20-29号：黄色移动平台，14px厚，长度可在JSON的len字段调整' },
     { id: 'lift_green', cat: 'struct', name: '升降台(绿)', kind: 'vector', img: 'vector/lift_green.png',
@@ -58,6 +58,9 @@
     { id: 'block_fall', cat: 'struct', name: '坠落砖组', kind: 'vector', img: 'block/block_brick.png',
       tw: 3, th: 1, count: 3, ori: 'h', dir: 'down',
       hint: 'stype=51：连在一起的砖块（默认3块横排）。玩家完全进入砖组长轴区域并处于运动方向一侧时，砖组加速坠落/平移；移动中碰到玩家即阵亡。选中后在⚙属性里改排列(横/竖)、砖块数(2-12)、移动方向(上/下/左/右)' },
+    { id: 'platform_hang', cat: 'struct', name: '悬挂站台', kind: 'vector', img: 'vector/lift_green.png',
+      tw: 5, th: 1, w: 5, h: 16, drop: false,
+      hint: 'srsp=10：1-3/2-3 的高空站台——30px 厚绿色站台顶 + 向下延伸的棕色吊柱（吊柱纯装饰，不参与碰撞，默认16格高≈原版480px）。w=站台宽度（格），h=吊柱高度（格，仅视觉），drop=可下降：开启后玩家一站上台面即加速下坠（sracttype=1），并带着玩家一起掉落。选中后在⚙属性里修改' },
 
     // ================= 方块（地上主题） =================
     { id: 'block_brick', cat: 'block', name: '砖块', kind: 'sprite', img: 'block/block_brick.png',
