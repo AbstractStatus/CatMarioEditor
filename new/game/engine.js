@@ -45,6 +45,8 @@
     lifts: [],       // sr[]
     // 玩家
     player: null,
+    // 中间旗检查点（触碰后保存的复活坐标 {ma,mb}，本关内死亡复活时复用；进下一关/新游戏时清空）
+    checkpoint: null,
     // 消息
     mmsgtm: 0, mmsgtype: 0,
     mainmsgtype: 0,  // 主消息类型（原版 mainmsgtype）
@@ -164,16 +166,23 @@
     state.bgmId = def.bgm || 100;
 
     // 出生点：
-    //  - 原版抽取关卡 def.spawn={ma,mb}：与玩家世界坐标同系，直接放置
-    //  - 自定义关 def.spawn={x,y}：编辑器像素口径，沿用 +200/(-30) 转换
+    //  - 若已触碰中间旗（state.checkpoint），死亡复活时从旗子位置出生
+    //  - 否则使用 def.spawn：
+    //      原版抽取关卡 def.spawn={ma,mb}：与玩家世界坐标同系，直接放置
+    //      自定义关 def.spawn={x,y}：编辑器像素口径，沿用 +200/(-30) 转换
     // 进关直接把玩家放到出生点并把镜头居中，远端出生不再依赖首帧相机追赶
-    if (def.spawn && state.player) {
-      if (typeof def.spawn.ma === 'number') {
-        state.player.ma = def.spawn.ma;
-        state.player.mb = def.spawn.mb;
-      } else {
-        state.player.ma = def.spawn.x * 100 + 200;
-        state.player.mb = (def.spawn.y - 30) * 100;   // 略高几格，自然落地
+    if (state.player) {
+      if (state.checkpoint) {
+        state.player.ma = state.checkpoint.ma;
+        state.player.mb = state.checkpoint.mb;
+      } else if (def.spawn) {
+        if (typeof def.spawn.ma === 'number') {
+          state.player.ma = def.spawn.ma;
+          state.player.mb = def.spawn.mb;
+        } else {
+          state.player.ma = def.spawn.x * 100 + 200;
+          state.player.mb = (def.spawn.y - 30) * 100;   // 略高几格，自然落地
+        }
       }
       state.scorepos = state.player.ma;
       var fxp = state.player.ma - C.FXMAX / 2;
@@ -374,7 +383,7 @@
             } else {
               state.stc++;   // 普通进管：进入下一子关
             }
-            if (proceed) { startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
+            if (proceed) { state.checkpoint = null; startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
           }
         }
       }
@@ -384,7 +393,7 @@
         if (p.mtm >= 2 && p.mtm <= 42) { p.md = 600; p.mmuki = 1; }
         if (p.mtm > 43 && p.mtm <= 108) p.mc = 300;
         if (p.mtm === 110) { p.mb = -80000000; p.mc = 0; }
-        if (p.mtm === 250) { state.stb++; state.stc = 0; startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
+        if (p.mtm === 250) { state.stb++; state.stc = 0; state.checkpoint = null; startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
       }
     }
 
@@ -1356,6 +1365,19 @@
       ctx.textAlign = 'left';
       ctx.fillText('CHEAT ON (C to toggle)', 10, 20);
     }
+
+    // 暂停遮罩（P 键切换，F 键单步）
+    if (state.paused) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.fillRect(0, 0, C.CANVAS_W, C.CANVAS_H);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 30px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('已暂停', C.CANVAS_W / 2, C.CANVAS_H / 2 - 10);
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = '#c8d8ff';
+      ctx.fillText('P 继续 ｜ F 单步下一帧', C.CANVAS_W / 2, C.CANVAS_H / 2 + 22);
+    }
   }
 
   // ==================== 主循环 ====================
@@ -1403,6 +1425,7 @@
       state.maintm++;
       if (key) {
         state.life = 0;   // 新游戏，重置死亡计数
+        state.checkpoint = null;   // 新游戏，清空中间旗检查点
         state.proc = C.PROC.STAGE_START;
         state.maintm = 0;
         startGame();
@@ -1430,6 +1453,14 @@
   var _PHYS_STEP = 1000 / C.FPS;     // 物理固定 timestep = 30ms（原版基准）
   var _renderStep = 1000 / 60;       // 渲染目标 60Hz（仅做节流，rAF 驱动）
   var _lastRenderTime = 0;
+
+  // 按住 F 连续单步：由引擎 rAF 驱动，不依赖系统 keyrepeat
+  // （系统 repeat 会切换到最后按下的键，按住 F 再按方向键时 F repeat 停止，导致暂停下物理帧停摆、方向键"失灵"）
+  var _stepHold = false;             // F 当前被按住
+  var _stepHoldT0 = 0;               // F 按下时刻（用于 initial delay）
+  var _stepAcc = 0;
+  var _STEP_DELAY = 300;             // 按住 300ms 后开始连步（同系统 repeat 初延迟）
+  var _STEP_RATE = 50;               // 连步间隔 50ms ≈ 20 步/秒
 
   // ---- 响应式：等比例缩放 + 镜头变宽 ----
   // 策略：
@@ -1497,6 +1528,24 @@
       if (e.keyCode === 77) {                     // M: 静音
         A.mute();
       }
+      if (e.keyCode === 80 && !e.repeat) {        // P: 暂停/继续（过滤按住重复触发）
+        state.paused = !state.paused;
+        if (state.paused) {
+          _accumulator = 0;                       // 丢弃暂停前的残余 delta，防止恢复时跳帧
+          A.bgmSuspend();
+        } else {
+          _stepHold = false;                      // 恢复时清掉可能残留的 F 连步状态
+          A.bgmResume();
+        }
+      }
+      if (e.keyCode === 70 && state.paused) {     // F: 暂停状态下单步推进一个物理帧（30fps 基准）
+        A.unlock();
+        if (!e.repeat) {                          // 单击立即走一帧（精确单步）
+          frame();
+          _stepHoldT0 = performance.now();
+        }
+        _stepHold = true;                         // 按住时由 loop() 以 _STEP_RATE 连步
+      }
       if (e.keyCode === 32) {                     // Space: 加速
         state.speedup = true;
       }
@@ -1504,6 +1553,9 @@
     window.addEventListener('keyup', function (e) {
       if (e.keyCode === 32) {
         state.speedup = false;
+      }
+      if (e.keyCode === 70) {
+        _stepHold = false;
       }
     });
 
@@ -1523,6 +1575,25 @@
     _lastFrameTime = now;
     // 防止标签页切回来后的巨大 delta
     if (delta > 500) delta = 500;
+
+    // 暂停（P）：停止物理推进，但保持渲染（F 单步后画面即时更新）
+    if (state.paused) {
+      _accumulator = 0;
+      // 按住 F：超过初延迟后由引擎持续连步（方向键照常读取，可边步进边操作）
+      if (_stepHold && now - _stepHoldT0 >= _STEP_DELAY) {
+        _stepAcc += delta;
+        while (_stepAcc >= _STEP_RATE) {
+          _stepAcc -= _STEP_RATE;
+          A.unlock();
+          frame();
+        }
+      } else {
+        _stepAcc = 0;
+      }
+      resizeCanvas();
+      render(ctx2d);
+      return;
+    }
 
     // 加速倍率：按住空格时物理跑 2 倍
     var speedMult = state.speedup ? 2 : 1;
@@ -1612,6 +1683,7 @@
   Engine.startGame = function () {
     state.proc = C.PROC.STAGE_START;
     state.maintm = 0;
+    state.checkpoint = null;   // 从外部启动新游戏，清空中间旗检查点
     _debugFrame = 0;
     startGame();
   };
@@ -1620,6 +1692,7 @@
   Engine.backToTitle = function () {
     state.proc = C.PROC.TITLE;
     state.maintm = 0;
+    state.checkpoint = null;
     A.bgmStop();
   };
 

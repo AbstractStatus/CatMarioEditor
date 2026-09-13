@@ -123,5 +123,16 @@
     Audio.bgmChange(currentBgm);
   };
 
+  // 暂停游戏（P 键）时挂起 BGM，恢复时从原位置继续（不重置进度）
+  Audio.bgmSuspend = function () {
+    if (bgmEl) { try { bgmEl.pause(); } catch (e) {} }
+  };
+  Audio.bgmResume = function () {
+    if (bgmEl) {
+      var pr = bgmEl.play();
+      if (pr && pr.catch) pr.catch(function () {});
+    }
+  };
+
   global.AudioSys = Audio;
 })(window);

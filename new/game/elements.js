@@ -353,8 +353,11 @@
       var S = getS();
       S && S.draw(ctx, 20, 4, x, y);
     },
-    onCollide: function (p, s, xx, state) {
+    onCollide: function (p, s, xx, state, A) {
       if (p.mtype === 0 && p.mhp >= 1) {
+        // 记录检查点：旗子左缘 x、旗子顶部 y，复活时玩家自然落地
+        state.checkpoint = { ma: s.sa, mb: s.sb };
+        if (A) A.playSE(getC().SE.COIN);
         s.sa = -80000000;
       }
     }
