@@ -165,6 +165,7 @@
         if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
         if (e.hintType) o.hintType = e.hintType;
         if (e.hintCustom) o.hintCustom = e.hintCustom;
+        if (e.hv != null) o.hv = e.hv;
         return o;
       })
     };
@@ -570,6 +571,26 @@
       return;
     }
 
+    if (d.id === 'block_hidden_poison') {
+      // ttype=114：游戏中完全隐形，编辑器用半透明内容物 + 彩色虚线框揭示
+      // hv=0 紫毒蘑菇(紫框) / hv=2 金币(金框) / hv=10 P开关(蓝框)
+      var hpv = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
+      var hpImg = hpv === 2 ? getImg(CAT.byId('item_coin'))
+        : hpv === 10 ? getImg(CAT.byId('b2_pswitch'))
+          : getImg(CAT.byId('item_mushroom_purple'));
+      ctx.globalAlpha = a * 0.55;
+      if (hpImg && hpImg.complete) {
+        ctx.drawImage(hpImg, Math.round(x), Math.round(y), TILE, TILE);
+      }
+      ctx.globalAlpha = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = hpv === 0 ? '#b04de8' : (hpv === 2 ? '#e8c14d' : '#4db4e8');
+      ctx.lineWidth = Math.max(1.5, TILE / 20);
+      ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
+      ctx.setLineDash([]);
+      return;
+    }
+
     if (d.id === 'player_start') {
       drawSprite(e, d, x, y, a);
       ctx.globalAlpha = 1;
@@ -947,6 +968,19 @@
       }
       propBody.appendChild(propRow('传送目标', fWarp, '进入管道后前往'));
     }
+    // 隐藏块(毒蘑菇) ttype=114：隐藏内容选择（对应原版 txtype 0/2/10）
+    var fHiddenV = null;
+    if (d.id === 'block_hidden_poison') {
+      fHiddenV = document.createElement('select');
+      [['0', '紫毒蘑菇（原版1-2管道旁陷阱）'], ['2', '金币（顶出金币后变脆弱块）'],
+       ['10', 'P开关联动（强化火焰棒）']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fHiddenV.appendChild(o);
+      });
+      fHiddenV.value = String((selected.hv === 2 || selected.hv === 10) ? selected.hv : 0);
+      propBody.appendChild(propRow('隐藏内容', fHiddenV, '游戏中完全隐形，从下方顶到才触发'));
+    }
     // 提示块：消息类型选择 + 自定义文本
     var fHintType = null, fHintText = null;
     if (d.id === 'b2_hint') {
@@ -1012,6 +1046,7 @@
           selected.hintCustom = null;
         }
       }
+      if (fHiddenV) selected.hv = parseInt(fHiddenV.value, 10) || 0;
       persist();
       requestRender();
       closePropModal();
@@ -1967,6 +2002,7 @@
     if (type === 104) return 'block_q_badstar';
     if (type === 110 || type === 111) return 'block_q_poison_mass';
     if (type === 112 || type === 113) return 'block_q_coin_mass';
+    if (type === 114) return 'block_hidden_poison';   // 隠し毒きのこ：游戏中隐形，顶到才出紫毒蘑菇
     if (type === 117) return xt === 1 ? 'b2_note_peach' : 'b2_note_white';
     if (type === 120) return 'item_jumppad';
     if (type === 130) return 'b2_on';
@@ -2054,6 +2090,10 @@
       // 提示块：恢复 txtype → hintType
       if (b.type === 300 && b.xt >= 1 && b.xt <= 100) {
         extra = { hintType: String(b.xt) };
+      }
+      // 隐藏块(114)：保留原版 txtype 变体（0=紫毒蘑菇, 2=金币, 10=P开关联动）
+      if (b.type === 114) {
+        extra = { hv: (b.xt === 2 || b.xt === 10) ? b.xt : 0 };
       }
       add(bid, col, row, extra);
     });
@@ -2374,6 +2414,8 @@
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
+      // 隐藏块(毒蘑菇)的隐藏内容变体（0=紫毒蘑菇 2=金币 10=P开关），必须保留 0
+      if (e.id === 'block_hidden_poison' && e.hv != null) out.hv = e.hv | 0;
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;

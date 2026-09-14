@@ -142,9 +142,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=custom2"></script>
+<script src="elements.js?v=shell1"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=custom3"></script>
+<script src="engine.js?v=shell1"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -197,7 +197,8 @@ body.dragging #dropTip { display: flex; }
     block_q_poison:      { type: 103, xt: 0 },  // 顶出棕毒蘑菇（まずいきのこ）
     block_q_poison_mass: { type: 110, xt: 0 },  // 毒蘑菇量产（110→111 周期生成）
     block_q_coin_mass:   { type: 112, xt: 0 },  // 金币量产（112→113）
-    block_q_badstar:     { type: 104, xt: 0 }   // 顶出坏星（悪スター）
+    block_q_badstar:     { type: 104, xt: 0 },  // 顶出坏星（悪スター）
+    block_hidden_poison: { type: 114, xt: 0 }   // 隠し毒きのこ：游戏中隐形，顶到才现形（xt 由 hv 覆盖）
   };
 
   // 敌人/道具 → 触发器 btype（= 生成的 atype）/ bxtype
@@ -282,9 +283,11 @@ body.dragging #dropTip { display: flex; }
             xt = 9000 + blocks.length;  // 唯一 key，避免与预设冲突
             hintTexts[xt] = e.hintCustom.split('\n').slice(0, 7);
           } else if (e.hintType) {
-            xt = parseInt(e.hintType, 10) || 1;
-          }
+          xt = parseInt(e.hintType, 10) || 1;
         }
+        }
+        // 隐藏块(114)：hv=0 紫毒蘑菇(默认) / 2 金币 / 10 P开关联动
+        if (id === 'block_hidden_poison') xt = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
         blocks.push({ x: x, y: y, type: sp.type, xt: xt });
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];

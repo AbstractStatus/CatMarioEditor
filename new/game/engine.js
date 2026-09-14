@@ -936,7 +936,22 @@
         case 0: case 1: xx[10] = 100; break;
         case 2:
           xx[10] = 0;
-          if (e.axtype >= 1) xx[10] = 800;
+          if (e.axtype >= 1) {
+            xx[10] = 800;
+            // 滑动龟壳撞翻其他敌人（原版 main.cpp:2986-2997「他の敵を倒す」）：
+            // AABB 重叠即直接移除（无死亡动画）并播放 koura 音效；原版不区分敌种，
+            // 静止壳/道具被滑动壳碰到也会一并消失
+            for (var ei = 0; ei < state.enemies.length; ei++) {
+              var oe = state.enemies[ei];
+              if (oe === e || oe.aa < -800000) continue;
+              if (e.aa + e.anobia > oe.aa + 500 && e.aa < oe.aa + oe.anobia - 500 &&
+                  e.ab + e.anobib > oe.ab - 800 &&
+                  e.ab + e.anobib < oe.ab + 6300) {
+                oe.aa = -800000;
+                A.playSE(C.SE.SHELL);
+              }
+            }
+          }
           break;
         case 3:
           e.azimentype = 0;
@@ -1073,10 +1088,20 @@
             if (e.axtype === 0) e.aa = -900000;
             else { A.playSE(5); p.mb = xx[9] - 900 - e.anobib; p.md = -2100; xx[25] = 1; }
           }
-          if (e.atype === 1) { e.atype = 2; e.anobib = 3000; e.axtype = 0; }
-          if (e.atype === 2 && p.md >= 0) {
-            if (e.axtype === 1 || e.axtype === 2) e.axtype = 0;
-            else { e.axtype = 1; e.amuki = p.ma + p.mnobia > xx[8] + xx[0] * 2 && p.ma < xx[8] + e.anobia / 2 ? 1 : 0; }
+          // 原版 main.cpp:3523-3535：if(atype==1){变静止壳} else if(atype==2&&md>=0){壳状态切换}
+          // 必须是 else if：绿龟变壳的同一帧不能再触发壳启动，否则壳一出现就立刻滑动
+          if (e.atype === 1) {
+            e.atype = 2; e.anobib = 3000; e.axtype = 0;
+          } else if (e.atype === 2 && p.md >= 0) {
+            if (e.axtype === 1 || e.axtype === 2) {
+              e.axtype = 0;                        // 滑动壳 → 静止
+            } else if (e.axtype === 0) {
+              // 静止壳 → 启动：玩家在壳左侧则壳向右滑(amuki=1)，在右侧则向左滑
+              if (p.ma + p.mnobia > xx[8] + xx[0] * 2 &&
+                  p.ma < xx[8] + e.anobia / 2 - xx[0] * 4) e.amuki = 1;
+              else e.amuki = 0;
+              e.axtype = 1;
+            }
           }
           if (e.atype === 7) e.aa = -900000;
           if (e.atype === 85) {

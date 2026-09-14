@@ -89,6 +89,8 @@
       tw: 1, th: 1, mapId: 6, hint: 'ttype=6，表层以下的填土块' },
     { id: 'block_hidden', cat: 'block', name: '隐藏块(隐形)', kind: 'special', img: 'block/block_cat_shut.png',
       tw: 1, th: 1, mapId: 7, hint: 'ttype=7：游戏中完全看不见，被头顶到才出现（编辑器中用虚线框显示）' },
+    { id: 'block_hidden_poison', cat: 'block', name: '隐藏块(毒蘑菇)', kind: 'special', img: 'item/item_mushroom_purple.png',
+      tw: 1, th: 1, ttype: 114, hv: 0, hint: 'ttype=114：游戏中完全隐形，从下方顶到才现形并弹出紫毒蘑菇（原版1-2管道旁经典陷阱，编辑器中用紫色虚线框显示）。属性里可改隐藏内容：金币/P开关' },
     { id: 'block_cat_shut', cat: 'block', name: '猫脸块(闭眼)', kind: 'sprite', img: 'block/block_cat_shut.png',
       tw: 1, th: 1, mapId: 8, hint: 'ttype=8，白色猫脸方块' },
     { id: 'block_spike', cat: 'block', name: '尖刺块', kind: 'sprite', img: 'block/block_spike.png',
