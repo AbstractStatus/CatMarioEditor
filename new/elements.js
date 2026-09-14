@@ -241,6 +241,29 @@
       return null;
     },
     TILE: (window.SPRITE_MANIFEST && window.SPRITE_MANIFEST.tile) || 29,
-    ROWS: 17
+    ROWS: 17,
+    // 注册自定义元素（动态追加到 ELEMENTS）
+    registerCustom: function (def) {
+      // 去重：同 id 先移除
+      for (var i = 0; i < ELEMENTS.length; i++) {
+        if (ELEMENTS[i].id === def.id) { ELEMENTS.splice(i, 1); break; }
+      }
+      def.custom = true;
+      ELEMENTS.push(def);
+    },
+    // 移除自定义元素
+    removeCustom: function (id) {
+      for (var i = 0; i < ELEMENTS.length; i++) {
+        if (ELEMENTS[i].id === id && ELEMENTS[i].custom) {
+          ELEMENTS.splice(i, 1);
+          return true;
+        }
+      }
+      return false;
+    },
+    // 获取所有自定义元素
+    listCustom: function () {
+      return ELEMENTS.filter(function (e) { return e.custom; });
+    }
   };
 })();

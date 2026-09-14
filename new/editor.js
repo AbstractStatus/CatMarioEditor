@@ -46,9 +46,11 @@
   var state = {
     cols: 120,
     theme: 'overworld',
-    bgm: 100,         // 本关 BGM ID（关卡级设置，不放画布；100/103/104/105/106）
+    bgm: 100,         // 本关 BGM ID（关卡级设置，不放画布；100/103/104/105/106 或自定义 200+）
     nextLevel: { end: false, id: null },  // 通关后去向：{end:false,id:null}=下一关，{end:true}=游戏结束，{id:'1-3'}=指定世界
     hintTexts: {},    // 提示块自定义文本 {txtype: ["line1","line2",...]}
+    customBgm: [],    // 自定义 BGM 列表 [{id, name, dataUrl}]
+    customSfx: [],    // 自定义音效列表 [{id, name, dataUrl}]
     grid: true,
     elements: [],     // {id, col, row, len?, xt?}
     _worldDef: null   // 载入“示例世界”时的原版关卡 def（未编辑前用于试玩 1:1 还原）
@@ -92,12 +94,22 @@
   // ---------- 图片缓存 ----------
   var imgCache = {};
   function getImg(el) {
+    // 自定义元素：用 dataUrl 直接加载
+    if (el.dataUrl) {
+      if (!imgCache[el.dataUrl]) {
+        var im = new Image();
+        im.src = el.dataUrl;
+        im.onload = function () { requestRender(); };
+        imgCache[el.dataUrl] = im;
+      }
+      return imgCache[el.dataUrl];
+    }
     if (!el.img) return null;
     if (!imgCache[el.img]) {
-      var im = new Image();
-      im.src = ASSETS + 'sprites/' + el.img;
-      im.onload = function () { requestRender(); };
-      imgCache[el.img] = im;
+      var im2 = new Image();
+      im2.src = ASSETS + 'sprites/' + el.img;
+      im2.onload = function () { requestRender(); };
+      imgCache[el.img] = im2;
     }
     return imgCache[el.img];
   }
@@ -143,6 +155,8 @@
       bgm: state.bgm,
       nextLevel: state.nextLevel ? { end: !!state.nextLevel.end, id: state.nextLevel.id || null } : { end: false, id: null },
       hintTexts: state.hintTexts ? JSON.parse(JSON.stringify(state.hintTexts)) : {},
+      customBgm: state.customBgm ? JSON.parse(JSON.stringify(state.customBgm)) : [],
+      customSfx: state.customSfx ? JSON.parse(JSON.stringify(state.customSfx)) : [],
       elements: state.elements.map(function (e) {
         var o = { id: e.id, col: e.col, row: e.row };
         if (e.len != null) o.len = e.len;
@@ -169,12 +183,15 @@
     state.bgm = prev.bgm || 100;
     state.nextLevel = prev.nextLevel || { end: false, id: null };
     state.hintTexts = prev.hintTexts || {};
+    state.customBgm = prev.customBgm || [];
+    state.customSfx = prev.customSfx || [];
     state.elements = prev.elements;
     selected = null;
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
     updateBgmCard();
     persist();
+    rebuildPalette();
     requestRender();
     hintEl.textContent = '已撤销（剩余 ' + history.length + ' 步）';
     return true;
@@ -405,7 +422,11 @@
     var im = getImg(def);
     if (!im || !im.complete || im.naturalWidth === 0) return;
     ctx.globalAlpha = alpha == null ? 1 : alpha;
-    if (def.cat === 'bg') {
+    if (def.custom) {
+      // 自定义元素：按 tw×th 格子数绘制
+      var cw = TILE * (def.tw || 1), ch = TILE * (def.th || 1);
+      ctx.drawImage(im, Math.round(x), Math.round(y), cw, ch);
+    } else if (def.cat === 'bg') {
       // 背景图：按 manifest 设计尺寸随 TILE 等比放大（跨多格，按锚点位置放置）
       var bs = bgDrawSize(def, im);
       ctx.drawImage(im, Math.round(x), Math.round(y), bs.w, bs.h);
@@ -1103,7 +1124,8 @@
         var thumb = document.createElement('div');
         thumb.className = 'pal-thumb';
         var im = document.createElement('img');
-        im.src = ASSETS + 'sprites/' + d.img;
+        if (d.dataUrl) im.src = d.dataUrl;
+        else im.src = ASSETS + 'sprites/' + d.img;
         im.alt = d.name;
         thumb.appendChild(im);
         b.appendChild(thumb);
@@ -1123,6 +1145,16 @@
         b.addEventListener('click', function () { selectTool(d.id); });
         grid.appendChild(b);
       });
+
+      // 自定义元素上传入口
+      var addBtn = document.createElement('div');
+      addBtn.className = 'pal-item pal-add';
+      addBtn.title = '上传图片添加自定义' + CAT.CATS[cat] + '元素';
+      addBtn.innerHTML = '<div class="pal-thumb pal-add-thumb">＋</div>' +
+        '<div class="pal-label">添加自定义</div>';
+      addBtn.addEventListener('click', function () { openCustomElementUploader(cat, grid); });
+      grid.appendChild(addBtn);
+
       sec.appendChild(grid);
       elPane.appendChild(sec);
     });
@@ -1143,6 +1175,190 @@
     document.getElementById('palPaneEl').classList.toggle('show', name === 'el');
     document.getElementById('palPaneMusic').classList.toggle('show', name === 'music');
     if (name !== 'music') stopBgm();   // 离开音乐页停止 BGM 试听
+  }
+
+  // ---------- 自定义元素上传 ----------
+  var customImgInput = document.createElement('input');
+  customImgInput.type = 'file';
+  customImgInput.accept = 'image/*';
+  customImgInput.style.display = 'none';
+  document.body.appendChild(customImgInput);
+
+  var _pendingCustomCat = null;
+  var _pendingCustomGrid = null;
+  var _pendingDataUrl = null;
+  var _pendingImgName = null;
+
+  function openCustomElementUploader(cat, gridEl) {
+    _pendingCustomCat = cat;
+    _pendingCustomGrid = gridEl;
+    customImgInput.click();
+  }
+
+  customImgInput.addEventListener('change', function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    _pendingImgName = f.name.replace(/\.[^.]+$/, '');
+    var reader = new FileReader();
+    reader.onload = function () {
+      _pendingDataUrl = reader.result;
+      openCustomPropModal();
+    };
+    reader.readAsDataURL(f);
+    ev.target.value = '';
+  });
+
+  // 自定义元素属性弹窗（复用 propModal 结构）
+  function openCustomPropModal() {
+    var modal = document.getElementById('propModal');
+    var title = document.getElementById('propTitle');
+    var body = document.getElementById('propBody');
+    title.textContent = '⚙ 自定义元素属性';
+    body.innerHTML = '';
+
+    // 预览图
+    var previewWrap = document.createElement('div');
+    previewWrap.style.textAlign = 'center';
+    previewWrap.style.marginBottom = '12px';
+    var prevImg = document.createElement('img');
+    prevImg.src = _pendingDataUrl;
+    prevImg.style.maxWidth = '120px';
+    prevImg.style.maxHeight = '80px';
+    prevImg.style.border = '1px solid #454d61';
+    previewWrap.appendChild(prevImg);
+    body.appendChild(previewWrap);
+
+    // 名称
+    var nameRow = document.createElement('div');
+    nameRow.className = 'prop-row';
+    nameRow.innerHTML = '<label>名称</label>';
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = _pendingImgName || '自定义';
+    nameInput.style.width = '200px';
+    nameRow.appendChild(nameInput);
+    body.appendChild(nameRow);
+
+    // 类别
+    var catRow = document.createElement('div');
+    catRow.className = 'prop-row';
+    catRow.innerHTML = '<label>类别</label>';
+    var catSel = document.createElement('select');
+    ['struct', 'block', 'item', 'enemy', 'bg'].forEach(function (c) {
+      var opt = document.createElement('option');
+      opt.value = c; opt.textContent = CAT.CATS[c];
+      if (c === _pendingCustomCat) opt.selected = true;
+      catSel.appendChild(opt);
+    });
+    catRow.appendChild(catSel);
+    body.appendChild(catRow);
+
+    // 横向格子数
+    var twRow = document.createElement('div');
+    twRow.className = 'prop-row';
+    twRow.innerHTML = '<label>横向格子数</label>';
+    var twInput = document.createElement('input');
+    twInput.type = 'number';
+    twInput.min = '1'; twInput.max = '20'; twInput.value = '1';
+    twInput.style.width = '60px';
+    twRow.appendChild(twInput);
+    body.appendChild(twRow);
+
+    // 纵向格子数
+    var thRow = document.createElement('div');
+    thRow.className = 'prop-row';
+    thRow.innerHTML = '<label>纵向格子数</label>';
+    var thInput = document.createElement('input');
+    thInput.type = 'number';
+    thInput.min = '1'; thInput.max = '20'; thInput.value = '1';
+    thInput.style.width = '60px';
+    thRow.appendChild(thInput);
+    body.appendChild(thRow);
+
+    // 碰撞类型
+    var colRow = document.createElement('div');
+    colRow.className = 'prop-row';
+    colRow.innerHTML = '<label>碰撞类型</label>';
+    var colSel = document.createElement('select');
+    var colOpts = [
+      { v: 'none', t: '无碰撞（背景装饰）' },
+      { v: 'block', t: '实体方块（可踩可顶）' },
+      { v: 'pipe', t: '管道型（实体碰撞）' },
+      { v: 'trigger', t: '敌人触发器（触碰触发）' }
+    ];
+    colOpts.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o.v; opt.textContent = o.t;
+      if (_pendingCustomCat === 'bg') opt.disabled = (o.v !== 'none');
+      colSel.appendChild(opt);
+    });
+    if (_pendingCustomCat === 'bg') colSel.value = 'none';
+    colRow.appendChild(colSel);
+    body.appendChild(colRow);
+
+    // 类别改变时联动禁用碰撞选项
+    catSel.addEventListener('change', function () {
+      var isBg = catSel.value === 'bg';
+      for (var i = 0; i < colSel.options.length; i++) {
+        colSel.options[i].disabled = isBg && colSel.options[i].value !== 'none';
+      }
+      if (isBg) colSel.value = 'none';
+    });
+
+    modal.classList.add('show');
+
+    // 覆盖确定按钮逻辑
+    var okBtn = document.getElementById('propOk');
+    var cancelBtn = document.getElementById('propCancel');
+    var closeBtn = document.getElementById('propClose');
+    var origOk = okBtn.onclick;
+    var origCancel = cancelBtn.onclick;
+    var origClose = closeBtn.onclick;
+
+    okBtn.onclick = function () {
+      var tw = Math.max(1, Math.min(20, parseInt(twInput.value) || 1));
+      var th = Math.max(1, Math.min(20, parseInt(thInput.value) || 1));
+      var cat = catSel.value;
+      var collide = colSel.value;
+      var customId = 'custom_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+      var def = {
+        id: customId,
+        name: nameInput.value || '自定义',
+        cat: cat,
+        kind: 'sprite',
+        dataUrl: _pendingDataUrl,
+        tw: tw, th: th,
+        custom: true,
+        collide: collide,
+        hint: '自定义元素（' + CAT.CATS[cat] + '，' + tw + '×' + th + '格，碰撞：' + collide + '）'
+      };
+      // 派生字段
+      if (collide === 'block') def.ttype = 3;
+      if (collide === 'pipe') def.stype = 700 + Math.floor(Math.random() * 1000);
+      if (collide === 'trigger') def.btype = 200 + Math.floor(Math.random() * 1000);
+
+      CAT.registerCustom(def);
+      rebuildPalette();
+      selectTool(customId);
+      hintEl.textContent = '已添加自定义元素：' + def.name;
+
+      modal.classList.remove('show');
+      okBtn.onclick = origOk;
+      cancelBtn.onclick = origCancel;
+      closeBtn.onclick = origClose;
+    };
+    cancelBtn.onclick = function () {
+      modal.classList.remove('show');
+      okBtn.onclick = origOk;
+      cancelBtn.onclick = origCancel;
+      closeBtn.onclick = origClose;
+    };
+    closeBtn.onclick = cancelBtn.onclick;
+  }
+
+  function rebuildPalette() {
+    paletteEl.innerHTML = '';
+    buildPalette();
   }
 
   // 音乐面板：BGM 卡片（点击弹单选窗）+ 音效试听网格
@@ -1192,6 +1408,52 @@
       b.addEventListener('click', function () { playSfx(s); });
       grid.appendChild(b);
     });
+
+    // 自定义音效上传入口 + 已上传列表
+    var addSfxBtn = document.createElement('div');
+    addSfxBtn.className = 'pal-item pal-add';
+    addSfxBtn.title = '上传 mp3 添加自定义音效';
+    addSfxBtn.innerHTML = '<div class="pal-thumb pal-add-thumb">＋</div>' +
+      '<div class="pal-label">添加音效</div>';
+    addSfxBtn.addEventListener('click', function () { openCustomAudioUploader('sfx'); });
+    grid.appendChild(addSfxBtn);
+
+    state.customSfx.forEach(function (s) {
+      var cb = document.createElement('div');
+      cb.className = 'pal-item custom-item';
+      cb.title = '试听：' + s.name + '（自定义音效 ID ' + s.id + '）';
+      var cthumb = document.createElement('div');
+      cthumb.className = 'pal-thumb sfx-thumb';
+      var cdot = document.createElement('div');
+      cdot.className = 'pal-dot';
+      cdot.style.background = '#e91e63';
+      cdot.textContent = '♪';
+      cthumb.appendChild(cdot);
+      cb.appendChild(cthumb);
+      var clb = document.createElement('div');
+      clb.className = 'pal-label';
+      clb.textContent = s.name;
+      cb.appendChild(clb);
+      var del = document.createElement('span');
+      del.className = 'custom-del';
+      del.textContent = '×';
+      del.title = '删除此自定义音效';
+      del.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        pushHistory();
+        state.customSfx = state.customSfx.filter(function (x) { return x.id !== s.id; });
+        persist();
+        rebuildPalette();
+      });
+      cb.appendChild(del);
+      cb.addEventListener('click', function () {
+        var audio = new window.Audio();
+        audio.src = s.dataUrl;
+        audio.play().catch(function () {});
+      });
+      grid.appendChild(cb);
+    });
+
     sec2.appendChild(grid);
     pane.appendChild(sec2);
   }
@@ -1207,16 +1469,22 @@
     var card = document.getElementById('bgmCard');
     if (!card) return;
     var d = bgmDefById(state.bgm);
+    // 自定义 BGM
+    var customB = null;
+    for (var i = 0; i < state.customBgm.length; i++) {
+      if (state.customBgm[i].id === state.bgm) { customB = state.customBgm[i]; break; }
+    }
     card.innerHTML = '';
     var dot = document.createElement('div');
     dot.className = 'bgm-card-dot';
-    dot.style.background = d ? d.color : '#888';
+    dot.style.background = d ? d.color : (customB ? '#e91e63' : '#888');
     dot.textContent = '♪';
     card.appendChild(dot);
     var info = document.createElement('div');
     info.className = 'bgm-card-info';
-    info.innerHTML = '<div class="bgm-card-name">' + (d ? d.name : '默认 BGM') + '</div>' +
-      '<div class="bgm-card-sub">关卡级设置 · 不放画布</div>';
+    var nm = d ? d.name : (customB ? customB.name : '默认 BGM');
+    info.innerHTML = '<div class="bgm-card-name">' + nm + '</div>' +
+      '<div class="bgm-card-sub">关卡级设置 · 不放画布' + (customB ? '（自定义）' : '') + '</div>';
     card.appendChild(info);
     var chg = document.createElement('div');
     chg.className = 'bgm-card-chg';
@@ -1258,7 +1526,105 @@
       });
       bgmListEl.appendChild(item);
     });
+
+    // 自定义 BGM 列表
+    state.customBgm.forEach(function (b) {
+      var item = document.createElement('div');
+      item.className = 'world-item bgm-item custom-item' + (b.id === state.bgm ? ' sel' : '');
+      item.innerHTML = '<span class="bgm-radio">' + (b.id === state.bgm ? '●' : '○') + '</span>' +
+        '<span class="bgm-dot" style="background:#e91e63">♪</span>' +
+        '<span class="wname">' + b.name + '</span>' +
+        '<span class="wmeta">自定义 ID ' + b.id + '</span>';
+      item.title = '点击试听/选中';
+      item.addEventListener('click', function () {
+        if (b.id !== state.bgm) {
+          pushHistory();
+          state.bgm = b.id;
+          persist();
+          updateBgmCard();
+          bgmListEl.querySelectorAll('.bgm-item').forEach(function (it) {
+            it.classList.remove('sel');
+            var r = it.querySelector('.bgm-radio');
+            if (r) r.textContent = '○';
+          });
+          item.classList.add('sel');
+          var radio = item.querySelector('.bgm-radio');
+          if (radio) radio.textContent = '●';
+        }
+        // 试听自定义 BGM
+        stopBgm();
+        bgmAudio = new window.Audio();
+        bgmAudio.src = b.dataUrl;
+        bgmAudio.loop = true;
+        bgmAudio.volume = 0.5;
+        bgmAudio.play().catch(function () {});
+      });
+      // 删除按钮
+      var del = document.createElement('span');
+      del.className = 'custom-del';
+      del.textContent = '×';
+      del.title = '删除此自定义 BGM';
+      del.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        pushHistory();
+        state.customBgm = state.customBgm.filter(function (x) { return x.id !== b.id; });
+        if (state.bgm === b.id) { state.bgm = 100; updateBgmCard(); }
+        persist();
+        buildBgmList();
+      });
+      item.appendChild(del);
+      bgmListEl.appendChild(item);
+    });
+
+    // 上传自定义 BGM 按钮
+    var addBtn = document.createElement('div');
+    addBtn.className = 'world-item pal-add';
+    addBtn.style.cursor = 'pointer';
+    addBtn.innerHTML = '<span class="bgm-dot" style="background:transparent;border:2px dashed #5a6478;color:#7d8aff">＋</span>' +
+      '<span class="wname">上传自定义 BGM</span>';
+    addBtn.addEventListener('click', function () { openCustomAudioUploader('bgm'); });
+    bgmListEl.appendChild(addBtn);
   }
+
+  // ---------- 自定义音频上传 ----------
+  var customAudioInput = document.createElement('input');
+  customAudioInput.type = 'file';
+  customAudioInput.accept = 'audio/*';
+  customAudioInput.style.display = 'none';
+  document.body.appendChild(customAudioInput);
+
+  var _pendingAudioType = null;
+  function openCustomAudioUploader(type) {
+    _pendingAudioType = type;
+    customAudioInput.click();
+  }
+
+  customAudioInput.addEventListener('change', function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    var name = f.name.replace(/\.[^.]+$/, '');
+    var reader = new FileReader();
+    reader.onload = function () {
+      pushHistory();
+      var id = 200 + Math.floor(Math.random() * 10000);
+      if (_pendingAudioType === 'bgm') {
+        // 确保 id 不重复
+        while (state.customBgm.some(function (b) { return b.id === id; })) id++;
+        state.customBgm.push({ id: id, name: name, dataUrl: reader.result });
+        persist();
+        rebuildPalette();
+        hintEl.textContent = '已添加自定义 BGM：' + name;
+      } else {
+        while (state.customSfx.some(function (s) { return s.id === id; })) id++;
+        state.customSfx.push({ id: id, name: name, dataUrl: reader.result });
+        persist();
+        rebuildPalette();
+        hintEl.textContent = '已添加自定义音效：' + name;
+      }
+    };
+    reader.readAsDataURL(f);
+    ev.target.value = '';
+  });
   function openBgmModal() {
     buildBgmList();
     bgmModal.classList.add('show');
@@ -1542,21 +1908,43 @@
       hintTexts: state.hintTexts,
       elements: state.elements
     };
-    var blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'catmario_level.json';
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
-    hintEl.textContent = '已保存 catmario_level.json（含 ' + state.elements.length + ' 个元素）';
+    // 自定义元素定义列表
+    var customElements = CAT.listCustom();
+    // 多文件下载：level.json + custom_elements.json + custom_bgm.json + custom_sfx.json
+    var files = [
+      { name: 'catmario_level.json', data: data },
+      { name: 'custom_elements.json', data: customElements.length ? customElements : null },
+      { name: 'custom_bgm.json', data: state.customBgm.length ? state.customBgm : null },
+      { name: 'custom_sfx.json', data: state.customSfx.length ? state.customSfx : null }
+    ].filter(function (f) { return f.data !== null; });
+
+    var idx = 0;
+    function downloadNext() {
+      if (idx >= files.length) {
+        hintEl.textContent = '已保存 ' + files.length + ' 个文件（含 ' + state.elements.length + ' 个元素）';
+        return;
+      }
+      var f = files[idx++];
+      var blob = new Blob([JSON.stringify(f.data, null, 1)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = f.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      setTimeout(downloadNext, 200);
+    }
+    downloadNext();
   });
 
   document.getElementById('loadBtn').addEventListener('click', function () {
     document.getElementById('fileInput').click();
   });
   document.getElementById('fileInput').addEventListener('change', function (ev) {
-    var f = ev.target.files[0];
-    if (f) readJsonFile(f);
+    var files = ev.target.files;
+    if (!files || files.length === 0) return;
+    readMultipleFiles(files);
     ev.target.value = '';
   });
 
@@ -1802,7 +2190,14 @@
       bgm: state.bgm,
       nextLevel: state.nextLevel,
       hintTexts: state.hintTexts,
-      elements: state.elements
+      elements: state.elements,
+      customDefs: CAT.listCustom().reduce(function (m, d) {
+        m[d.id] = { cat: d.cat, name: d.name, dataUrl: d.dataUrl, tw: d.tw, th: d.th, collide: d.collide,
+          ttype: d.ttype, stype: d.stype, btype: d.btype };
+        return m;
+      }, {}),
+      customBgm: state.customBgm,
+      customSfx: state.customSfx
     };
     // 载入示例世界且未编辑时，附带原版关卡 def，试玩页 1:1 还原（含编辑器未暴露的陷阱/特效机关）
     if (state._worldDef) data._worldDef = state._worldDef;
@@ -1824,21 +2219,22 @@
     }
   });
 
-  // 拖拽 JSON 文件到窗口加载
+  // 拖拽 JSON 文件到窗口加载（支持多文件）
   window.addEventListener('dragover', function (ev) { ev.preventDefault(); });
   window.addEventListener('drop', function (ev) {
     ev.preventDefault();
-    var f = ev.dataTransfer.files && ev.dataTransfer.files[0];
-    if (f) readJsonFile(f);
+    var files = ev.dataTransfer.files;
+    if (files && files.length > 0) readMultipleFiles(files);
   });
 
   function readJsonFile(f) {
+    // 单文件读取（向后兼容）：直接作为 level 加载
     var reader = new FileReader();
     reader.onload = function () {
       try {
         var data = JSON.parse(reader.result);
-        loadData(data);
-        hintEl.textContent = '已加载 ' + f.name + '（' + state.elements.length + ' 个元素，' + state.cols + ' 列）';
+        // 单文件模式：兼容含/不含 customElements 字段的 level
+        readMultipleFiles([f]);
       } catch (err) {
         alert('JSON 解析失败：' + err.message);
       }
@@ -1846,11 +2242,128 @@
     reader.readAsText(f);
   }
 
+  // 多文件读取：按文件名前缀分流，custom_* 先加载再 level
+  function readMultipleFiles(files) {
+    var pending = [];
+    var levelFile = null;
+    var customElementsFile = null;
+    var customBgmFile = null;
+    var customSfxFile = null;
+    for (var i = 0; i < files.length; i++) {
+      var n = files[i].name.toLowerCase();
+      if (/^catmario_level/.test(n)) levelFile = files[i];
+      else if (/^custom_elements/.test(n)) customElementsFile = files[i];
+      else if (/^custom_bgm/.test(n)) customBgmFile = files[i];
+      else if (/^custom_sfx/.test(n)) customSfxFile = files[i];
+      else if (/\.json$/.test(n) && !levelFile) levelFile = files[i]; // 兼容旧单文件
+    }
+    var missing = [];
+    function readOne(f, cb) {
+      if (!f) { cb(null); return; }
+      var rd = new FileReader();
+      rd.onload = function () {
+        try { cb(JSON.parse(rd.result)); }
+        catch (e) { alert(f.name + ' 解析失败：' + e.message); cb(null); }
+      };
+      rd.readAsText(f);
+    }
+    // 先读取 custom_* 文件
+    var tasks = [];
+    if (customElementsFile) tasks.push(function (cb) { readOne(customElementsFile, function (d) { cb({ type: 'elements', data: d }); }); });
+    if (customBgmFile) tasks.push(function (cb) { readOne(customBgmFile, function (d) { cb({ type: 'bgm', data: d }); }); });
+    if (customSfxFile) tasks.push(function (cb) { readOne(customSfxFile, function (d) { cb({ type: 'sfx', data: d }); }); });
+    if (levelFile) tasks.push(function (cb) { readOne(levelFile, function (d) { cb({ type: 'level', data: d }); }); });
+
+    function runTask(i, cb) {
+      if (i >= tasks.length) { cb(); return; }
+      tasks[i](function (result) {
+        if (result && result.type === 'elements' && Array.isArray(result.data)) {
+          // 注入自定义元素定义
+          result.data.forEach(function (d) {
+            if (d && d.id && d.dataUrl) CAT.registerCustom(d);
+          });
+        } else if (result && result.type === 'bgm' && Array.isArray(result.data)) {
+          state.customBgm = result.data;
+        } else if (result && result.type === 'sfx' && Array.isArray(result.data)) {
+          state.customSfx = result.data;
+        } else if (result && result.type === 'level' && result.data) {
+          var lv = result.data;
+          // 把已加载的 customBgm/Sfx 合并到 level 数据中
+          if (state.customBgm.length) lv.customBgm = state.customBgm;
+          if (state.customSfx.length) lv.customSfx = state.customSfx;
+          // level.customElements → 注入到 CAT（兼容旧格式）
+          if (Array.isArray(lv.customElements)) {
+            lv.customElements.forEach(function (d) {
+              if (d && d.id && d.dataUrl) CAT.registerCustom(d);
+            });
+          }
+          // customDefs 格式
+          if (lv.customDefs) {
+            for (var cid in lv.customDefs) {
+              var cd = lv.customDefs[cid];
+              CAT.registerCustom({
+                id: cid, name: cd.name || '自定义', cat: cd.cat || 'bg',
+                kind: 'sprite', dataUrl: cd.dataUrl, tw: cd.tw || 1, th: cd.th || 1,
+                custom: true, collide: cd.collide || 'none',
+                ttype: cd.ttype, stype: cd.stype, btype: cd.btype
+              });
+            }
+          }
+          loadData(lv);
+          hintEl.textContent = '已加载 ' + (levelFile ? levelFile.name : '关卡') +
+            '（' + state.elements.length + ' 个元素，' + state.cols + ' 列）';
+        }
+        runTask(i + 1, cb);
+      });
+    }
+    runTask(0, function () {
+      // 检查缺失文件
+      if (levelFile) {
+        // 检查 level 是否引用了自定义元素但未加载 custom_elements
+        var refs = state.elements.some(function (e) {
+          return e.id && e.id.indexOf('custom_') === 0;
+        });
+        if (refs && !customElementsFile) {
+          missing.push('custom_elements.json（画布上有自定义元素引用）');
+        }
+        if (state.bgm >= 200 && !customBgmFile) {
+          missing.push('custom_bgm.json（BGM 引用了自定义音频）');
+        }
+      } else {
+        missing.push('catmario_level.json（关卡主文件）');
+      }
+      if (missing.length) {
+        alert('⚠ 警告：缺少文件\n\n' + missing.join('\n') +
+          '\n\n相关功能将无法正常工作。');
+      }
+    });
+  }
+
   function loadData(data) {
     if (!data || !Array.isArray(data.elements)) throw new Error('格式不正确：缺少 elements 数组');
     state._worldDef = null;   // 外部载入（JSON/示例世界转换结果）默认无高保真 def；loadWorld 会在其后显式设置
     history = [];
     var bgmFromEl = null;     // 兼容旧数据：画布上的 BGM 标记迁移为关卡级 bgm
+    // 清除已有自定义元素（避免重复）
+    CAT.ELEMENTS = CAT.ELEMENTS.filter(function (e) { return !e.custom; });
+    // 注入自定义元素定义
+    if (data.customDefs) {
+      for (var cid in data.customDefs) {
+        var cd = data.customDefs[cid];
+        CAT.registerCustom({
+          id: cid, name: cd.name || '自定义', cat: cd.cat || 'bg',
+          kind: 'sprite', dataUrl: cd.dataUrl, tw: cd.tw || 1, th: cd.th || 1,
+          custom: true, collide: cd.collide || 'none',
+          ttype: cd.ttype, stype: cd.stype, btype: cd.btype,
+          hint: '自定义元素'
+        });
+      }
+    }
+    if (data.customElements) {
+      data.customElements.forEach(function (d) {
+        CAT.registerCustom(JSON.parse(JSON.stringify(d)));
+      });
+    }
     state.elements = data.elements.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
     }).map(function (e) {
@@ -1861,13 +2374,11 @@
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
-      // 悬挂站台：宽度/吊柱高度/可下降（2-3 起始站台 drop=true 必须随载入保留）
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;
         out.drop = !!e.drop;
       }
-      // 坠落砖组：排列方向/砖块数/移动方向
       if (e.id === 'block_fall') {
         if (e.ori === 'h' || e.ori === 'v') out.ori = e.ori;
         if (e.count != null) out.count = e.count | 0;
@@ -1877,13 +2388,20 @@
     }).filter(Boolean);
     if (data.cols) state.cols = Math.max(20, Math.min(1000, data.cols | 0));
     if (data.theme && THEMES[data.theme]) state.theme = data.theme;
-    if (data.bgm && BGM_VALID.indexOf(data.bgm | 0) >= 0) state.bgm = data.bgm | 0;
+    // BGM：原版 id 100-106 或自定义 id（先加载 customBgm 再判断）
+    state.customBgm = data.customBgm || [];
+    state.customSfx = data.customSfx || [];
+    var bgmId = data.bgm | 0;
+    var isOrig = BGM_VALID.indexOf(bgmId) >= 0;
+    var isCustom = state.customBgm.some(function (b) { return b.id === bgmId; });
+    if (isOrig || isCustom) state.bgm = bgmId;
     else if (bgmFromEl != null) state.bgm = bgmFromEl;
     state.nextLevel = data.nextLevel || { end: false, id: null };
     state.hintTexts = data.hintTexts || {};
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
     updateBgmCard();
+    rebuildPalette();
     persist();
     requestRender();
   }
@@ -1895,7 +2413,9 @@
     saveTimer = setTimeout(function () {
       try {
         localStorage.setItem('catmario-editor-autosave', JSON.stringify({
-          cols: state.cols, theme: state.theme, bgm: state.bgm, nextLevel: state.nextLevel, hintTexts: state.hintTexts, grid: state.grid, elements: state.elements
+          cols: state.cols, theme: state.theme, bgm: state.bgm, nextLevel: state.nextLevel, hintTexts: state.hintTexts,
+          customBgm: state.customBgm, customSfx: state.customSfx,
+          grid: state.grid, elements: state.elements
         }));
       } catch (e) { /* localStorage 不可用时忽略 */ }
     }, 300);

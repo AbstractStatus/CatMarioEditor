@@ -121,6 +121,9 @@
     };
   }
 
+  // 自定义元素图片缓存（dataUrl → Image）
+  var _customImgCache = {};
+
   // ==================== 关卡加载 ====================
   function loadStage() {
     var def = Lv.get(state.sta, state.stb, state.stc);
@@ -185,12 +188,46 @@
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
+      // 自定义元素管道：保留 _custom 用于渲染
+      if (p._custom) pipe._custom = p._custom;
       state.pipes.push(pipe);
+    });
+
+    // 注册自定义 stype（>=700）到 PipeTypes，提供实体碰撞 + 图片渲染
+    def.pipes.forEach(function (p) {
+      if (p.stype >= 700 && p._custom && !PipeTypes.get(p.stype)) {
+        PipeTypes.register(p.stype, {
+          solid: true,
+          render: function (ctx, s, xx) {
+            var cu = s._custom;
+            if (!cu) return;
+            if (!_customImgCache[cu.dataUrl]) {
+              var im = new Image();
+              im.src = cu.dataUrl;
+              _customImgCache[cu.dataUrl] = im;
+            }
+            var im = _customImgCache[cu.dataUrl];
+            if (im && im.complete && im.naturalWidth > 0) {
+              ctx.drawImage(im, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100),
+                cu.tw * 29, cu.th * 29);
+            }
+          }
+        });
+      }
     });
 
     // 敌人触发器
     def.enemies.forEach(function (e) {
-      state.triggers.push({ ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false });
+      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false };
+      if (e._custom) trig._custom = e._custom;
+      state.triggers.push(trig);
+    });
+
+    // 背景装饰（自定义 ntype=-1）
+    (def.bg || []).forEach(function (n) {
+      var bgObj = { na: n.na, nb: n.nb, ntype: n.ntype };
+      if (n._custom) bgObj._custom = n._custom;
+      state.bg.push(bgObj);
     });
 
     // 升降台（透传原版字段；srh=悬挂台吊柱高，世界单位，缺省48000=原版写死480px）
@@ -855,7 +892,8 @@
         if (xx[0] === 1) {
           tr.btm = 401; tr.spawned = true;
           if (tr.btype >= 10) tr.btm = 9999999;
-          spawnEnemy(tr.ba, tr.bb, 0, 0, 0, tr.btype, tr.bxtype);
+          var spawnedE = spawnEnemy(tr.ba, tr.bb, 0, 0, 0, tr.btype, tr.bxtype);
+          if (tr._custom && spawnedE) spawnedE._custom = tr._custom;
         }
       }
     }
@@ -1244,6 +1282,19 @@
       }
     } else if (e.atype === 200) {
       S.draw(ctx, 0, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype >= 200 && e._custom) {
+      // 自定义敌人触发器渲染
+      var cu = e._custom;
+      if (!_customImgCache[cu.dataUrl]) {
+        var im = new Image();
+        im.src = cu.dataUrl;
+        _customImgCache[cu.dataUrl] = im;
+      }
+      var im = _customImgCache[cu.dataUrl];
+      if (im && im.complete && im.naturalWidth > 0) {
+        ctx.drawImage(im, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100),
+          cu.tw * 29, cu.th * 29);
+      }
     }
   }
 
@@ -1302,7 +1353,22 @@
       xx[0] = n.na - state.fx; xx[1] = n.nb - state.fy;
       if (xx[0] + 16000 >= -10 && xx[0] <= C.FXMAX &&
           xx[1] + 16000 >= -10 && xx[1] <= C.FYMAX) {
-        S.draw(ctx, n.ntype, 4, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+        if (n.ntype === -1 && n._custom) {
+          // 自定义背景装饰
+          var cu = n._custom;
+          if (!_customImgCache[cu.dataUrl]) {
+            var im = new Image();
+            im.src = cu.dataUrl;
+            _customImgCache[cu.dataUrl] = im;
+          }
+          var im = _customImgCache[cu.dataUrl];
+          if (im && im.complete && im.naturalWidth > 0) {
+            ctx.drawImage(im, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100),
+              cu.tw * 29, cu.th * 29);
+          }
+        } else {
+          S.draw(ctx, n.ntype, 4, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+        }
       }
     });
 

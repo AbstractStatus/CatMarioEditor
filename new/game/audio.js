@@ -51,6 +51,26 @@
     18: 'tekifire.mp3'
   };
 
+  // 自定义 BGM/音效映射（id → dataUrl），由外部注入
+  var customBgmMap = {};
+  var customSfxMap = {};
+
+  Audio.setCustomBgm = function (map) { customBgmMap = map || {}; };
+  Audio.setCustomSfx = function (map) { customSfxMap = map || {}; };
+
+  // 获取 BGM URL：优先自定义 dataUrl，否则原版文件
+  function getBgmUrl(id) {
+    if (customBgmMap[id]) return customBgmMap[id];
+    var file = BGM_FILES[id];
+    return file ? C.RES.AUDIO_DIR + file : null;
+  }
+  // 获取音效 URL：优先自定义 dataUrl，否则原版文件
+  function getSfxUrl(id) {
+    if (customSfxMap[id]) return customSfxMap[id];
+    var file = SE_FILES[id];
+    return file ? C.RES.SE_DIR + file : null;
+  }
+
   var POOL_SIZE = 8;
   var sePools = {};
 
@@ -61,9 +81,8 @@
 
   function playSeFile(id) {
     if (muted) return;
-    var file = SE_FILES[id];
-    if (!file) return;
-    var url = C.RES.SE_DIR + file;
+    var url = getSfxUrl(id);
+    if (!url) return;
     var pool = getSePool(id);
     var el = null;
     for (var i = 0; i < pool.length; i++) {
@@ -99,11 +118,11 @@
   Audio.bgmChange = function (id) {
     if (currentBgm === id && bgmEl) return;
     currentBgm = id;
-    var file = BGM_FILES[id];
-    if (!file) return;
+    var url = getBgmUrl(id);
+    if (!url) return;
     Audio.bgmStop();
     bgmEl = new window.Audio();
-    bgmEl.src = C.RES.AUDIO_DIR + file;
+    bgmEl.src = url;
     bgmEl.loop = true;
     bgmEl.volume = muted ? 0 : 0.5;
     try { bgmEl.muted = muted; } catch (e) {}
