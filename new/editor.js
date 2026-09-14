@@ -47,6 +47,8 @@
     cols: 120,
     theme: 'overworld',
     bgm: 100,         // 本关 BGM ID（关卡级设置，不放画布；100/103/104/105/106）
+    nextLevel: { end: false, id: null },  // 通关后去向：{end:false,id:null}=下一关，{end:true}=游戏结束，{id:'1-3'}=指定世界
+    hintTexts: {},    // 提示块自定义文本 {txtype: ["line1","line2",...]}
     grid: true,
     elements: [],     // {id, col, row, len?, xt?}
     _worldDef: null   // 载入“示例世界”时的原版关卡 def（未编辑前用于试玩 1:1 还原）
@@ -139,12 +141,16 @@
       cols: state.cols,
       theme: state.theme,
       bgm: state.bgm,
+      nextLevel: state.nextLevel ? { end: !!state.nextLevel.end, id: state.nextLevel.id || null } : { end: false, id: null },
+      hintTexts: state.hintTexts ? JSON.parse(JSON.stringify(state.hintTexts)) : {},
       elements: state.elements.map(function (e) {
         var o = { id: e.id, col: e.col, row: e.row };
         if (e.len != null) o.len = e.len;
         if (e.xt != null) o.xt = e.xt;
         if (e.rot) o.rot = e.rot;
         if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
+        if (e.hintType) o.hintType = e.hintType;
+        if (e.hintCustom) o.hintCustom = e.hintCustom;
         return o;
       })
     };
@@ -161,6 +167,8 @@
     state.cols = prev.cols;
     state.theme = prev.theme;
     state.bgm = prev.bgm || 100;
+    state.nextLevel = prev.nextLevel || { end: false, id: null };
+    state.hintTexts = prev.hintTexts || {};
     state.elements = prev.elements;
     selected = null;
     colsInput.value = state.cols;
@@ -711,6 +719,7 @@
 
     renderRuler();
     updateWarpSel();   // 同步“传送目标”下拉的显隐与取值（幂等）
+    updateNextLevelSel();   // 同步“通关后”下拉取值
     updatePropBtn();   // 同步“属性”按钮显隐（选中元素时显示）
   }
 
@@ -753,6 +762,38 @@
     selected.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
     persist();
     hintEl.textContent = '传送管道口目标已设为：' + (v === '__end__' ? '游戏结束（通关）' : '世界 ' + v);
+  });
+
+  // ---------- 下一关配置 ----------
+  var nextLevelSel = document.getElementById('nextLevelSel');
+  var _nextLevelBuilt = false;
+  function buildNextLevelSel() {
+    if (_nextLevelBuilt) return;
+    _nextLevelBuilt = true;
+    var html = '<option value="__next__">▶ 进入下一关（默认）</option>';
+    html += '<option value="__end__">🏁 游戏结束</option>';
+    (window.STAGES || []).forEach(function (s) {
+      html += '<option value="' + s.id + '">🌍 ' + s.id + ' ' + s.name + '</option>';
+    });
+    nextLevelSel.innerHTML = html;
+  }
+  function updateNextLevelSel() {
+    if (!nextLevelSel) return;
+    buildNextLevelSel();
+    var nl = state.nextLevel || { end: false, id: null };
+    var val = nl.end ? '__end__' : (nl.id || '__next__');
+    var exists = false;
+    for (var i = 0; i < nextLevelSel.options.length; i++) if (nextLevelSel.options[i].value === val) { exists = true; break; }
+    nextLevelSel.value = exists ? val : '__next__';
+  }
+  nextLevelSel.addEventListener('change', function () {
+    pushHistory();
+    var v = nextLevelSel.value;
+    state.nextLevel = (v === '__end__') ? { end: true, id: null }
+      : (v === '__next__') ? { end: false, id: null }
+      : { end: false, id: v };
+    persist();
+    hintEl.textContent = '通关后去向已设为：' + (v === '__end__' ? '游戏结束' : v === '__next__' ? '进入下一关' : '世界 ' + v);
   });
 
   // ---------- 元素属性弹窗 ----------
@@ -885,6 +926,32 @@
       }
       propBody.appendChild(propRow('传送目标', fWarp, '进入管道后前往'));
     }
+    // 提示块：消息类型选择 + 自定义文本
+    var fHintType = null, fHintText = null;
+    if (d.id === 'b2_hint') {
+      fHintType = document.createElement('select');
+      var hintOpts = [
+        ['1', '1：第一关祝贺'], ['2', '2：需要？道具'], ['3', '3：金币无用'],
+        ['4', '4：前方隐藏方块'], ['5', '5：难度降低'], ['6', '6：敌人会跳'],
+        ['7', '7：跳到敌人带了吗'], ['8', '8：别走捷径'], ['9', '9：最终关'],
+        ['100', '100：路过的提示框'], ['__custom__', '自定义文本…']
+      ];
+      hintOpts.forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fHintType.appendChild(o);
+      });
+      var curHt = selected.hintType || (selected.hintCustom ? '__custom__' : '1');
+      fHintType.value = curHt;
+      propBody.appendChild(propRow('消息类型', fHintType, '选择预设消息或自定义文本'));
+
+      fHintText = document.createElement('textarea');
+      fHintText.rows = 4;
+      fHintText.style.cssText = 'width:100%;font-size:12px;background:#1a1e28;color:#d8dee9;border:1px solid #454d61;border-radius:4px;padding:4px';
+      fHintText.value = (selected.hintCustom || '').replace(/\n/g, '\n');
+      fHintText.placeholder = '每行一条消息，最多5行';
+      propBody.appendChild(propRow('自定义文本', fHintText, '仅当消息类型=自定义时生效'));
+    }
 
     propModal.classList.add('show');
     propOk.onclick = function () {
@@ -915,6 +982,15 @@
       }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
         ? { end: true, id: null } : { end: false, id: fWarp.value };
+      if (fHintType) {
+        if (fHintType.value === '__custom__') {
+          selected.hintType = '__custom__';
+          selected.hintCustom = fHintText.value;
+        } else {
+          selected.hintType = fHintType.value;
+          selected.hintCustom = null;
+        }
+      }
       persist();
       requestRender();
       closePropModal();
@@ -1462,6 +1538,8 @@
       cols: state.cols,
       theme: state.theme,
       bgm: state.bgm,
+      nextLevel: state.nextLevel,
+      hintTexts: state.hintTexts,
       elements: state.elements
     };
     var blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
@@ -1582,7 +1660,14 @@
     // 2) 特殊方块（tyobi，x/y 像素）
     (def.blocks || []).forEach(function (b) {
       var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
-      note(col); add(vid(wBlockId(b.type, b.xt)), col, row);
+      note(col);
+      var bid = vid(wBlockId(b.type, b.xt));
+      var extra = null;
+      // 提示块：恢复 txtype → hintType
+      if (b.type === 300 && b.xt >= 1 && b.xt <= 100) {
+        extra = { hintType: String(b.xt) };
+      }
+      add(bid, col, row, extra);
     });
     // 3) 独立管道/墙体（sa/sb 世界单位）
     //    注：竖管口/身/变体/横管身由 grid 字节 40/41/43/44 恢复（见第 1 步），此处不再重复；
@@ -1715,6 +1800,8 @@
       cols: state.cols,
       theme: state.theme,
       bgm: state.bgm,
+      nextLevel: state.nextLevel,
+      hintTexts: state.hintTexts,
       elements: state.elements
     };
     // 载入示例世界且未编辑时，附带原版关卡 def，试玩页 1:1 还原（含编辑器未暴露的陷阱/特效机关）
@@ -1792,6 +1879,8 @@
     if (data.theme && THEMES[data.theme]) state.theme = data.theme;
     if (data.bgm && BGM_VALID.indexOf(data.bgm | 0) >= 0) state.bgm = data.bgm | 0;
     else if (bgmFromEl != null) state.bgm = bgmFromEl;
+    state.nextLevel = data.nextLevel || { end: false, id: null };
+    state.hintTexts = data.hintTexts || {};
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
     updateBgmCard();
@@ -1806,7 +1895,7 @@
     saveTimer = setTimeout(function () {
       try {
         localStorage.setItem('catmario-editor-autosave', JSON.stringify({
-          cols: state.cols, theme: state.theme, bgm: state.bgm, grid: state.grid, elements: state.elements
+          cols: state.cols, theme: state.theme, bgm: state.bgm, nextLevel: state.nextLevel, hintTexts: state.hintTexts, grid: state.grid, elements: state.elements
         }));
       } catch (e) { /* localStorage 不可用时忽略 */ }
     }, 300);

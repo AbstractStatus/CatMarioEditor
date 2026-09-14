@@ -47,10 +47,51 @@
     player: null,
     // 中间旗检查点（触碰后保存的复活坐标 {ma,mb}，本关内死亡复活时复用；进下一关/新游戏时清空）
     checkpoint: null,
+    // 通关后去向配置 {end, id}（来自关卡定义 def.nextLevel）
+    nextLevel: null,
+    onGoalNext: null,
     // 消息
     mmsgtm: 0, mmsgtype: 0,
     mainmsgtype: 0,  // 主消息类型（原版 mainmsgtype）
-    tmsgtype: 0, tmsgtm: 0, tmsg: 0
+    tmsgtype: 0, tmsgtm: 0, tmsg: 0, tmsgy: 0
+  };
+
+  // ==================== 提示块默认文本 ====================
+  // txtype → 行数组（原版 IDS_TMSG_* 中文版）
+  // 自定义文本通过 state.hintTexts[txtype] 覆盖
+  var DEFAULT_HINT_TEXTS = {
+    0: ["Test hoge"],
+    1: ["居然可以通过第一关",
+        "看来有点实力啊",
+        "接下来要当心一点～",
+        "因为真正的挑战才刚刚开始...",
+        "                      哇哈哈哈哈"],
+    2: ["            必须获得带有？的道具",
+        "                         m9(^Д^)"],
+    3: ["   吃再多的金币，也不会增加分数.. ",
+        "                      (・ω・ )ﾉｼ"],
+    4: ["前方有一个隐藏的方块",
+        "请小心一点 !!"],
+    5: [" 比上一关玩难度更低了",
+        " 请随便玩玩吧",
+        "                       作者"],
+    6: [" 你站在敌人的旁边",
+        " 它就会和你一起跳起来。",
+        " 真是太可爱了。"],
+    7: [" 你把那个会跳到敌人带来了吗？",
+        " 如果你没把它带过来、",
+        " 那我就把你踢到坑里 Let's dive!"],
+    8: ["别想着很容易的",
+        "就能走捷径",
+        "接下来怎么办，自己想办法吧!!"],
+    9: [" 这是正宗的最后一关。",
+        " 只要能打通，就能迎来结局!!",
+        " 我能从那跟管道里回去吗?"],
+    100: ["诶?是我吗? ",
+          "不是的, 我只是一个路过的提示框",
+          "不是很奇怪的方块～",
+          "",
+          "                          "]
   };
 
   // 临时变量（仿原版 xx[]）
@@ -95,6 +136,8 @@
     state.particles = [];
     state.bg = [];
     state.lifts = [];
+    // 重置提示块消息状态
+    state.tmsgtype = 0; state.tmsgtm = 0; state.tmsg = 0; state.tmsgy = 0;
 
     // 加载字节网格
     var grid = def.grid;
@@ -164,6 +207,9 @@
 
     // 自定义关卡 BGM（试玩页注入；默认地上 100）
     state.bgmId = def.bgm || 100;
+    // 通关后去向 & 提示文本（关卡级配置）
+    state.nextLevel = def.nextLevel || null;
+    state.hintTexts = def.hintTexts || null;
 
     // 出生点：
     //  - 若已触碰中间旗（state.checkpoint），死亡复活时从旗子位置出生
@@ -393,7 +439,20 @@
         if (p.mtm >= 2 && p.mtm <= 42) { p.md = 600; p.mmuki = 1; }
         if (p.mtm > 43 && p.mtm <= 108) p.mc = 300;
         if (p.mtm === 110) { p.mb = -80000000; p.mc = 0; }
-        if (p.mtm === 250) { state.stb++; state.stc = 0; state.checkpoint = null; startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
+        if (p.mtm === 250) {
+          state.checkpoint = null;
+          var nl = state.nextLevel;
+          if (nl && typeof state.onGoalNext === 'function') {
+            var proceed = state.onGoalNext(nl) !== false;
+            if (proceed) {
+              if (!nl.end && !nl.id) { state.stb++; state.stc = 0; }
+              startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
+            }
+          } else {
+            state.stb++; state.stc = 0;
+            startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
+          }
+        }
       }
     }
 
@@ -581,6 +640,24 @@
           if (b.ttype === 113 && b.ta - state.fx >= 0) {
             if (b.titem <= 19) b.thp++;
             if (b.thp >= 3) { b.thp = 0; b.titem++; A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16); }
+          }
+          // 提示块（ttype=300）：玩家从下方顶到时弹出消息框
+          if (b.ttype === 300 && xx[17] === 1) {
+            A.playSE(15);
+            var tx = b.txtype || 0;
+            if (tx <= 100) {
+              state.tmsgtype = 1; state.tmsgtm = 15;
+              state.tmsgy = 300 + (tx - 1); state.tmsg = tx;
+            }
+            if (tx === 540) {
+              state.tmsgtype = 1; state.tmsgtm = 15;
+              state.tmsgy = 400; state.tmsg = 100; b.txtype = 541;
+            }
+          }
+          // 提示块自动消失（txtype>=500 时逐帧上移直到出屏）
+          if (b.ttype === 300 && b.txtype >= 500 && b.ta >= -6000) {
+            if (b.txtype <= 539) b.txtype++;
+            if (b.txtype >= 540) b.ta -= 500;
           }
         }
 
@@ -1119,9 +1196,10 @@
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
     if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87) {
-      // 火焰(小) atype=9：向下运动时垂直翻转图标180°
+      // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
+      var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
       var dx = Math.floor(xx[0] / 100), dy = Math.floor(xx[1] / 100);
-      if (e.atype === 9 && e.ad > 0) {
+      if (FLIP_ATYPES[e.atype] && e.ad > 0) {
         var sp = S.get(e.atype, 3);
         if (sp && sp.img) {
           ctx.save();
@@ -1366,6 +1444,40 @@
       ctx.fillText('CHEAT ON (C to toggle)', 10, 20);
     }
 
+    // 提示块消息框（原版 main.cpp ttmsg() 5870-5968）
+    if (state.tmsgtype === 1 || state.tmsgtype === 2) {
+      var bh = Math.floor(state.tmsgy / 100);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(60, 40, 360, bh);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(60, 40, 360, bh);
+    }
+    if (state.tmsgtype === 2) {
+      // 文本
+      var lines = (state.hintTexts && state.hintTexts[state.tmsg]) ||
+                  DEFAULT_HINT_TEXTS[state.tmsg] || [''];
+      ctx.fillStyle = '#fff';
+      ctx.font = '14px "Microsoft YaHei", monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      for (var li = 0; li < lines.length; li++) {
+        ctx.fillText(lines[li], 66, 46 + li * 24);
+      }
+    }
+    if (state.tmsgtype === 3) {
+      var fullH = Math.floor(((15 - 1) * 1200 + 1500) / 100);  // 183
+      var ch = fullH - Math.floor(state.tmsgy / 100);
+      if (ch > 0) {
+        var cy = 40 + Math.floor(state.tmsgy / 100);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(60, cy, 360, ch);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(60, cy, 360, ch);
+      }
+    }
+
     // 暂停遮罩（P 键切换，F 键单步）
     if (state.paused) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
@@ -1387,6 +1499,21 @@
     _debugFrame++;
 
     if (state.proc === C.PROC.GAME) {
+      // 提示块消息状态机（原版 main.cpp 1450-1469）
+      // tmsgtype: 0=隐藏, 1=展开中, 2=等待按键, 3=收起中
+      if (state.tmsgtype > 0) {
+        if (state.tmsgtype === 1) {
+          state.tmsgy += 1200;
+          state.tmsgtm--;
+          if (state.tmsgtm === 0) state.tmsgtype = 2;
+        } else if (state.tmsgtype === 2) {
+          if (key) { state.tmsgtype = 3; state.tmsgtm = 15; state.tmsgy = 0; }
+        } else if (state.tmsgtype === 3) {
+          state.tmsgy += 1200;
+          state.tmsgtm--;
+          if (state.tmsgtm === 0) { state.tmsgtype = 0; state.tmsgy = 0; }
+        }
+      }
       if (state.proc === C.PROC.GAME && state.tmsgtype === 0) {
         updatePlayer(key);
         var p = state.player;
@@ -1699,6 +1826,11 @@
   // 传送管道口钩子：玩家进入 stype=60 管道、沉管动画结束时调用 fn(warp)。
   // warp = {end:true} 或 {id:'世界id'}；fn 返回 false 表示宿主自行处理结局（引擎不重载关卡）。
   Engine.setWarpHandler = function (fn) { state.onWarp = fn; };
+
+  // 通关去向钩子：玩家碰到终点旗杆通关后调用 fn(nextLevel)。
+  // nextLevel = {end:true} 或 {id:'世界id'} 或 null（默认下一关）；
+  // fn 返回 false 表示宿主自行处理结局（引擎不重载关卡），返回 true 让引擎继续重载。
+  Engine.setGoalNextHandler = function (fn) { state.onGoalNext = fn; };
 
   // 调试：访问内部状态
   Engine._state = state;

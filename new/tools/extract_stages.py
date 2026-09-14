@@ -133,13 +133,27 @@ def parse_pipes(body):
         r"\s*sd\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
         r"\s*stype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;")
     for m in pipe_re.finditer(body):
-        seg = body[m.end():m.end() + 160]
+        # sxtype 搜索范围：从 stype 匹配结束到下一个管道/敌人/升降台定义开始
+        # 断点：sa[t/sco/bco]、sra[t/srco]、sco++、bco++、t=bco/sco/srco
+        seg_end = len(body)
+        for bp in [r"sa\[\s*(?:t|sco|bco)\s*\]",
+                   r"sra\[\s*(?:t|srco)\s*\]",
+                   r"sco\+\+",
+                   r"bco\+\+",
+                   r"t\s*=\s*(?:bco|sco|srco)"]:
+            bp_m = re.search(bp, body[m.end():])
+            if bp_m:
+                seg_end = min(seg_end, m.end() + bp_m.start())
+                break
+        seg = body[m.end():seg_end]
         sx = re.search(r"sxtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
+        sg = re.search(r"sgtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
         pipes.append({
             "sa": ev(m.group(1)), "sb": ev(m.group(2)),
             "sc": ev(m.group(3)), "sd": ev(m.group(4)),
             "stype": ev(m.group(5)),
             "sxtype": ev(sx.group(1)) if sx else 0,
+            "sgtype": ev(sg.group(1)) if sg else 0,
         })
     return pipes
 

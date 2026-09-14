@@ -138,13 +138,13 @@ body.dragging #dropTip { display: flex; }
 <!-- 精灵清单 -->
 <script src="../assets/sprites/manifest.js"></script>
 <!-- 新引擎模块（base 指向 game/） -->
-<script src="constants.js?v=ckpt1"></script>
-<script src="sprites.js?v=ckpt1"></script>
-<script src="audio.js?v=ckpt1"></script>
-<script src="input.js?v=ckpt1"></script>
-<script src="elements.js?v=ckpt1"></script>
-<script src="levels.js?v=ckpt1"></script>
-<script src="engine.js?v=ckpt1"></script>
+<script src="constants.js?v=goal2"></script>
+<script src="sprites.js?v=goal2"></script>
+<script src="audio.js?v=goal2"></script>
+<script src="input.js?v=goal2"></script>
+<script src="elements.js?v=goal2"></script>
+<script src="levels.js?v=goal2"></script>
+<script src="engine.js?v=goal2"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -234,6 +234,7 @@ body.dragging #dropTip { display: flex; }
     for (var i = 0; i < ROWS; i++) grid.push(new Uint8Array(COLS));
     var blocks = [], enemies = [], pipes = [], lifts = [], bgms = [];
     var spawn = null, skip = {}, used = 0, maxCol = 0;
+    var hintTexts = {};
 
     function put(r, c, v) {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
@@ -274,7 +275,17 @@ body.dragging #dropTip { display: flex; }
         used++;
       } else if (EX_BLOCK[id] !== undefined) {
         var sp = EX_BLOCK[id];
-        blocks.push({ x: x, y: y, type: sp.type, xt: sp.xt || 0 });
+        var xt = sp.xt || 0;
+        // 提示块：从编辑器元素属性读取消息类型和自定义文本
+        if (id === 'b2_hint') {
+          if (e.hintType === '__custom__' && e.hintCustom) {
+            xt = 9000 + blocks.length;  // 唯一 key，避免与预设冲突
+            hintTexts[xt] = e.hintCustom.split('\n').slice(0, 7);
+          } else if (e.hintType) {
+            xt = parseInt(e.hintType, 10) || 1;
+          }
+        }
+        blocks.push({ x: x, y: y, type: sp.type, xt: xt });
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];
         if (id === 'firebar') {
@@ -345,11 +356,18 @@ body.dragging #dropTip { display: flex; }
     var bgmId = ([100, 103, 104, 105, 106].indexOf(level.bgm | 0) >= 0)
       ? (level.bgm | 0)
       : (bgms.length ? bgms[0].id : 100);
+    // 合并关卡级 hintTexts 与元素级自定义文本
+    var mergedHints = {};
+    if (level.hintTexts) for (var hk in level.hintTexts) mergedHints[hk] = level.hintTexts[hk];
+    for (var hk2 in hintTexts) mergedHints[hk2] = hintTexts[hk2];
+
     return {
       grid: grid,
       stagecolor: THEME_COLOR[level.theme] || 1,
       scrollx: Math.max(cols, 120) * 29 * 100,
       bgm: bgmId,
+      nextLevel: level.nextLevel || null,
+      hintTexts: Object.keys(mergedHints).length ? mergedHints : null,
       blocks: blocks,
       pipes: pipes,
       enemies: enemies,
@@ -484,6 +502,33 @@ body.dragging #dropTip { display: flex; }
     window.Levels.get = function () { return target; };
     setStatus('✈ 已传送到世界 ' + target.id + '（' + target.name + '）', 'ok');
     return true;    // 让引擎重载到目标关卡
+  });
+
+  // 通关后去向（goal_pole 触发）：按编辑器配置切换世界或游戏结束
+  GameEngine.setGoalNextHandler(function (nextLevel) {
+    if (!nextLevel || nextLevel.end) {
+      setStatus('🏁 通关！游戏结束', 'ok');
+      GameEngine.backToTitle();
+      return false;
+    }
+    if (!nextLevel.id) {
+      // {end:false, id:null} = 默认进入下一关（引擎自行 stb++）
+      return true;
+    }
+    var stages = window.STAGES || [];
+    var target = null;
+    for (var i = 0; i < stages.length; i++) {
+      if (stages[i].id === nextLevel.id) { target = stages[i]; break; }
+    }
+    if (!target) {
+      setStatus('找不到下一关世界「' + nextLevel.id + '」', 'err');
+      GameEngine.backToTitle();
+      return false;
+    }
+    levelConv = target;
+    window.Levels.get = function () { return target; };
+    setStatus('✈ 进入世界 ' + target.id + '（' + target.name + '）', 'ok');
+    return true;
   });
 
   // 首次用户交互解锁音频（与 game/index.html 一致）
