@@ -144,7 +144,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom2"></script>
 <script src="elements.js?v=custom2"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=custom2"></script>
+<script src="engine.js?v=custom3"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -421,6 +421,49 @@ body.dragging #dropTip { display: flex; }
   var loadingEl = document.getElementById('loading');
   var canvas = document.getElementById('canvas');
   var levelConv = null;
+  // 原版世界链：isWorldChain=true 时，引擎按 (sta,stb,stc) 坐标取关，
+  // 通关(stb++ → 下一大关)、进普通管道(stc++ → 子关)都能解析到正确关卡
+  var isWorldChain = false;
+  function findStageByCoord(sta, stb, stc) {
+    var stages = window.STAGES || [];
+    for (var i = 0; i < stages.length; i++) {
+      var s = stages[i];
+      if (s.sta === sta && s.stb === stb && (s.stc || 0) === stc) return s;
+    }
+    return null;
+  }
+  function setCurrentStage(def, worldChain) {
+    levelConv = def;
+    isWorldChain = !!worldChain;
+    // 原版世界：立即同步引擎内部坐标。否则直接载入非 1-1 关卡时，
+    // 引擎仍是默认坐标 (1,1,0)，Levels.get 会错误解析成第 1-1 关
+    if (isWorldChain && def && def.sta && window.GameEngine && GameEngine._state) {
+      GameEngine._state.sta = def.sta;
+      GameEngine._state.stb = def.stb;
+      GameEngine._state.stc = def.stc || 0;
+    }
+  }
+  function findStageById(id) {
+    var stages = window.STAGES || [];
+    for (var i = 0; i < stages.length; i++) {
+      if (stages[i].id === id) return stages[i];
+    }
+    return null;
+  }
+  // 切换到指定世界（传送管道/显式下一关）
+  function enterStage(target) {
+    setCurrentStage(target, !!(target && target.sta));
+  }
+  // 覆盖引擎关卡提供器（engine.js 持有同一 Levels 对象引用）：
+  // 坐标能在原版 STAGES 命中时返回对应关；自定义关或数据缺失时回退当前关
+  window.Levels = window.Levels || {};
+  window.Levels.get = function (sta, stb, stc) {
+    if (isWorldChain) {
+      var t = findStageByCoord(sta, stb, stc || 0);
+      if (t) { levelConv = t; return t; }
+    }
+    return levelConv;
+  };
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
@@ -469,9 +512,8 @@ body.dragging #dropTip { display: flex; }
       } else {
         conv = convert(obj);
       }
-      levelConv = conv;
-      // 覆盖引擎关卡提供器：首次进关、死亡重开、通关后重开都会取到本关
-      window.Levels.get = function () { return conv; };
+      // 原版世界启用坐标链解析（通关/进管自动找下一关）；自定义关始终返回自身
+      setCurrentStage(conv, isWorld);
       // 注入自定义 BGM/音效（id→dataUrl）到音频系统
       if (window.AudioSys) {
         var bgmMap = {}, sfxMap = {};
@@ -537,8 +579,7 @@ body.dragging #dropTip { display: flex; }
       GameEngine.backToTitle();
       return false;
     }
-    levelConv = target;
-    window.Levels.get = function () { return target; };
+    enterStage(target);
     setStatus('✈ 已传送到世界 ' + target.id + '（' + target.name + '）', 'ok');
     return true;    // 让引擎重载到目标关卡
   });
@@ -551,21 +592,17 @@ body.dragging #dropTip { display: flex; }
       return false;
     }
     if (!nextLevel.id) {
-      // {end:false, id:null} = 默认进入下一关（引擎自行 stb++）
+      // {end:false, id:null} = 默认进入下一关：引擎 stb++ 后由 Levels.get 按坐标解析
+      // （原版世界链命中下一大关；自定义关坐标不命中，回退重载自身）
       return true;
     }
-    var stages = window.STAGES || [];
-    var target = null;
-    for (var i = 0; i < stages.length; i++) {
-      if (stages[i].id === nextLevel.id) { target = stages[i]; break; }
-    }
+    var target = findStageById(nextLevel.id);
     if (!target) {
       setStatus('找不到下一关世界「' + nextLevel.id + '」', 'err');
       GameEngine.backToTitle();
       return false;
     }
-    levelConv = target;
-    window.Levels.get = function () { return target; };
+    enterStage(target);
     setStatus('✈ 进入世界 ' + target.id + '（' + target.name + '）', 'ok');
     return true;
   });

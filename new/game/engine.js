@@ -127,6 +127,9 @@
   // ==================== 关卡加载 ====================
   function loadStage() {
     var def = Lv.get(state.sta, state.stb, state.stc);
+    // 原版世界 def 自带世界坐标：载入时同步引擎内部 sta/stb/stc，
+    // 使通关 stb++、进管 stc++ 后下一次 Lv.get 能取到正确的关卡
+    if (def.sta) { state.sta = def.sta; state.stb = def.stb; state.stc = def.stc || 0; }
     state.stagecolor = def.stagecolor;
     state._stagecolor = def.stagecolor;
     state.scrollx = def.scrollx;
@@ -607,7 +610,8 @@
             }
             // 左右碰撞
             if (t3 === xx[22] && xx[15] === 0) {
-              if (b.ttype !== 7 && b.ttype !== 110 && b.ttype !== 117) {
+              // 原版行 2182：ttype=114 隐藏毒蘑菇块不参与左右碰撞（隐形，只能从下方顶到）
+              if (b.ttype !== 7 && b.ttype !== 110 && b.ttype !== 117 && b.ttype !== 114) {
                 if (b.ta >= -20000) {
                   if (p.ma + p.mnobia > xx[8] && p.ma < xx[8] + xx[2] &&
                       p.mb + p.mnobib > xx[9] + xx[1] / 2 - xx[0] && p.mb < xx[9] + xx[2] && p.mc >= 0) {
@@ -677,6 +681,18 @@
           if (b.ttype === 113 && b.ta - state.fx >= 0) {
             if (b.titem <= 19) b.thp++;
             if (b.thp >= 3) { b.thp = 0; b.titem++; A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16); }
+          }
+          // 隐藏毒蘑菇块（ttype=114，原版行 2323-2344）：平时隐形且不碰撞，仅从下方顶到时触发
+          // txtype=0：变已用块(3)并顶出紫毒蘑菇(atype102)；txtype=2：吐金币后变脆弱块(115)
+          if (b.ttype === 114 && xx[17] === 1) {
+            if (b.txtype === 0) {
+              A.playSE(8); b.ttype = 3;
+              var e114 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1);
+              if (e114) e114.abrocktm = 16;
+            } else if (b.txtype === 2) {
+              A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
+              b.ttype = 115; b.txtype = 0;
+            }
           }
           // 提示块（ttype=300）：玩家从下方顶到时弹出消息框
           if (b.ttype === 300 && xx[17] === 1) {
@@ -1452,8 +1468,12 @@
         S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 110 || b.ttype === 111) {
         S.draw(ctx, 1 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (b.ttype === 112 || b.ttype === 113) {
+      } else if (b.ttype === 112 || b.ttype === 113 || (b.ttype === 115 && b.txtype !== 1 && b.txtype !== 3)) {
+        // 原版行 1084：t115 txtype=0 与 111/113 同贴图
         S.draw(ctx, 3 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === 115 && (b.txtype === 1 || b.txtype === 3)) {
+        // 原版行 1080/1098：t115 txtype=1/3 与 112/104 同贴图
+        S.draw(ctx, 1 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 130) {
         S.draw(ctx, 10, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 131) {
