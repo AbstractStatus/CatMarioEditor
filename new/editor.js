@@ -52,9 +52,38 @@
     customBgm: [],    // 自定义 BGM 列表 [{id, name, dataUrl}]
     customSfx: [],    // 自定义音效列表 [{id, name, dataUrl}]
     grid: true,
-    elements: [],     // {id, col, row, len?, xt?}
+    elements: [],     // {uid, id, col, row, len?, xt?}
     _worldDef: null   // 载入“示例世界”时的原版关卡 def（未编辑前用于试玩 1:1 还原）
   };
+
+  // ---------- 元素实例唯一 ID（uid） ----------
+  // 注意与类型 id（CAT 定义里的 block_brick / enemy_syobon 等）区分：
+  // uid 标识关卡内“一个具体实例”，同一关里的每块砖/每个敌人都不同。
+  // 命名约定：
+  //   u1,u2,...        用户手放元素、以及旧档/异常数据补号
+  //   g行_列 / b序号 / p序号 / e序号 / l序号 / spawn
+  //                    示例世界反推（worldToElements）的确定性 id，
+  //                    同一关重复载入 uid 恒定，序号=stages_data 原数组下标，便于复现问题
+  var uidSeq = 0;
+  var uidSet = Object.create(null);
+  function nextUid() {
+    var u;
+    do { u = 'u' + (++uidSeq); } while (uidSet[u]);
+    uidSet[u] = true;
+    return u;
+  }
+  // 认领外部带入的 uid：合法且本关未用过则保留，否则返回 null 由调用方补号
+  function claimUid(u) {
+    if (typeof u === 'string' && u.length > 0 && !uidSet[u]) { uidSet[u] = true; return u; }
+    return null;
+  }
+  // 载入后把 u<n> 的最大序号并入计数器，使新手放元素续号不碰撞
+  function bumpUidSeq() {
+    state.elements.forEach(function (e) {
+      var m = /^u(\d+)$/.exec(e.uid || '');
+      if (m) uidSeq = Math.max(uidSeq, +m[1]);
+    });
+  }
 
   // 音效表（与 game/audio.js SE_FILES 一致；仅用于音乐 TAB 试听，游戏内自动触发）
   var SFX_LIST = [
@@ -159,6 +188,7 @@
       customSfx: state.customSfx ? JSON.parse(JSON.stringify(state.customSfx)) : [],
       elements: state.elements.map(function (e) {
         var o = { id: e.id, col: e.col, row: e.row };
+        if (e.uid) o.uid = e.uid;   // 撤销快照白名单：uid 必须随快照保留
         if (e.len != null) o.len = e.len;
         if (e.xt != null) o.xt = e.xt;
         if (e.rot) o.rot = e.rot;
@@ -336,7 +366,7 @@
       return true;
     });
 
-    var ne = { id: d.id, col: col, row: row };
+    var ne = { id: d.id, col: col, row: row, uid: nextUid() };
     if (d.id.indexOf('lift_') === 0) ne.len = len;
     if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
     if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
@@ -1776,7 +1806,9 @@
         dragOrigRow = hit.row;
         dragStartCol = cell.col;
         dragStartRow = cell.row;
-        hintEl.textContent = '已选中：' + (CAT.byId(hit.id).name || hit.id) +
+        // 调试：点击选中时打印该元素实例完整数据（含 uid/自定义字段）
+        console.log('[editor] 选中元素实例 [' + hit.uid + ']', JSON.parse(JSON.stringify(hit)));
+        hintEl.textContent = '已选中：[' + hit.uid + '] ' + (CAT.byId(hit.id).name || hit.id) +
           '（按住拖动可移动，按 Delete 删除，点上方"⚙ 属性"可编辑属性）';
       } else if (tool) {
         // 空白处：放置当前工具元素
@@ -1797,9 +1829,19 @@
   canvas.addEventListener('mousemove', function (ev) {
     var cell = evtCell(ev);
     hover = cell;
-    statusEl.textContent = '位置：列 ' + cell.col + ' / 行 ' + cell.row +
-      '（共 ' + state.elements.length + ' 个元素，画布 ' + state.cols + ' 列）' +
-      (selected ? ' · 已选中：' + (CAT.byId(selected.id).name || selected.id) : '');
+    // 悬停的元素实例（带 uid，调试复现时可据此精确定位）
+    var hovHit = hitTest(cell.col, cell.row);
+    var statusTxt = '位置：列 ' + cell.col + ' / 行 ' + cell.row +
+      '（共 ' + state.elements.length + ' 个元素，画布 ' + state.cols + ' 列）';
+    if (hovHit) {
+      var hd = CAT.byId(hovHit.id);
+      statusTxt += ' · 悬停：[' + hovHit.uid + '] ' + (hd ? hd.name : hovHit.id);
+    }
+    if (selected) {
+      var sd2 = CAT.byId(selected.id);
+      statusTxt += ' · 已选中：[' + selected.uid + '] ' + (sd2 ? sd2.name : selected.id);
+    }
+    statusEl.textContent = statusTxt;
 
     if (dragging && selected) {
       // 拖动选中元素：按鼠标位移更新位置，吸附网格并做边界钳制
@@ -2043,9 +2085,9 @@
     var tv = W_THEME_VAR[W_THEME[def.stagecolor] || 'overworld'] || null;
     function vid(baseId) { return (baseId && tv && tv[baseId]) ? tv[baseId] : baseId; }
     function note(col) { if (col > maxCol) maxCol = col; }
-    function add(id, col, row, extra) {
+    function add(id, col, row, extra, uid) {
       if (!id || !CAT.byId(id)) { skip++; return; }
-      var e = { id: id, col: col | 0, row: row | 0 };
+      var e = { id: id, col: col | 0, row: row | 0, uid: uid || null };
       if (extra) Object.keys(extra).forEach(function (k) { e[k] = extra[k]; });
       E.push(e);
     }
@@ -2071,18 +2113,19 @@
       var row = g[t] || [];
       for (var tt = 0; tt < 1001; tt++) {
         var v = row[tt];
-        if (!v) continue;
-        note(tt);
-        if (v === 99) add('goal_pole', tt, Math.min(t, 11));
-        else if (v >= 20 && v <= 29) add('lift_yellow', tt, t, { len: 1 });
-        else if (v >= 50 && v <= 79) add(W_ENEMY0[v - 50], tt, t);
-        else if (v >= 80 && v <= 89) add(W_BG0[v - 80], tt, t);
-        else if (W_BYTE_ID[v]) add(vid(W_BYTE_ID[v]), tt, t);
-        else skip++;
+      if (!v) continue;
+      note(tt);
+      var guid = 'g' + t + '_' + tt;   // 网格字节元素：行_列 天然唯一
+      if (v === 99) add('goal_pole', tt, Math.min(t, 11), null, guid);
+      else if (v >= 20 && v <= 29) add('lift_yellow', tt, t, { len: 1 }, guid);
+      else if (v >= 50 && v <= 79) add(W_ENEMY0[v - 50], tt, t, null, guid);
+      else if (v >= 80 && v <= 89) add(W_BG0[v - 80], tt, t, null, guid);
+      else if (W_BYTE_ID[v]) add(vid(W_BYTE_ID[v]), tt, t, null, guid);
+      else skip++;
       }
     }
     // 2) 特殊方块（tyobi，x/y 像素）
-    (def.blocks || []).forEach(function (b) {
+    (def.blocks || []).forEach(function (b, bi) {
       var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
       note(col);
       var bid = vid(wBlockId(b.type, b.xt));
@@ -2095,24 +2138,25 @@
       if (b.type === 114) {
         extra = { hv: (b.xt === 2 || b.xt === 10) ? b.xt : 0 };
       }
-      add(bid, col, row, extra);
+      add(bid, col, row, extra, 'b' + bi);
     });
     // 3) 独立管道/墙体（sa/sb 世界单位）
     //    注：竖管口/身/变体/横管身由 grid 字节 40/41/43/44 恢复（见第 1 步），此处不再重复；
     //    这里只处理不进网格字节的独立管道：陷阱管(50)、横向管道口(stype5+sxtype10/11)。
-    (def.pipes || []).forEach(function (p) {
+    (def.pipes || []).forEach(function (p, pi) {
       var col = Math.round(p.sa / 100 / 29), row = Math.round((p.sb / 100 + 12) / 29);
       note(col);
+      var puid = 'p' + pi;
       if (p.stype === 50) {
         var tc = Math.round((p.sa - 500) / 2900);   // pipe_trap: sa = c*29*100+500（+500 为世界单位=5px，勿除以 100 后再减）
-        add('pipe_trap', tc, row, { sxtype: p.sxtype || 0 });
+        add('pipe_trap', tc, row, { sxtype: p.sxtype || 0 }, puid);
       } else if (p.stype === 60) {
         var wc = Math.round((p.sa - 500) / 2900);   // pipe_warp 坐标同 pipe_trap
-        add('pipe_warp', wc, row, { warp: p.warp || { end: true, id: null } });
+        add('pipe_warp', wc, row, { warp: p.warp || { end: true, id: null } }, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
-        add('pipe_h_mouth_l', col, row);
+        add('pipe_h_mouth_l', col, row, null, puid);
       } else if (p.stype === 5 && p.sxtype === 11) {
-        add('pipe_h_mouth_r', col, row);
+        add('pipe_h_mouth_r', col, row, null, puid);
       } else if (p.stype === 1 || p.stype === 2 || p.stype === 5) {
         // grid 字节已恢复，跳过（避免重复）
       } else if (p.stype === 51 && (!p.sxtype || p.sxtype === 0) && (p.mov || p.sc >= p.sd)) {
@@ -2125,14 +2169,15 @@
         if (p.mov && p.mov.dir < 0) fdir = horiz ? 'up' : 'left';
         else if (p.mov) fdir = horiz ? 'down' : 'right';
         else fdir = 'down';
-        add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir });
+        add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir }, puid);
       } else {
         skip++;   // 51 其他变体/52 下落块、100-103 陷阱区/火焰管/消息、40 进入管等暂不在编辑器暴露
       }
     });
     // 4) 敌人/道具触发器（ba/bb 世界单位）
-    (def.enemies || []).forEach(function (en) {
+    (def.enemies || []).forEach(function (en, ei) {
       var eid = wEnemyId(en.btype);
+      var euid = 'e' + ei;
       if (eid === 'firebar') {
         // 火焰棒：圆心在第0颗火球=格子中心（ba=(col*29+14.5)*100, bb=(row*29-12+14.5)*100）；
         // bxtype = 火球数 + (角度+100)*100（角度编码 bxtype>=10000；遗留值 101~120 是
@@ -2141,27 +2186,28 @@
         var fbCol = Math.round((en.ba / 100 - 14.5) / 29);
         var fbRow = Math.round((en.bb / 100 + 12 - 14.5) / 29);
         note(fbCol);
-        add('firebar', fbCol, fbRow, { xt: bt % 100 || 5, rot: bt >= 10000 ? (Math.floor(bt / 100) - 100) % 360 : 0 });
+        add('firebar', fbCol, fbRow, { xt: bt % 100 || 5, rot: bt >= 10000 ? (Math.floor(bt / 100) - 100) % 360 : 0 }, euid);
       } else {
         var col = Math.round(en.ba / 100 / 29), row = Math.round((en.bb / 100 + 12) / 29);
         note(col);
-        add(eid, col, row);
+        add(eid, col, row, null, euid);
       }
     });
     // 5) 升降台（sra/srb 世界单位）
-    (def.lifts || []).forEach(function (l) {
+    (def.lifts || []).forEach(function (l, li) {
       var col = Math.round(l.sra / 100 / 29), row = Math.round((l.srb / 100 + 12) / 29);
       note(col);
+      var luid = 'l' + li;
       if (l.srsp >= 10 && l.srsp <= 14 && l.src >= 5000) {
         // 悬挂站台 srsp=10~14：自定义柱高 srh（世界单位，缺省48000≈16格）；sracttype=1=可下降
         var pw0 = Math.max(1, Math.min(50, Math.round(l.src / 3000)));
         var ph0 = l.srh ? Math.max(1, Math.min(30, Math.round(l.srh / 2900))) : 16;
-        add('platform_hang', col, row, { w: pw0, h: ph0, drop: l.sracttype === 1 });
+        add('platform_hang', col, row, { w: pw0, h: ph0, drop: l.sracttype === 1 }, luid);
       } else if (l.srsp === 1) {
         // 易碎台 srsp=1：编辑器按普通黄台还原（踩碎陷阱不保留）
-        add('lift_yellow', col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
+        add('lift_yellow', col, row, { len: Math.max(1, Math.round(l.src / 3000)) }, luid);
       } else if (W_LIFT_ID[l.srsp]) {
-        add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) });
+        add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) }, luid);
       } else skip++;
     });
     // 6) 出生点（BGM 是关卡级设置，不放画布，随返回值交给 loadData）
@@ -2170,7 +2216,7 @@
       var sp = (typeof def.spawn.ma === 'number')
         ? { x: def.spawn.ma / 100, y: def.spawn.mb / 100 + 12 }
         : { x: def.spawn.x, y: def.spawn.y + 12 };
-      add('player_start', Math.round(sp.x / 29), Math.round(sp.y / 29));
+      add('player_start', Math.round(sp.x / 29), Math.round(sp.y / 29), null, 'spawn');
     }
     return {
       elements: E,
@@ -2404,12 +2450,16 @@
         CAT.registerCustom(JSON.parse(JSON.stringify(d)));
       });
     }
+    // 新载入一关：重置 uid 占用表（uid 仅要求关卡内唯一）
+    uidSeq = 0; uidSet = Object.create(null);
     state.elements = data.elements.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
     }).map(function (e) {
       var ed = CAT.byId(e.id);
       if (ed.cat === 'audio') { if (bgmFromEl == null) bgmFromEl = ed.bgmId; return null; }
       var out = { id: e.id, col: e.col | 0, row: e.row | 0 };
+      // 字段白名单：uid 合法且未重复则保留（示例世界确定性 id / 旧档已有 id），否则补 u<n>
+      out.uid = claimUid(e.uid) || nextUid();
       if (e.len) out.len = e.len | 0;
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
@@ -2428,6 +2478,7 @@
       }
       return out;
     }).filter(Boolean);
+    bumpUidSeq();   // 续号从本关已有 u<n> 最大值之后开始
     if (data.cols) state.cols = Math.max(20, Math.min(1000, data.cols | 0));
     if (data.theme && THEMES[data.theme]) state.theme = data.theme;
     // BGM：原版 id 100-106 或自定义 id（先加载 customBgm 再判断）
@@ -2490,6 +2541,25 @@
     hintEl.textContent = "已载入原版 1-1 示例关卡：共 355 个元素，130 列";
     scroller.scrollLeft = 0;
   }
+
+  // ---------- 调试接口：元素实例 uid 查询 ----------
+  // __els()           列出全关元素摘要 [{uid,type,name,col,row}]
+  // __els('e7')       按 uid 查单个元素完整数据（深拷贝，可直接改而不影响编辑器）
+  // __els('block_brick', true)  第二参 true 时按“类型 id”过滤
+  window.__els = function (q, byType) {
+    if (q === undefined || q === null) {
+      return state.elements.map(function (e) {
+        var d = CAT.byId(e.id);
+        return { uid: e.uid, type: e.id, name: d ? d.name : '?', col: e.col, row: e.row };
+      });
+    }
+    var hits = state.elements.filter(function (e) {
+      return byType ? (e.id === q) : (e.uid === q);
+    });
+    if (!hits.length) return null;
+    return byType ? hits.map(function (e) { return JSON.parse(JSON.stringify(e)); })
+                  : JSON.parse(JSON.stringify(hits[0]));
+  };
 
   // ---------- 初始化 ----------
   buildPalette();

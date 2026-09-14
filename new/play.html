@@ -142,9 +142,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=shell1"></script>
+<script src="elements.js?v=uid1"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=shell1"></script>
+<script src="engine.js?v=uid1"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -232,14 +232,17 @@ body.dragging #dropTip { display: flex; }
     if (!level || !Array.isArray(level.elements))
       throw new Error('JSON 格式不正确：缺少 elements 数组');
     var grid = [];
-    for (var i = 0; i < ROWS; i++) grid.push(new Uint8Array(COLS));
+    // gridUid：与字节网格平行的 uid 网格（引擎 loadStage 从字节生成运行时对象时带上实例 uid）
+    var gridUid = [];
+    for (var i = 0; i < ROWS; i++) { grid.push(new Uint8Array(COLS)); gridUid.push(new Array(COLS).fill(null)); }
     var blocks = [], enemies = [], pipes = [], lifts = [], bgms = [], bg = [];
     var spawn = null, skip = {}, used = 0, maxCol = 0;
     var hintTexts = {};
 
-    function put(r, c, v) {
+    function put(r, c, v, uid) {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return false;
       grid[r][c] = v;
+      gridUid[r][c] = uid || null;
       return true;
     }
 
@@ -251,15 +254,16 @@ body.dragging #dropTip { display: flex; }
       var x = c * 29, y = r * 29 - 12;   // 与引擎 loadStage 的世界坐标一致
       if (id === 'goal_pole') {
         if (r > 11) r = 11;               // 杆高 = (12-行) 格
-        if (put(r, c, 99)) used++;
+        if (put(r, c, 99, e.uid)) used++;
       } else if (TILE_VAL[id] !== undefined) {
-        if (put(r, c, TILE_VAL[id])) used++;
+        if (put(r, c, TILE_VAL[id], e.uid)) used++;
       } else if (LIFT_SRSP[id] !== undefined) {
         var len = Math.max(1, Math.min(e.len | 0 || 3, 50));
         lifts.push({
           sra: x * 100, srb: y * 100, src: len * 3000,
           srtype: 0, sracttype: 0, sre: 0, srf: 0,
-          srsp: LIFT_SRSP[id], sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0
+          srsp: LIFT_SRSP[id], sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
+          uid: e.uid || null
         });
         used++;
       } else if (id === 'platform_hang') {
@@ -271,7 +275,7 @@ body.dragging #dropTip { display: flex; }
           sra: x * 100, srb: y * 100, src: pw * 3000,
           srtype: 0, sracttype: e.drop ? 1 : 0, sre: 0, srf: 0,
           srsp: 10, sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
-          srh: ph * 2900
+          srh: ph * 2900, uid: e.uid || null
         });
         used++;
       } else if (EX_BLOCK[id] !== undefined) {
@@ -288,7 +292,7 @@ body.dragging #dropTip { display: flex; }
         }
         // 隐藏块(114)：hv=0 紫毒蘑菇(默认) / 2 金币 / 10 P开关联动
         if (id === 'block_hidden_poison') xt = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
-        blocks.push({ x: x, y: y, type: sp.type, xt: xt });
+        blocks.push({ x: x, y: y, type: sp.type, xt: xt, uid: e.uid || null });
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];
         if (id === 'firebar') {
@@ -297,9 +301,9 @@ body.dragging #dropTip { display: flex; }
           // 是原版 P 开关联动值，引擎按随机初相处理）
           var cnt = e.xt || tg.xt;
           var rot = (((e.rot | 0) % 360) + 360) % 360;
-          enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: tg.t, bxtype: cnt + (rot + 100) * 100 });
+          enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: tg.t, bxtype: cnt + (rot + 100) * 100, uid: e.uid || null });
         } else {
-          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt });
+          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
       } else if (id === 'pipe_h_mouth_l' || id === 'pipe_h_mouth_r') {
         // 横向管道口：stype=5 横管 + 端口管口沿（sxtype 10=左口、11=右口），
@@ -307,7 +311,8 @@ body.dragging #dropTip { display: flex; }
         pipes.push({
           sa: x * 100, sb: y * 100 + 700,
           sc: 3900, sd: 5000,
-          stype: 5, sxtype: id === 'pipe_h_mouth_l' ? 10 : 11
+          stype: 5, sxtype: id === 'pipe_h_mouth_l' ? 10 : 11,
+          uid: e.uid || null
         });
       } else if (id === 'pipe_trap') {
         // 陷阱管道 stype=50：引擎原生支持进入动画（抖动→上升→阵亡），
@@ -315,7 +320,8 @@ body.dragging #dropTip { display: flex; }
         pipes.push({
           sa: x * 100 + 500, sb: y * 100,
           sc: 6000, sd: 4 * 3000 - 200,
-          stype: 50, sxtype: e.sxtype || 0
+          stype: 50, sxtype: e.sxtype || 0,
+          uid: e.uid || null
         });
       } else if (id === 'pipe_warp') {
         // 传送管道口 stype=60：进入后按 warp 目标切关/通关（见 GameEngine.setWarpHandler）
@@ -323,6 +329,7 @@ body.dragging #dropTip { display: flex; }
           sa: x * 100 + 500, sb: y * 100,
           sc: 6000, sd: 4 * 3000 - 200,
           stype: 60, sxtype: 1,
+          uid: e.uid || null,
           warp: e.warp && (e.warp.end || e.warp.id)
             ? { end: !!e.warp.end, id: e.warp.id || null }
             : { end: true, id: null }
@@ -341,7 +348,8 @@ body.dragging #dropTip { display: flex; }
           sc: fOri === 'h' ? fCnt * 3000 - 1 : 3000,
           sd: fOri === 'h' ? 3000 : fCnt * 3000 - 1,
           stype: 51, sxtype: 0,
-          mov: { axis: fAxis, dir: fSign }
+          mov: { axis: fAxis, dir: fSign },
+          uid: e.uid || null
         });
       } else if (id === 'player_start') {
         spawn = { x: x, y: y };
@@ -352,13 +360,14 @@ body.dragging #dropTip { display: flex; }
         var cd = level.customDefs[id];
         var ctw = cd.tw || 1, cth = cd.th || 1;
         if (cd.collide === 'block') {
-          blocks.push({ x: x, y: y, type: cd.ttype || 3, xt: 0 });
+          blocks.push({ x: x, y: y, type: cd.ttype || 3, xt: 0, uid: e.uid || null });
           used++;
         } else if (cd.collide === 'pipe') {
           pipes.push({
             sa: x * 100, sb: y * 100,
             sc: ctw * 3000, sd: cth * 3000,
             stype: cd.stype, sxtype: 0,
+            uid: e.uid || null,
             _custom: { dataUrl: cd.dataUrl, tw: ctw, th: cth }
           });
           used++;
@@ -366,6 +375,7 @@ body.dragging #dropTip { display: flex; }
           enemies.push({
             ba: x * 100, bb: y * 100,
             btype: cd.btype, bxtype: 0,
+            uid: e.uid || null,
             _custom: { dataUrl: cd.dataUrl, tw: ctw, th: cth }
           });
           used++;
@@ -373,6 +383,7 @@ body.dragging #dropTip { display: flex; }
           // collide=none → 背景装饰
           bg.push({
             na: x * 100, nb: y * 100, ntype: -1,
+            uid: e.uid || null,
             _custom: { dataUrl: cd.dataUrl, tw: ctw, th: cth }
           });
           used++;
@@ -396,6 +407,7 @@ body.dragging #dropTip { display: flex; }
 
     return {
       grid: grid,
+      gridUid: gridUid,
       stagecolor: THEME_COLOR[level.theme] || 1,
       scrollx: Math.max(cols, 120) * 29 * 100,
       bgm: bgmId,

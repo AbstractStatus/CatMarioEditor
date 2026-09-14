@@ -245,6 +245,8 @@
       // 运动中与玩家相交即致死（头顶被砸/身体触碰同理；不用无敌帧，与原版 mhp-- 一致）
       if (p.ma + p.mnobia > s.sa + 200 && p.ma < s.sa + s.sc - 200 &&
           p.mb + p.mnobib > s.sb && p.mb < s.sb + s.sd + 200) {
+        // 调试：记录伤害来源实例 uid（state._lastHurt 由 engine 在玩家死亡时输出）
+        state._lastHurt = { reason: 'fall-brick', uid: s.uid || null };
         p.mhp--;
       }
       return true;

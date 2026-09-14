@@ -147,46 +147,49 @@
 
     // 加载字节网格
     var grid = def.grid;
+    // 编辑器实例 uid 的平行网格（play.html convert 生成；原版 STAGES 无此数据时为 null）
+    var guids = def.gridUid || null;
     for (var tt = 0; tt <= 1000; tt++) {
       for (var t = 0; t <= 16; t++) {
         var v = grid[t][tt];
         if (v === 0) continue;
         var wx = tt * 29 * 100;
         var wy = (t * 29 - 12) * 100;
+        var uid0 = guids ? (guids[t][tt] || null) : null;
         if (v >= 1 && v <= 19 && v !== 9) {
-          state.blocks.push({ ta: wx, tb: wy, ttype: v, txtype: 0, thp: 0, titem: 0 });
+          state.blocks.push({ ta: wx, tb: wy, ttype: v, txtype: 0, thp: 0, titem: 0, uid: uid0 });
         } else if (v >= 20 && v <= 29) {
-          state.lifts.push({ sra: wx, srb: wy, src: 3000, srtype: 0, sracttype: 0, sre: 0, srf: 0, srsp: 0, sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0 });
+          state.lifts.push({ sra: wx, srb: wy, src: 3000, srtype: 0, sracttype: 0, sre: 0, srf: 0, srsp: 0, sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0, uid: uid0 });
         } else if (v === 30) {
-          state.pipes.push({ sa: wx, sb: wy, sc: 3000, sd: 6000, stype: 500, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx, sb: wy, sc: 3000, sd: 6000, stype: 500, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         } else if (v === 40) {
-          state.pipes.push({ sa: wx, sb: wy, sc: 6000, sd: 3000, stype: 1, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx, sb: wy, sc: 6000, sd: 3000, stype: 1, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         } else if (v === 41) {
-          state.pipes.push({ sa: wx + 500, sb: wy, sc: 5000, sd: 3000, stype: 2, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx + 500, sb: wy, sc: 5000, sd: 3000, stype: 2, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         } else if (v === 43) {
-          state.pipes.push({ sa: wx, sb: wy + 500, sc: 2900, sd: 5300, stype: 1, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx, sb: wy + 500, sc: 2900, sd: 5300, stype: 1, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         } else if (v === 44) {
-          state.pipes.push({ sa: wx, sb: wy + 700, sc: 3900, sd: 5000, stype: 5, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx, sb: wy + 700, sc: 3900, sd: 5000, stype: 5, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         } else if (v >= 50 && v <= 79) {
-          state.triggers.push({ ba: wx, bb: wy, btype: v - 50, bxtype: 0, bz: 1, btm: 0, spawned: false });
+          state.triggers.push({ ba: wx, bb: wy, btype: v - 50, bxtype: 0, bz: 1, btm: 0, spawned: false, uid: uid0 });
         } else if (v >= 80 && v <= 89) {
-          state.bg.push({ na: wx, nb: wy, ntype: v - 80 });
+          state.bg.push({ na: wx, nb: wy, ntype: v - 80, uid: uid0 });
         } else if (v === 9) {
-          state.blocks.push({ ta: wx, tb: wy, ttype: 800, txtype: 0, thp: 0, titem: 0 });
+          state.blocks.push({ ta: wx, tb: wy, ttype: 800, txtype: 0, thp: 0, titem: 0, uid: uid0 });
         } else if (v === 99) {
-          state.pipes.push({ sa: wx, sb: wy, sc: 3000, sd: (12 - t) * 3000, stype: 300, sxtype: 0, sgtype: 0, sr: 0 });
+          state.pipes.push({ sa: wx, sb: wy, sc: 3000, sd: (12 - t) * 3000, stype: 300, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         }
       }
     }
 
     // 特殊方块
     def.blocks.forEach(function (b) {
-      state.blocks.push({ ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0 });
+      state.blocks.push({ ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0, uid: b.uid || null });
     });
 
     // 管道
     def.pipes.forEach(function (p) {
-      var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0 };
+      var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0, uid: p.uid || null };
       // stype=60 传送管道口：保留传送目标 {end,id}
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
@@ -221,14 +224,14 @@
 
     // 敌人触发器
     def.enemies.forEach(function (e) {
-      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false };
+      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false, uid: e.uid || null };
       if (e._custom) trig._custom = e._custom;
       state.triggers.push(trig);
     });
 
     // 背景装饰（自定义 ntype=-1）
     (def.bg || []).forEach(function (n) {
-      var bgObj = { na: n.na, nb: n.nb, ntype: n.ntype };
+      var bgObj = { na: n.na, nb: n.nb, ntype: n.ntype, uid: n.uid || null };
       if (n._custom) bgObj._custom = n._custom;
       state.bg.push(bgObj);
     });
@@ -241,7 +244,7 @@
         sre: l.sre || 0, srf: l.srf || 0, srsp: l.srsp || 0,
         sron: l.sron || 0, srmuki: l.srmuki || 0, srsok: l.srsok || 0,
         srmove: l.srmove || 0, srmovep: l.srmovep || 0,
-        srh: l.srh || 48000
+        srh: l.srh || 48000, uid: l.uid || null
       });
     });
 
@@ -415,7 +418,13 @@
 
     // 死亡
     if (p.mhp <= 0 && p.mhp >= -9) {
-      _debugLog.push({ f: _debugFrame, key: 0, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: false, death: true, mhp: p.mhp });
+      var hurtInfo = state._lastHurt || { reason: 'unknown', uid: null };
+      // 调试：死亡瞬间输出最后伤害来源（uid 对应编辑器中的元素实例，便于复现）
+      console.warn('[catmario] 玩家死亡 f=' + _debugFrame +
+        ' 来源=' + hurtInfo.reason + (hurtInfo.uid ? (' uid=' + hurtInfo.uid) : '（无实例uid）') +
+        ' 坐标 ma=' + p.ma + ' mb=' + p.mb);
+      _debugLog.push({ f: _debugFrame, key: 0, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: false, death: true, mhp: p.mhp, hurt: hurtInfo });
+      state._lastHurt = null;
       state.life++;
       p.mkeytm = 12; p.mhp = -20; p.mtype = C.MTYPE.DEAD; p.mtm = 0;
       A.playSE(C.SE.DEATH); A.bgmStop();
@@ -452,7 +461,11 @@
               if (p.mzz > 1600) p.mzz = 1600;
             }
           }
-          if (p.mtm === 160) { p._trapPipe = null; p.mtype = 0; p.mhp--; _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit' }); }
+          if (p.mtm === 160) {
+            markHurt('trap-pipe', p._trapPipe ? p._trapPipe.uid : null);
+            p._trapPipe = null; p.mtype = 0; p.mhp--;
+            _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit', uid: state._lastHurt ? state._lastHurt.uid : null });
+          }
         } else {
           p.mc = 0; p.md = 0;
           if (p.mtm <= 16) p.mb += 240;
@@ -531,7 +544,7 @@
       if (p.ma < 100) { p.ma = 100; p.mc = 0; }
       if (p.ma + p.mnobia > state.scrollx + C.FXMAX) { p.ma = state.scrollx + C.FXMAX - p.mnobia; p.mc = 0; }
     }
-    if (p.mb >= 52000 && p.mhp >= 0) p.mhp = -2;
+    if (p.mb >= 52000 && p.mhp >= 0) { markHurt('out-of-world', null); p.mhp = -2; }
 
     // 行走动画
     if (p.mactp >= 2000) { p.mactp -= 2000; p.mact = p.mact === 0 ? 1 : 0; }
@@ -605,7 +618,7 @@
                   p.mb = xx[9] + xx[1] + xx[0]; b.ttype = 3;
                   if (p.md < 0) p.md = -p.md * 2 / 3;
                 }
-                if (b.ttype === 10) { p.mmsgtm = 30; p.mmsgtype = 3; p.mhp--; _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'ttype10', ta: b.ta, tb: b.tb }); }
+                if (b.ttype === 10) { p.mmsgtm = 30; p.mmsgtype = 3; markHurt('spike', b.uid); p.mhp--; _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'ttype10', uid: b.uid, ta: b.ta, tb: b.tb }); }
               }
             }
             // 左右碰撞
@@ -652,7 +665,7 @@
             else if (b.txtype === 1) e101 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 4, 0);
             else if (b.txtype === 3 || b.txtype === 10) e101 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 101, 0);
             else if (b.txtype === 4) { e101 = spawnEnemy(b.ta - 400, b.tb - 1600, 0, 0, 0, 6, 0); e101.abrocktm = 20; }
-            if (e101 && b.txtype !== 4) e101.abrocktm = 16;
+            if (e101) { if (b.txtype !== 4) e101.abrocktm = 16; if (b.uid) e101.uid = b.uid + '#item'; }
           }
           if (b.ttype === 102 && xx[17] === 1) {
             A.playSE(8); b.ttype = 3;
@@ -660,22 +673,22 @@
             if (b.txtype === 0) e102 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 100, 0);
             else if (b.txtype === 2) e102 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 100, 2);
             else if (b.txtype === 3) e102 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1);
-            if (e102) e102.abrocktm = 16;
+            if (e102) { e102.abrocktm = 16; if (b.uid) e102.uid = b.uid + '#item'; }
           }
           if (b.ttype === 103 && xx[17] === 1) {
             A.playSE(8); b.ttype = 3;
             var e103 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 100, 1);
-            e103.abrocktm = 16;
+            e103.abrocktm = 16; if (b.uid) e103.uid = b.uid + '#item';
           }
           if (b.ttype === 104 && xx[17] === 1) {
             A.playSE(8); b.ttype = 3;
             var e104 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 110, 0);
-            e104.abrocktm = 16;
+            e104.abrocktm = 16; if (b.uid) e104.uid = b.uid + '#item';
           }
           if (b.ttype === 110 && xx[17] === 1) { b.ttype = 111; b.thp = 999; }
           if (b.ttype === 111 && b.ta - state.fx >= 0) {
             b.thp++;
-            if (b.thp >= 16) { b.thp = 0; A.playSE(8); var e111 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1); e111.abrocktm = 16; }
+            if (b.thp >= 16) { b.thp = 0; A.playSE(8); var e111 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1); e111.abrocktm = 16; if (b.uid) e111.uid = b.uid + '#item'; }
           }
           if (b.ttype === 112 && xx[17] === 1) { b.ttype = 113; b.thp = 999; b.titem = 0; }
           if (b.ttype === 113 && b.ta - state.fx >= 0) {
@@ -688,7 +701,7 @@
             if (b.txtype === 0) {
               A.playSE(8); b.ttype = 3;
               var e114 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1);
-              if (e114) e114.abrocktm = 16;
+              if (e114) { e114.abrocktm = 16; if (b.uid) e114.uid = b.uid + '#item'; }
             } else if (b.txtype === 2) {
               A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
               b.ttype = 115; b.txtype = 0;
@@ -851,7 +864,7 @@
             // 绿色疲劳台：弹飞玩家，连续站立 100 帧阵亡
             p.mc = -2400;
             l.srmove += 1;
-            if (l.srmove >= 100) { p.mhp = 0; l.srmove = -5000; }
+            if (l.srmove >= 100) { markHurt('fatigue-lift', l.uid); p.mhp = 0; l.srmove = -5000; }
           }
         }
 
@@ -909,7 +922,10 @@
           tr.btm = 401; tr.spawned = true;
           if (tr.btype >= 10) tr.btm = 9999999;
           var spawnedE = spawnEnemy(tr.ba, tr.bb, 0, 0, 0, tr.btype, tr.bxtype);
-          if (tr._custom && spawnedE) spawnedE._custom = tr._custom;
+          if (spawnedE) {
+            if (tr.uid) spawnedE.uid = tr.uid;   // 敌人实例继承触发器（=编辑器元素）uid
+            if (tr._custom) spawnedE._custom = tr._custom;
+          }
         }
       }
     }
@@ -1073,6 +1089,7 @@
           var fby = e.ab + fi * 1300 * Math.sin(fbAng);
           if (p.ma + p.mnobia > fbx - fbR && p.ma < fbx + fbR &&
               p.mb + p.mnobib > fby - fbR && p.mb < fby + fbR) {
+            markHurt('firebar', e.uid);
             p.mhp -= 1;
             break;
           }
@@ -1125,8 +1142,9 @@
         if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200)) {
           if (p.mmutekion !== 1 && p.mtype !== C.MTYPE.DEAD) {
             if ((e.atype !== 2 || e.axtype !== 0) && p.mhp >= 1) {
+              markHurt('enemy', e.uid);
               p.mhp -= 1;
-              _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', atype: e.atype, aa: e.aa, ab: e.ab });
+              _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
             }
           }
         }
@@ -1139,9 +1157,9 @@
             p.mnobia = C.PLAYER_GIANT_W; p.mnobib = C.PLAYER_GIANT_H;
             A.playSE(C.SE.POWERUP); p.ma -= 1100; p.mb -= 4000; p.mtype = 1; p.mhp = 50000000;
           }
-          if (e.atype === 101) { p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'flower' }); }
-          if (e.atype === 102) { p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'poison-mushroom' }); }
-          if (e.atype === 110) { p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'bad-star' }); }
+          if (e.atype === 101) { markHurt('flower', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'flower', uid: e.uid }); }
+          if (e.atype === 102) { markHurt('poison-mushroom', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'poison-mushroom', uid: e.uid }); }
+          if (e.atype === 110) { markHurt('bad-star', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'bad-star', uid: e.uid }); }
           e.aa = -90000000;
         }
       }
@@ -1857,6 +1875,10 @@
 
   var _debugKey = 0, _debugFrame = 0;
   var _debugLog = [];
+  // 记录最近一次伤害来源（uid=编辑器元素实例 id），死亡时输出，串联“编辑器元素↔游戏内死亡”
+  function markHurt(reason, uid) {
+    state._lastHurt = { reason: reason, uid: uid || null, f: _debugFrame };
+  }
   Engine.getState = function () {
     return { proc: state.proc, key: _debugKey, frame: _debugFrame, maintm: state.maintm, blocks: state.blocks.length, fx: state.fx, collideCount: _debugCollideCount, collideTop: _debugCollideTop, player: state.player ? { ma: state.player.ma, mb: state.player.mb, mc: state.player.mc, md: state.player.md, mzimen: state.player.mzimen, mhp: state.player.mhp, mtype: state.player.mtype } : null };
   };
@@ -1885,6 +1907,8 @@
       if (e.mhpDmg) tag += ' [DMG:' + (e.reason || '?') + ']';
       if (e.spawn) tag += ' [SPAWN]';
       output += 'f=' + e.f + tag + ' key=' + e.key + ' ma=' + e.ma + ' mb=' + e.mb + ' mc=' + e.mc + ' md=' + e.md + ' mz=' + e.mz + ' mt=' + e.mt;
+      if (e.uid !== undefined && e.uid) output += ' uid=' + e.uid;
+      if (e.hurt) output += ' hurt=' + e.hurt.reason + (e.hurt.uid ? ':' + e.hurt.uid : '');
       if (e.atype !== undefined) output += ' atype=' + e.atype + ' eaa=' + e.aa + ' eab=' + e.ab;
       if (e.ta !== undefined) output += ' bta=' + e.ta + ' btb=' + e.tb;
       if (e.mtm !== undefined) output += ' mtm=' + e.mtm;
