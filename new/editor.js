@@ -313,6 +313,48 @@
         ? { c0: e.col, c1: e.col + fi.count - 1, r0: e.row, r1: e.row, tw: fi.count, th: 1 }
         : { c0: e.col, c1: e.col, r0: e.row, r1: e.row + fi.count - 1, tw: 1, th: fi.count };
     }
+    if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
+      // connector：中心块 2×2 tile（col,row）~(col+1,row+1)，每方向臂从中心块边缘向外延伸 length 格
+      var DIR_BASE_IDX = { up: 0, down: 1, left: 2, right: 3 };
+      var defLen = d.lengths || [1, 1, 1, 1];
+      var eLen = e.lengths || defLen.slice();
+      var portLens = [1, 1, 1, 1];
+      if (d.id === 'pipe_cross' || d.id === 'pipe_tee') {
+        for (var _i = 0; _i < 4; _i++) portLens[_i] = Math.max(1, Math.min(4, eLen[_i] | 0 || defLen[_i] || 1));
+      } else if (d.id === 'pipe_L_a') {
+        portLens[0] = Math.max(1, Math.min(4, eLen[0] | 0 || defLen[0] || 1));
+        portLens[3] = Math.max(1, Math.min(4, eLen[1] | 0 || defLen[1] || 1));
+      } else if (d.id === 'pipe_L_b') {
+        portLens[0] = Math.max(1, Math.min(4, eLen[0] | 0 || defLen[0] || 1));
+        portLens[2] = Math.max(1, Math.min(4, eLen[1] | 0 || defLen[1] || 1));
+      }
+      var rot = (((e.rot | 0) || 0) % 360 + 360) % 360;
+      var dirs;
+      if (d.id === 'pipe_cross') dirs = ['up', 'down', 'left', 'right'];
+      else if (d.id === 'pipe_tee') {
+        var miss = ({ 0: 'down', 90: 'left', 180: 'up', 270: 'right' })[rot] || 'down';
+        dirs = ['up', 'down', 'left', 'right'].filter(function (dd) { return dd !== miss; });
+      } else if (d.id === 'pipe_L_a') {
+        dirs = ({ 0: ['up', 'right'], 90: ['right', 'down'], 180: ['down', 'left'], 270: ['left', 'up'] })[rot] || ['up', 'right'];
+      } else {
+        dirs = ({ 0: ['up', 'left'], 90: ['up', 'right'], 180: ['right', 'down'], 270: ['down', 'left'] })[rot] || ['up', 'left'];
+      }
+      // 中心块初始 bounds
+      var c0 = e.col, c1 = e.col + 1, r0 = e.row, r1 = e.row + 1;
+      dirs.forEach(function (dd) {
+        var armLen = portLens[DIR_BASE_IDX[dd]];
+        if (dd === 'up') r0 = Math.min(r0, e.row - armLen);
+        else if (dd === 'down') r1 = Math.max(r1, e.row + 1 + armLen);
+        else if (dd === 'left') c0 = Math.min(c0, e.col - armLen);
+        else c1 = Math.max(c1, e.col + 1 + armLen);
+      });
+      return { c0: c0, c1: c1, r0: r0, r1: r1, tw: c1 - c0 + 1, th: r1 - r0 + 1 };
+    }
+    if (d.id === 'pipe_mouth') {
+      // 管口 1 tile + 管身 length tile，共 height = 1 + length
+      var _pmLen = Math.max(1, Math.min(20, e.length | 0 || d.length || 1));
+      return { c0: e.col, c1: e.col + 1, r0: e.row, r1: e.row + _pmLen, tw: 2, th: _pmLen + 1 };
+    }
     var fp = footprint(d, e.col, e.row);
     if (d.id.indexOf('lift_') === 0) {
       fp.c1 = e.col + liftLen(e) - 1;
@@ -352,6 +394,16 @@
     var fp = footprint(d, col, row);
     if (d.id.indexOf('lift_') === 0) fp.c1 = col + len - 1;
     if (d.id === 'platform_hang') fp.c1 = col + (d.w || 5) - 1;
+    // connector：用临时元素计算 arm-aware 完整 footprint（避免新建后与臂范围内已有元素重叠）
+    if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
+      var _tmp = { id: d.id, col: col, row: row, lengths: (d.lengths || [1, 1]).slice(), rot: 0 };
+      fp = footprintOf(_tmp);
+    }
+    // pipe_mouth：用临时元素计算动态 length+1 的 footprint（避免用静态 d.th=4 误删下方方块）
+    if (d.id === 'pipe_mouth') {
+      var _pmLenTmp = Math.max(1, Math.min(20, d.length || 1));
+      fp = footprintOf({ id: 'pipe_mouth', col: col, row: row, length: _pmLenTmp });
+    }
 
     // 移除占位重叠的实体
     state.elements = state.elements.filter(function (e) {
@@ -370,6 +422,11 @@
     if (d.id.indexOf('lift_') === 0) ne.len = len;
     if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
     if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
+    if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; }
+    if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
+      ne.lengths = (d.lengths || [1, 1]).slice();
+      ne.rot = 0;
+    }
     if (d.xt) ne.xt = d.xt;
     if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
     state.elements.push(ne);
@@ -649,7 +706,175 @@
       return;
     }
 
-    // 剩余所有元素：按 tw/th 声明的格数缩放
+    // 连接管：中心块 2×2 tile 满格 + 每方向延伸 length 格管身（外轮廓边框）
+    if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
+      ctx.globalAlpha = a;
+      var DIR_BASE_IDX = { up: 0, down: 1, left: 2, right: 3 };
+      var defLen = d.lengths || [1, 1, 1, 1];
+      var eLen = e.lengths || defLen.slice();
+      var portLens = [1, 1, 1, 1];
+      if (d.id === 'pipe_cross' || d.id === 'pipe_tee') {
+        for (var _k = 0; _k < 4; _k++) portLens[_k] = Math.max(1, Math.min(4, eLen[_k] | 0 || defLen[_k] || 1));
+      } else if (d.id === 'pipe_L_a') {
+        portLens[0] = Math.max(1, Math.min(4, eLen[0] | 0 || defLen[0] || 1));
+        portLens[3] = Math.max(1, Math.min(4, eLen[1] | 0 || defLen[1] || 1));
+      } else if (d.id === 'pipe_L_b') {
+        portLens[0] = Math.max(1, Math.min(4, eLen[0] | 0 || defLen[0] || 1));
+        portLens[2] = Math.max(1, Math.min(4, eLen[1] | 0 || defLen[1] || 1));
+      }
+      var rot = (((e.rot | 0) || 0) % 360 + 360) % 360;
+      var dirs;
+      if (d.id === 'pipe_cross') dirs = ['up', 'down', 'left', 'right'];
+      else if (d.id === 'pipe_tee') {
+        var _miss = ({ 0: 'down', 90: 'left', 180: 'up', 270: 'right' })[rot] || 'down';
+        dirs = ['up', 'down', 'left', 'right'].filter(function (dd) { return dd !== _miss; });
+      } else if (d.id === 'pipe_L_a') {
+        dirs = ({ 0: ['up', 'right'], 90: ['right', 'down'], 180: ['down', 'left'], 270: ['left', 'up'] })[rot] || ['up', 'right'];
+      } else {
+        dirs = ({ 0: ['up', 'left'], 90: ['up', 'right'], 180: ['right', 'down'], 270: ['down', 'left'] })[rot] || ['up', 'left'];
+      }
+      var dirLenMap = { up: portLens[0], down: portLens[1], left: portLens[2], right: portLens[3] };
+      var hasArm = { up: false, down: false, left: false, right: false };
+      dirs.forEach(function (dd) { hasArm[dd] = true; });
+
+      // 编辑器 canvas：TILE=29，管身宽 = round(50/29*TILE) ≈ 50 虚拟像素按比例
+      var bW = Math.round(50 / 29 * TILE);
+      var bHalf = bW / 2;
+
+      // ===== 第一遍：全部填充 =====
+      ctx.fillStyle = '#00e600';
+      // 中心块 2×2 tile
+      ctx.fillRect(x, y, 2 * TILE, 2 * TILE);
+      dirs.forEach(function (dd) {
+        var armLen = dirLenMap[dd];
+        var pxLen = armLen * TILE;
+        if (dd === 'up') ctx.fillRect(x + TILE - bHalf, y - pxLen, bW, pxLen);
+        else if (dd === 'down') ctx.fillRect(x + TILE - bHalf, y + 2 * TILE, bW, pxLen);
+        else if (dd === 'left') ctx.fillRect(x - pxLen, y + TILE - bHalf, pxLen, bW);
+        else ctx.fillRect(x + 2 * TILE, y + TILE - bHalf, pxLen, bW);
+      });
+
+      // ===== 第二遍：精准边框（无叠合）=====
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+
+      // 中心块 4 条边：有臂 → 只画臂外两侧的 stub 段；无臂 → 画完整
+      var stubL = Math.round(TILE - bHalf);  // = TILE - HALF_PIPE_EDITOR
+      var stubR = Math.round(TILE + bHalf);  // = TILE + HALF_PIPE_EDITOR
+      // 上边
+      ctx.beginPath();
+      if (hasArm.up) {
+        ctx.moveTo(x, y); ctx.lineTo(x + stubL, y);
+        ctx.moveTo(x + stubR, y); ctx.lineTo(x + 2 * TILE, y);
+      } else {
+        ctx.moveTo(x, y); ctx.lineTo(x + 2 * TILE, y);
+      }
+      ctx.stroke();
+      // 下边
+      ctx.beginPath();
+      if (hasArm.down) {
+        ctx.moveTo(x, y + 2 * TILE); ctx.lineTo(x + stubL, y + 2 * TILE);
+        ctx.moveTo(x + stubR, y + 2 * TILE); ctx.lineTo(x + 2 * TILE, y + 2 * TILE);
+      } else {
+        ctx.moveTo(x, y + 2 * TILE); ctx.lineTo(x + 2 * TILE, y + 2 * TILE);
+      }
+      ctx.stroke();
+      // 左边
+      ctx.beginPath();
+      if (hasArm.left) {
+        ctx.moveTo(x, y); ctx.lineTo(x, y + stubL);
+        ctx.moveTo(x, y + stubR); ctx.lineTo(x, y + 2 * TILE);
+      } else {
+        ctx.moveTo(x, y); ctx.lineTo(x, y + 2 * TILE);
+      }
+      ctx.stroke();
+      // 右边
+      ctx.beginPath();
+      if (hasArm.right) {
+        ctx.moveTo(x + 2 * TILE, y); ctx.lineTo(x + 2 * TILE, y + stubL);
+        ctx.moveTo(x + 2 * TILE, y + stubR); ctx.lineTo(x + 2 * TILE, y + 2 * TILE);
+      } else {
+        ctx.moveTo(x + 2 * TILE, y); ctx.lineTo(x + 2 * TILE, y + 2 * TILE);
+      }
+      ctx.stroke();
+
+      // 每方向臂：画 2 侧（跳过衔接中心块的那条 + 远端帽，端口开口）
+      dirs.forEach(function (dd) {
+        var armLen = dirLenMap[dd];
+        var pxLen = armLen * TILE;
+        ctx.beginPath();
+        if (dd === 'up') {
+          var ux = x + TILE - bHalf, uy = y - pxLen;
+          ctx.moveTo(ux, uy); ctx.lineTo(ux, y);
+          ctx.moveTo(ux + bW, uy); ctx.lineTo(ux + bW, y);
+        } else if (dd === 'down') {
+          var dx = x + TILE - bHalf;
+          var dy1 = y + 2 * TILE, dy2 = dy1 + pxLen;
+          ctx.moveTo(dx, dy1); ctx.lineTo(dx, dy2);
+          ctx.moveTo(dx + bW, dy1); ctx.lineTo(dx + bW, dy2);
+        } else if (dd === 'left') {
+          var ly = y + TILE - bHalf, lx1 = x - pxLen;
+          ctx.moveTo(lx1, ly); ctx.lineTo(x, ly);
+          ctx.moveTo(lx1, ly + bW); ctx.lineTo(x, ly + bW);
+        } else {
+          var rx = x + 2 * TILE, ry = y + TILE - bHalf;
+          ctx.moveTo(rx, ry); ctx.lineTo(rx + pxLen, ry);
+          ctx.moveTo(rx, ry + bW); ctx.lineTo(rx + pxLen, ry + bW);
+        }
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // 管道口：管口 + 管身，管身只画两侧边（远端去帽），与 connector 端口一致
+    if (d.id === 'pipe_mouth') {
+      ctx.globalAlpha = a;
+      var pmLen = Math.max(1, Math.min(20, e.length | 0 || d.length || 1));
+      var pmDir = e.dir || d.dir || 'up';
+      var pmPipeW = Math.round(50 / 29 * TILE);
+      var bodyThick = pmLen * TILE;
+      ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      // 辅助函数：画管身（fillRect + 两侧线，去远端帽）
+      function drawPipeBody(bx, by, bw, bh, dir) {
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.beginPath();
+        if (dir === 'up') {
+          // 管身向上延伸：两侧线从管身底到管口下沿，去上帽
+          ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh);
+          ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh);
+        } else if (dir === 'down') {
+          // 管身向下延伸：两侧线从管口下沿到底部，去下帽
+          ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh);
+          ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh);
+        } else if (dir === 'left') {
+          ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by);
+          ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw, by + bh);
+        } else { // right
+          ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by);
+          ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw, by + bh);
+        }
+        ctx.stroke();
+      }
+      if (pmDir === 'up') {
+        var bodyX = x + Math.round((2 * TILE - pmPipeW) / 2);
+        ctx.fillRect(x, y, 2 * TILE, TILE); ctx.strokeRect(x, y, 2 * TILE, TILE);
+        drawPipeBody(bodyX, y + TILE, pmPipeW, bodyThick, 'down');
+      } else if (pmDir === 'down') {
+        var bodyX2 = x + Math.round((2 * TILE - pmPipeW) / 2);
+        drawPipeBody(bodyX2, y, pmPipeW, bodyThick, 'up');
+        ctx.fillRect(x, y + bodyThick, 2 * TILE, TILE); ctx.strokeRect(x, y + bodyThick, 2 * TILE, TILE);
+      } else if (pmDir === 'left') {
+        var bodyY = y + Math.round((2 * TILE - pmPipeW) / 2);
+        ctx.fillRect(x, y, TILE, 2 * TILE); ctx.strokeRect(x, y, TILE, 2 * TILE);
+        drawPipeBody(x + TILE, bodyY, bodyThick, pmPipeW, 'right');
+      } else { // right
+        var bodyY2 = y + Math.round((2 * TILE - pmPipeW) / 2);
+        drawPipeBody(x, bodyY2, bodyThick, pmPipeW, 'left');
+        ctx.fillRect(x + bodyThick, y, TILE, 2 * TILE); ctx.strokeRect(x + bodyThick, y, TILE, 2 * TILE);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
     var im2 = getImg(d);
     if (im2 && im2.complete && im2.naturalWidth) {
       ctx.globalAlpha = a;
@@ -680,8 +905,9 @@
         }
         ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
       } else {
-        // 方块/物品（都是 1×1）：强制一格
-        dx2 = x; dy2 = y; dw2 = TILE; dh2 = TILE;
+        // 方块/物品：按 tw/th 格数缩放（默认 1×1，block_pipe_top/body 是 2×1）
+        dx2 = x; dy2 = y;
+        dw2 = tw * TILE; dh2 = th * TILE;
         ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
       }
       ctx.globalAlpha = 1;
@@ -747,13 +973,25 @@
     if (hover && tool && tool !== 'eraser') {
       var d = CAT.byId(tool);
       if (d) {
-        var col = Math.min(hover.col, state.cols - (d.tw || 1));
-        var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - (d.th || 1));
+        // 构造临时伪元素实例（带默认值，让 footprintOf 能正确算动态 footprint）
+        var _hLen = (d.id === 'pipe_mouth') ? Math.max(1, Math.min(20, d.length || 1))
+          : (d.id.indexOf('lift_') === 0 ? (d.len || 4)
+          : (d.id === 'platform_hang' ? (d.w || 5)
+          : (d.id === 'block_fall' ? (d.count || 3) : 1)));
+        var _hTh = (d.id === 'pipe_mouth') ? (_hLen + 1)
+          : (d.id.indexOf('lift_') === 0 ? 1
+          : (d.id === 'platform_hang' ? 1
+          : (d.id === 'block_fall' ? ((d.ori === 'v') ? _hLen : 1) : (d.th || 1))));
+        var _hTw = (d.id === 'platform_hang') ? _hLen
+          : (d.id === 'block_fall' ? ((d.ori === 'h') ? _hLen : 1)
+          : (d.tw || 1));
+        var col = Math.min(hover.col, Math.max(0, state.cols - _hTw));
+        var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - _hTh);
         col = Math.max(col, 0);
-        drawElement({ id: d.id, col: col, row: row, len: d.len, xt: d.xt, w: d.w, h: d.h, drop: d.drop }, 0.55);
-        var fp = footprint(d, col, row);
-        if (d.id.indexOf('lift_') === 0) fp.c1 = col + liftLen({ id: d.id, len: d.len }) - 1;
-        if (d.id === 'platform_hang') fp.c1 = col + (d.w || 5) - 1;
+        // 构造临时元素用于 drawElement + footprintOf
+        var _pe = { id: d.id, col: col, row: row, len: d.len, length: d.length, dir: d.dir, rot: d.rot, ori: d.ori, count: d.count, w: d.w, h: d.h, drop: d.drop, warp: d.warp };
+        drawElement(_pe, 0.55);
+        var fp = footprintOf(_pe);
         ctx.strokeStyle = 'rgba(20,80,255,0.9)';
         ctx.lineWidth = 2;
         ctx.strokeRect(fp.c0 * TILE + 1, (fp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
@@ -962,6 +1200,69 @@
       });
       propBody.appendChild(propRow('移动方向', fFallDir, '玩家完全进入后触发，运动中碰到即阵亡'));
     }
+    // 连接管：每端口长度编辑
+    var fPortInputs = null, fPortIdxs = null, fCrot = null;
+    if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
+      var _DIR_BASE_IDX = { up: 0, down: 1, left: 2, right: 3 };
+      var _defLen2 = d.lengths || [1, 1, 1, 1];
+      var _eLen2 = selected.lengths || _defLen2.slice();
+      var _portLens2 = [1, 1, 1, 1];
+      if (d.id === 'pipe_cross' || d.id === 'pipe_tee') {
+        for (var _kk = 0; _kk < 4; _kk++) _portLens2[_kk] = Math.max(1, Math.min(4, _eLen2[_kk] | 0 || _defLen2[_kk] || 1));
+      } else if (d.id === 'pipe_L_a') {
+        _portLens2[0] = Math.max(1, Math.min(4, _eLen2[0] | 0 || _defLen2[0] || 1));
+        _portLens2[3] = Math.max(1, Math.min(4, _eLen2[1] | 0 || _defLen2[1] || 1));
+      } else if (d.id === 'pipe_L_b') {
+        _portLens2[0] = Math.max(1, Math.min(4, _eLen2[0] | 0 || _defLen2[0] || 1));
+        _portLens2[2] = Math.max(1, Math.min(4, _eLen2[1] | 0 || _defLen2[1] || 1));
+      }
+      var _rot0 = (((selected.rot | 0) || 0) % 360 + 360) % 360;
+      var _dirs0;
+      if (d.id === 'pipe_cross') _dirs0 = ['up', 'down', 'left', 'right'];
+      else if (d.id === 'pipe_tee') {
+        var _miss0 = ({ 0: 'down', 90: 'left', 180: 'up', 270: 'right' })[_rot0] || 'down';
+        _dirs0 = ['up', 'down', 'left', 'right'].filter(function (dd) { return dd !== _miss0; });
+      } else if (d.id === 'pipe_L_a') {
+        _dirs0 = ({ 0: ['up', 'right'], 90: ['right', 'down'], 180: ['down', 'left'], 270: ['left', 'up'] })[_rot0] || ['up', 'right'];
+      } else {
+        _dirs0 = ({ 0: ['up', 'left'], 90: ['up', 'right'], 180: ['right', 'down'], 270: ['down', 'left'] })[_rot0] || ['up', 'left'];
+      }
+      fPortInputs = {};
+      fPortIdxs = [];
+      // 旋转（cross 不旋转）
+      if (d.id !== 'pipe_cross') {
+        fCrot = numInput(0, 359, _rot0);
+        propBody.appendChild(propRow('旋转', fCrot, '度，顺时针'));
+      }
+      _dirs0.forEach(function (dd, _i0) {
+        var _baseIdx = _DIR_BASE_IDX[dd];
+        var _dirLabel = ({ up: '↑ 上', down: '↓ 下', left: '← 左', right: '→ 右' })[dd];
+        var _ip = numInput(1, 4, _portLens2[_baseIdx]);
+        propBody.appendChild(propRow('端口 ' + (_i0 + 1) + ' (' + _dirLabel + ') 长度', _ip, '格（范围1-4）'));
+        fPortInputs['port_' + _baseIdx] = _ip;
+        fPortIdxs.push(_baseIdx);
+      });
+    }
+    // 管道口：管身长度 + 进入事件 + 开口方向
+    var fPmLen = null, fPmEntry = null, fPmDir = null;
+    if (d.id === 'pipe_mouth') {
+      fPmLen = numInput(1, 20, Math.max(1, selected.length | 0 || d.length || 1));
+      propBody.appendChild(propRow('管身长度', fPmLen, '格'));
+      fPmEntry = document.createElement('select');
+      [['none', '普通管道（可从管口进入）'], ['trap', '陷阱管道（进入即阵亡）'], ['warp', '传送管道（进入即传送到目标）']].forEach(function (op) {
+        var opt = document.createElement('option'); opt.value = op[0]; opt.textContent = op[1];
+        if ((selected.entry || d.entry || 'none') === op[0]) opt.selected = true;
+        fPmEntry.appendChild(opt);
+      });
+      propBody.appendChild(propRow('进入事件', fPmEntry, '玩家从管口按↓进入时触发'));
+      fPmDir = document.createElement('select');
+      [['up', '↑ 向上（管口朝上）'], ['down', '↓ 向下'], ['left', '← 向左'], ['right', '→ 向右']].forEach(function (op) {
+        var opt2 = document.createElement('option'); opt2.value = op[0]; opt2.textContent = op[1];
+        if ((selected.dir || d.dir || 'up') === op[0]) opt2.selected = true;
+        fPmDir.appendChild(opt2);
+      });
+      propBody.appendChild(propRow('开口方向', fPmDir, '决定管口朝向和管身延伸方向'));
+    }
     if (d.id.indexOf('lift_') === 0) {
       fLen = numInput(1, 50, liftLen(selected));
       propBody.appendChild(propRow('平台长度', fLen, '格'));
@@ -1077,6 +1378,43 @@
         }
       }
       if (fHiddenV) selected.hv = parseInt(fHiddenV.value, 10) || 0;
+      // 连接管保存：per-port lengths + rot
+      if (fPortInputs) {
+        if (fCrot) selected.rot = ((parseInt(fCrot.value, 10) || 0) % 360 + 360) % 360;
+        // cross/tee 存 4 槽，L_a/L_b 存 2 槽（基础方向 up+right / up+left）
+        if (d.id === 'pipe_cross' || d.id === 'pipe_tee') {
+          var _newLens4 = [1, 1, 1, 1];
+          for (var _si = 0; _si < 4; _si++) {
+            var _inp = fPortInputs['port_' + _si];
+            _newLens4[_si] = _inp ? Math.max(1, Math.min(4, parseInt(_inp.value, 10) || 1)) : 1;
+          }
+          selected.lengths = _newLens4;
+        } else if (d.id === 'pipe_L_a') {
+          selected.lengths = [
+            fPortInputs['port_0'] ? Math.max(1, Math.min(4, parseInt(fPortInputs['port_0'].value, 10) || 1)) : 1,
+            fPortInputs['port_3'] ? Math.max(1, Math.min(4, parseInt(fPortInputs['port_3'].value, 10) || 1)) : 1
+          ];
+        } else if (d.id === 'pipe_L_b') {
+          selected.lengths = [
+            fPortInputs['port_0'] ? Math.max(1, Math.min(4, parseInt(fPortInputs['port_0'].value, 10) || 1)) : 1,
+            fPortInputs['port_2'] ? Math.max(1, Math.min(4, parseInt(fPortInputs['port_2'].value, 10) || 1)) : 1
+          ];
+        }
+      }
+      // 管道口保存
+      if (fPmLen) selected.length = Math.max(1, Math.min(20, parseInt(fPmLen.value, 10) || 1));
+      if (fPmEntry) {
+        var newEntry = fPmEntry.value;
+        selected.entry = newEntry;
+        if (newEntry === 'warp') {
+          // 传送：确保有 warp 对象
+          if (!selected.warp) selected.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
+        } else {
+          // 非传送：清掉 warp 避免 play.html 误传
+          delete selected.warp;
+        }
+      }
+      if (fPmDir) selected.dir = fPmDir.value;
       persist();
       requestRender();
       closePropModal();
@@ -1148,6 +1486,139 @@
       gctx.stroke();
       gctx.fillText(String(r), 14, (r + EXTRA_TOP_ROWS) * TILE + 14);
     }
+  }
+
+  // ---------- vector 元素缩略图（用于 sidebar palette）----------
+  function drawVectorThumb(d) {
+    var size = 80;
+    var c = document.createElement('canvas');
+    c.width = c.height = size;
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#d8d8d8'; ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+    // 小网格背景（32px）
+    for (var gx = 0; gx < size; gx += 8) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, size); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, gx); ctx.lineTo(size, gx); ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
+    ctx.fillStyle = '#00e600';
+
+    if (d.id === 'pipe_mouth') {
+      // dir=up 默认：管口在上（strokeRect 完整），管身向下（两侧线去下帽）
+      var _tw = 24;
+      var _th = 12;
+      var _bodyH = _th * 2;
+      var _bx = (size - _tw) / 2;
+      var _by = (size - _th - _bodyH) / 2;
+      var _bw = Math.round(_tw * 50 / 58);
+      // 管口（完整 strokeRect）
+      ctx.fillRect(_bx, _by, _tw, _th);
+      ctx.strokeRect(_bx, _by, _tw, _th);
+      // 管身（fillRect + 两侧线，去下帽）
+      var _bX = _bx + Math.round((_tw - _bw) / 2);
+      ctx.fillRect(_bX, _by + _th, _bw, _bodyH);
+      ctx.beginPath();
+      ctx.moveTo(_bX, _by + _th); ctx.lineTo(_bX, _by + _th + _bodyH);
+      ctx.moveTo(_bX + _bw, _by + _th); ctx.lineTo(_bX + _bw, _by + _th + _bodyH);
+      ctx.stroke();
+    } else {
+      // connector：中心块 2×2 tile，默认各臂 length=1
+      var tSize = 12;  // 缩略图里每 tile 12px
+      var cx = size / 2 - tSize;  // 中心块左上角
+      var cy = size / 2 - tSize;
+      var armPx = tSize;          // armLen=1 的臂长度
+      var armW = Math.round(50 / 58 * tSize * 2);  // 臂宽按 50/58 比例
+      var armH = armW;
+      var armX, armY;
+
+      // 决定哪些臂画
+      var hasUp = true, hasDown = true, hasLeft = true, hasRight = true;
+      if (d.id === 'pipe_tee') hasDown = false;  // 默认 rot=0 缺下
+      if (d.id === 'pipe_L_a') { hasDown = false; hasLeft = false; }  // up+right
+      if (d.id === 'pipe_L_b') { hasDown = false; hasRight = false; } // up+left
+
+      // 先全部 fill
+      ctx.fillRect(cx, cy, 2 * tSize, 2 * tSize);  // 中心块
+      if (hasUp) {
+        armX = cx + tSize - armH / 2;
+        armY = cy - armPx;
+        ctx.fillRect(armX, armY, armH, armPx);
+      }
+      if (hasDown) {
+        armX = cx + tSize - armH / 2;
+        armY = cy + 2 * tSize;
+        ctx.fillRect(armX, armY, armH, armPx);
+      }
+      if (hasLeft) {
+        armX = cx - armPx;
+        armY = cy + tSize - armW / 2;
+        ctx.fillRect(armX, armY, armPx, armW);
+      }
+      if (hasRight) {
+        armX = cx + 2 * tSize;
+        armY = cy + tSize - armW / 2;
+        ctx.fillRect(armX, armY, armPx, armW);
+      }
+
+      // 再精准 stroke（stub + 3-side）
+      // 中心块 4 条边的 stub
+      var hStubL = Math.round(tSize - armW / 2);
+      var hStubR = Math.round(tSize + armW / 2);
+      var vStubT = Math.round(tSize - armH / 2);
+      var vStubB = Math.round(tSize + armH / 2);
+      // 上边
+      ctx.beginPath();
+      if (hasUp) {
+        ctx.moveTo(cx, cy); ctx.lineTo(cx + hStubL, cy);
+        ctx.moveTo(cx + hStubR, cy); ctx.lineTo(cx + 2 * tSize, cy);
+      } else { ctx.moveTo(cx, cy); ctx.lineTo(cx + 2 * tSize, cy); }
+      ctx.stroke();
+      // 下边
+      ctx.beginPath();
+      if (hasDown) {
+        ctx.moveTo(cx, cy + 2 * tSize); ctx.lineTo(cx + hStubL, cy + 2 * tSize);
+        ctx.moveTo(cx + hStubR, cy + 2 * tSize); ctx.lineTo(cx + 2 * tSize, cy + 2 * tSize);
+      } else { ctx.moveTo(cx, cy + 2 * tSize); ctx.lineTo(cx + 2 * tSize, cy + 2 * tSize); }
+      ctx.stroke();
+      // 左边
+      ctx.beginPath();
+      if (hasLeft) {
+        ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + vStubT);
+        ctx.moveTo(cx, cy + vStubB); ctx.lineTo(cx, cy + 2 * tSize);
+      } else { ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + 2 * tSize); }
+      ctx.stroke();
+      // 右边
+      ctx.beginPath();
+      if (hasRight) {
+        ctx.moveTo(cx + 2 * tSize, cy); ctx.lineTo(cx + 2 * tSize, cy + vStubT);
+        ctx.moveTo(cx + 2 * tSize, cy + vStubB); ctx.lineTo(cx + 2 * tSize, cy + 2 * tSize);
+      } else { ctx.moveTo(cx + 2 * tSize, cy); ctx.lineTo(cx + 2 * tSize, cy + 2 * tSize); }
+      ctx.stroke();
+
+      // 每臂 2 侧（去远端帽，端口开口）
+      ctx.beginPath();
+      if (hasUp) {
+        ctx.moveTo(armX, cy); ctx.lineTo(armX, armY);
+        ctx.moveTo(armX + armH, cy); ctx.lineTo(armX + armH, armY);
+      }
+      if (hasDown) {
+        ctx.moveTo(armX, cy + 2 * tSize); ctx.lineTo(armX, armY + armPx);
+        ctx.moveTo(armX + armH, cy + 2 * tSize); ctx.lineTo(armX + armH, armY + armPx);
+      }
+      if (hasLeft) {
+        ctx.moveTo(cx, armY); ctx.lineTo(armX, armY);
+        ctx.moveTo(cx, armY + armW); ctx.lineTo(armX, armY + armW);
+      }
+      if (hasRight) {
+        ctx.moveTo(cx + 2 * tSize, armY); ctx.lineTo(armX + armPx, armY);
+        ctx.moveTo(cx + 2 * tSize, armY + armW); ctx.lineTo(armX + armPx, armY + armW);
+      }
+      ctx.stroke();
+    }
+
+    return c.toDataURL();
   }
 
   // ---------- 左侧面板（TAB：元素 / 音乐） ----------
@@ -2029,8 +2500,9 @@
   // 字节网格值 → 元素 id（与 play.html TILE_VAL 互逆）
   var W_BYTE_ID = { 1: 'block_brick', 2: 'block_question', 3: 'block_hard', 4: 'block_stair',
     5: 'block_ground_top', 6: 'block_ground_fill', 7: 'block_hidden', 8: 'block_cat_shut',
-    9: 'item_coin', 10: 'block_spike', 30: 'bg_midflag', 40: 'pipe_top', 41: 'pipe_body',
-    43: 'pipe_v2', 44: 'pipe_h' };
+    9: 'item_coin', 10: 'block_spike', 30: 'bg_midflag',
+    // 原版管道装饰砖块：v=40→管道顶部(带圆角), v=41/43/44→管道管身(直段)
+    40: 'block_pipe_top', 41: 'block_pipe_body', 43: 'block_pipe_body', 44: 'block_pipe_body' };
   var W_ENEMY0 = ['enemy_syobon', 'enemy_turtle', 'enemy_shell', 'enemy_ghost', 'enemy_king',
     'enemy_tongue_cat', 'enemy_robot', 'enemy_syobon_pad', 'enemy_runner', 'enemy_flame'];
   var W_BG0 = ['bg_hill_house', 'bg_grass', 'bg_cloud_face', 'bg_tree',
@@ -2141,22 +2613,41 @@
       add(bid, col, row, extra, 'b' + bi);
     });
     // 3) 独立管道/墙体（sa/sb 世界单位）
-    //    注：竖管口/身/变体/横管身由 grid 字节 40/41/43/44 恢复（见第 1 步），此处不再重复；
-    //    这里只处理不进网格字节的独立管道：陷阱管(50)、横向管道口(stype5+sxtype10/11)。
     (def.pipes || []).forEach(function (p, pi) {
       var col = Math.round(p.sa / 100 / 29), row = Math.round((p.sb / 100 + 12) / 29);
       note(col);
       var puid = 'p' + pi;
       if (p.stype === 50) {
-        var tc = Math.round((p.sa - 500) / 2900);   // pipe_trap: sa = c*29*100+500（+500 为世界单位=5px，勿除以 100 后再减）
-        add('pipe_trap', tc, row, { sxtype: p.sxtype || 0 }, puid);
+        // 原版 stype=50 竖管：sxtype=0→陷阱、1/2/5→普通（变体）
+        // 坐标：sa = col*2900+500，sb = row*2900-1200（管口上沿）
+        var pmCol = Math.round((p.sa - 500) / 2900);
+        var pmRow = Math.round((p.sb / 100 + 12) / 29);
+        // 长度：sd = 总高度（含管口），length = sd/2900 - 管口1格
+        var pmLen = Math.max(1, Math.min(20, Math.max(1, Math.round((p.sd + 100) / 2900) - 1)));
+        var pmEntry = (p.sxtype === 0) ? 'trap' : 'none';
+        add('pipe_mouth', pmCol, pmRow, { length: pmLen, dir: 'up', entry: pmEntry }, puid);
       } else if (p.stype === 60) {
-        var wc = Math.round((p.sa - 500) / 2900);   // pipe_warp 坐标同 pipe_trap
-        add('pipe_warp', wc, row, { warp: p.warp || { end: true, id: null } }, puid);
+        var pmCol2 = Math.round((p.sa - 500) / 2900);
+        var pmRow2 = Math.round((p.sb / 100 + 12) / 29);
+        var pmLen2 = Math.max(1, Math.min(20, Math.max(1, Math.round((p.sd + 100) / 2900) - 1)));
+        add('pipe_mouth', pmCol2, pmRow2, { length: pmLen2, dir: 'up', entry: 'warp', warp: p.warp || { end: true, id: null } }, puid);
+      } else if (p.stype === 40) {
+        // 左进入管道（原版简单 AABB，玩家从左进入）
+        // sa=col*2900, sb=(row*29-12)*100, sc=3000, sd=5800
+        // 当 sc 变长时是横管（方向看 sc/sd 比）
+        var pmCol40 = Math.round(p.sa / 2900);
+        var pmRow40 = Math.round((p.sb / 100 + 12) / 29);
+        var pmDir40 = (p.sc >= p.sd) ? 'right' : 'up';  // sc>=sd → 横管
+        var pmLen40;
+        if (pmDir40 === 'right') pmLen40 = Math.max(1, Math.round((p.sc + 100) / 2900) - 1);
+        else pmLen40 = Math.max(1, Math.round((p.sd + 100) / 2900) - 1);
+        add('pipe_mouth', pmCol40, pmRow40, { length: pmLen40, dir: pmDir40, entry: 'none' }, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
-        add('pipe_h_mouth_l', col, row, null, puid);
+        // 原版横管向左口
+        add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'none' }, puid);
       } else if (p.stype === 5 && p.sxtype === 11) {
-        add('pipe_h_mouth_r', col, row, null, puid);
+        // 原版横管向右口
+        add('pipe_mouth', col, row, { length: 1, dir: 'right', entry: 'none' }, puid);
       } else if (p.stype === 1 || p.stype === 2 || p.stype === 5) {
         // grid 字节已恢复，跳过（避免重复）
       } else if (p.stype === 51 && (!p.sxtype || p.sxtype === 0) && (p.mov || p.sc >= p.sd)) {
@@ -2476,6 +2967,24 @@
         if (e.count != null) out.count = e.count | 0;
         if (e.dir) out.dir = String(e.dir);
       }
+      // 连接管字段放行：rot + lengths 数组
+      if (e.id === 'pipe_cross' || e.id === 'pipe_tee' || e.id === 'pipe_L_a' || e.id === 'pipe_L_b') {
+        if (e.rot != null) out.rot = ((e.rot | 0) % 360 + 360) % 360;
+        if (Array.isArray(e.lengths)) {
+          out.lengths = e.lengths.map(function (x) { return Math.max(1, Math.min(4, x | 0 || 1)); });
+        } else {
+          out.lengths = (ed.lengths || [1, 1]).slice();
+        }
+      }
+      // 管道口字段放行：length + dir + entry
+      if (e.id === 'pipe_mouth') {
+        out.length = Math.max(1, Math.min(20, e.length | 0 || ed.length || 1));
+        if (e.dir) out.dir = String(e.dir);
+        if (e.entry) out.entry = String(e.entry);
+        if (e.entry === 'warp' && e.warp && (e.warp.end || e.warp.id)) {
+          out.warp = { end: !!e.warp.end, id: e.warp.id || null };
+        }
+      }
       return out;
     }).filter(Boolean);
     bumpUidSeq();   // 续号从本关已有 u<n> 最大值之后开始
@@ -2494,6 +3003,12 @@
     colsInput.value = state.cols;
     document.getElementById('themeSel').value = state.theme;
     updateBgmCard();
+    // 给没有 img 的 vector 元素生成缩略图 dataUrl
+    CAT.ELEMENTS.forEach(function (d) {
+      if (!d.img && !d.dataUrl && (d.id === 'pipe_mouth' || d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b')) {
+        d.dataUrl = drawVectorThumb(d);
+      }
+    });
     rebuildPalette();
     persist();
     requestRender();

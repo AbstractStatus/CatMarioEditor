@@ -196,6 +196,11 @@
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
       // 自定义元素管道：保留 _custom 用于渲染
       if (p._custom) pipe._custom = p._custom;
+      // connector 统一边框 pipe（stype 76）：保留 lengths + dirs
+      if (p.lengths) pipe.lengths = p.lengths.slice();
+      if (p.dirs) pipe.dirs = p.dirs.slice();
+      // connector 单臂 pipe（stype 75）：保留 dir 给渲染用
+      if (p.dir) pipe.dir = p.dir;
       state.pipes.push(pipe);
     });
 

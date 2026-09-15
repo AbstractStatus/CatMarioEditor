@@ -206,9 +206,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=evlog2"></script>
+<script src="elements.js?v=evlog9"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=evlog2"></script>
+<script src="engine.js?v=evlog9"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -231,12 +231,14 @@ body.dragging #dropTip { display: flex; }
     block_brick: 1, block_question: 2, block_hard: 3, block_stair: 4,
     block_ground_top: 5, block_ground_fill: 6, block_hidden: 7, block_cat_shut: 8,
     item_coin: 9, block_spike: 10,
+    // 管道装饰砖块（vector元素 → grid字节，engine按原版管道外观渲染）
+    block_pipe_top: 40, block_pipe_body: 41,
     // 地下/城堡主题变体：机制与基础方块相同，引擎按 stagecolor 自动换贴图（id+30/+60）
     block_d_brick: 1, block_d_question: 2, block_d_hard: 3, block_d_stair: 4,
     block_d_ground_top: 5, block_d_ground_fill: 6, block_d_spike: 10,
     block_c_brick: 1, block_c_question: 2, block_c_hard: 3, block_c_stair: 4,
     block_c_ground_top: 5, block_c_ground_fill: 6, block_c_spike: 10,
-    bg_midflag: 30, pipe_top: 40, pipe_body: 41, pipe_v2: 43, pipe_h: 44,
+    bg_midflag: 30,
     enemy_syobon: 50, enemy_turtle: 51, enemy_shell: 52, enemy_ghost: 53, enemy_king: 54,
     enemy_tongue_cat: 55, enemy_robot: 56, enemy_syobon_pad: 57, enemy_runner: 58, enemy_flame: 59,
     bg_hill_house: 80, bg_grass: 81, bg_cloud_face: 82, bg_tree: 83,
@@ -369,34 +371,133 @@ body.dragging #dropTip { display: flex; }
         } else {
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
-      } else if (id === 'pipe_h_mouth_l' || id === 'pipe_h_mouth_r') {
-        // 横向管道口：stype=5 横管 + 端口管口沿（sxtype 10=左口、11=右口），
-        // 与“管道身(横)”(grid 字节44, stype=5/sxtype=0) 水平拼接
-        pipes.push({
-          sa: x * 100, sb: y * 100 + 700,
-          sc: 3900, sd: 5000,
-          stype: 5, sxtype: id === 'pipe_h_mouth_l' ? 10 : 11,
-          uid: e.uid || null
-        });
-      } else if (id === 'pipe_trap') {
-        // 陷阱管道 stype=50：引擎原生支持进入动画（抖动→上升→阵亡），
-        // 多根管道各自独立，无需 slot 借用
-        pipes.push({
-          sa: x * 100 + 500, sb: y * 100,
-          sc: 6000, sd: 4 * 3000 - 200,
-          stype: 50, sxtype: e.sxtype || 0,
-          uid: e.uid || null
-        });
-      } else if (id === 'pipe_warp') {
-        // 传送管道口 stype=60：进入后按 warp 目标切关/通关（见 GameEngine.setWarpHandler）
-        pipes.push({
-          sa: x * 100 + 500, sb: y * 100,
-          sc: 6000, sd: 4 * 3000 - 200,
-          stype: 60, sxtype: 1,
-          uid: e.uid || null,
-          warp: e.warp && (e.warp.end || e.warp.id)
+      } else if (id === 'pipe_mouth') {
+        // pipe_mouth → stype=50(普通/陷阱) 或 60(传送)
+        // 原版竖管: sc=6000(2tile宽), sd=(length+1)*2900-100, sa=col*2900+500, sb=(row*29-12)*100
+        var pmLen = Math.max(1, Math.min(20, e.length | 0 || 1));
+        var pmDir = e.dir || 'up';
+        var pmEntry = e.entry || 'none';
+        var pmStype, pmSxtype, pmWarp = null;
+        if (pmEntry === 'trap') { pmStype = 50; pmSxtype = 0; }
+        else if (pmEntry === 'warp') {
+          pmStype = 60; pmSxtype = 1;
+          pmWarp = e.warp && (e.warp.end || e.warp.id)
             ? { end: !!e.warp.end, id: e.warp.id || null }
-            : { end: true, id: null }
+            : { end: true, id: null };
+        } else { pmStype = 50; pmSxtype = 1; }
+        var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
+        // 坐标/尺寸：按方向分配（anchor 都是管口位置）
+        // 竖管：sc=6000(2tile宽), sd=(len+1)*2900-100
+        // 横管：sd=6000(2tile高), sc=(len+1)*2900-100
+        if (pmDir === 'up') {
+          // 管口在上 (c,r)，管身向下延伸 pmLen 格
+          pmPipe.sa = c * 2900 + 500;
+          pmPipe.sb = (r * 29 - 12) * 100;
+          pmPipe.sc = 6000;
+          pmPipe.sd = (pmLen + 1) * 2900 - 100;
+        } else if (pmDir === 'down') {
+          // 管口在下，管身向上延伸 pmLen 格（管口 tile 行 = row + pmLen）
+          pmPipe.sa = c * 2900 + 500;
+          pmPipe.sb = ((r + pmLen) * 29 - 12) * 100;
+          pmPipe.sc = 6000;
+          pmPipe.sd = (pmLen + 1) * 2900 - 100;
+        } else if (pmDir === 'left') {
+          // 管口在左 (c,r)，管身向右延伸 pmLen 格
+          pmPipe.sa = c * 2900;
+          pmPipe.sb = (r * 29 - 12) * 100;
+          pmPipe.sc = (pmLen + 1) * 2900 - 100;
+          pmPipe.sd = 6000;
+        } else { // right
+          // 管口在右，管身向左延伸 pmLen 格（管口 tile 列 = col + pmLen）
+          pmPipe.sa = c * 2900;
+          pmPipe.sb = (r * 29 - 12) * 100;
+          pmPipe.sc = (pmLen + 1) * 2900 - 100;
+          pmPipe.sd = 6000;
+        }
+        pipes.push(pmPipe);
+      } else if (id === 'pipe_cross' || id === 'pipe_tee' || id === 'pipe_L_a' || id === 'pipe_L_b') {
+        // 准备 lengths 数组（规范化到基础方向 [up,down,left,right]，范围 1-4）
+        var _clen = e.lengths || d.lengths || [1, 1, 1, 1];
+        var _portLens = [1, 1, 1, 1];
+        if (id === 'pipe_cross' || id === 'pipe_tee') {
+          for (var _ci = 0; _ci < 4; _ci++) _portLens[_ci] = Math.max(1, Math.min(4, _clen[_ci] | 0 || 1));
+        } else if (id === 'pipe_L_a') {
+          _portLens[0] = Math.max(1, Math.min(4, _clen[0] | 0 || 1)); // up
+          _portLens[3] = Math.max(1, Math.min(4, _clen[1] | 0 || 1)); // right
+        } else if (id === 'pipe_L_b') {
+          _portLens[0] = Math.max(1, Math.min(4, _clen[0] | 0 || 1)); // up
+          _portLens[2] = Math.max(1, Math.min(4, _clen[1] | 0 || 1)); // left
+        }
+        // 决定有哪些臂（tee/L_a/L_b 依赖 rot）
+        var _rot = (((e.rot | 0) || 0) % 360 + 360) % 360;
+        var _dirs;
+        if (id === 'pipe_cross') _dirs = ['up', 'down', 'left', 'right'];
+        else if (id === 'pipe_tee') {
+          var _miss = ({ 0: 'down', 90: 'left', 180: 'up', 270: 'right' })[_rot] || 'down';
+          _dirs = ['up', 'down', 'left', 'right'].filter(function (dd) { return dd !== _miss; });
+        } else if (id === 'pipe_L_a') {
+          _dirs = ({ 0: ['up', 'right'], 90: ['right', 'down'], 180: ['down', 'left'], 270: ['left', 'up'] })[_rot] || ['up', 'right'];
+        } else {
+          _dirs = ({ 0: ['up', 'left'], 90: ['up', 'right'], 180: ['right', 'down'], 270: ['down', 'left'] })[_rot] || ['up', 'left'];
+        }
+        var _DIR_BASE_IDX2 = { up: 0, down: 1, left: 2, right: 3 };
+        // ========== 拆成多条 pipe（每条精确 AABB） ==========
+        // 中心块 2×2 tile：虚拟像素 (c*29, r*29-12) ~ ((c+2)*29, (r+2)*29-12)
+        var _cx1 = c * 29, _cy1 = r * 29 - 12;
+        var _centerPipe = {
+          sa: _cx1 * 100, sb: _cy1 * 100,
+          sc: 5800, sd: 5800,   // 2*29*100 × 2*29*100
+          stype: 74, sxtype: 0, uid: e.uid || null
+        };
+        pipes.push(_centerPipe);
+        // 每方向臂：2 tile 宽 × armLen tile 高/宽
+        _dirs.forEach(function (dd) {
+          var _aLen = _portLens[_DIR_BASE_IDX2[dd]];
+          var _ap;
+          if (dd === 'up') {
+            _ap = {
+              sa: _cx1 * 100,
+              sb: ((r - _aLen) * 29 - 12) * 100,
+              sc: 5800, sd: _aLen * 2900,
+              stype: 75, sxtype: 0, uid: e.uid || null, dir: 'up'
+            };
+          } else if (dd === 'down') {
+            _ap = {
+              sa: _cx1 * 100,
+              sb: ((r + 2) * 29 - 12) * 100,
+              sc: 5800, sd: _aLen * 2900,
+              stype: 75, sxtype: 0, uid: e.uid || null, dir: 'down'
+            };
+          } else if (dd === 'left') {
+            _ap = {
+              sa: ((c - _aLen) * 29) * 100,
+              sb: _cy1 * 100,
+              sc: _aLen * 2900, sd: 5800,
+              stype: 75, sxtype: 0, uid: e.uid || null, dir: 'left'
+            };
+          } else {
+            _ap = {
+              sa: ((c + 2) * 29) * 100,
+              sb: _cy1 * 100,
+              sc: _aLen * 2900, sd: 5800,
+              stype: 75, sxtype: 0, uid: e.uid || null, dir: 'right'
+            };
+          }
+          pipes.push(_ap);
+        });
+        // stype 76: 非实体统一边框 pipe（覆盖整个 bounding box，携带 lengths + dirs 给引擎渲染）
+        var _bColL = c - _portLens[2];
+        var _bColR = c + 1 + _portLens[3];
+        var _bRowT = r - _portLens[0];
+        var _bRowB = r + 1 + _portLens[1];
+        pipes.push({
+          sa: _bColL * 2900,
+          sb: (_bRowT * 29 - 12) * 100,
+          sc: (_bColR - _bColL + 1) * 2900,
+          sd: (_bRowB - _bRowT + 1) * 2900,
+          stype: 76, sxtype: 0, uid: e.uid || null,
+          lengths: _portLens.slice(),
+          dirs: _dirs.slice()
         });
       } else if (id === 'block_fall') {
         // 坠落砖组 stype=51：横排沿 y / 竖排沿 x，玩家完全进入长轴区域并处于运动方向一侧时触发

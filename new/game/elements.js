@@ -97,20 +97,47 @@
     }
   };
 
-  // stype 50: 可进入管道（两部分：顶部管口60px宽30px高 + 底部管道50px宽）
+  // stype 50: 可进入管道（支持四方向）
+  // dir='up'(默认竖管)/'down'(倒置竖管)/'left'(左开口横管)/'right'(右开口横管)
+  // 竖管：w=60(sa固定6000), h=变长; 横管：w=变长, h=60(sd固定6000)
   PipeTypes[50] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
-      // 底部管道（竖管身：只画左右线）
-      ctx.fillStyle = '#00e600'; ctx.fillRect(x + 5, y + 30, 50, h - 30);
-      ctx.strokeStyle = '#000';
-      ctx.beginPath();
-      ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
-      ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h);
-      ctx.stroke();
-      // 顶部管口
-      ctx.fillStyle = '#00e600'; ctx.fillRect(x, y + 1, 60, 30);
-      ctx.strokeStyle = '#000'; ctx.strokeRect(x, y + 1, 60, 30);
+      var dir = s.dir || 'up';
+      ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      if (dir === 'left') {
+        // 横管：管口在左侧 x 起 30px，管身向右延伸 50px 高
+        ctx.fillRect(x + 1, y, 30, 60); ctx.strokeRect(x + 1, y, 30, 60);
+        ctx.fillRect(x + 30, y + 5, w - 30, 50);
+        ctx.beginPath();
+        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w, y + 5);
+        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w, y + 55);
+        ctx.stroke();
+      } else if (dir === 'right') {
+        // 横管：管口在右侧 w-30 起 30px，管身向左
+        ctx.fillRect(x + w - 31, y, 30, 60); ctx.strokeRect(x + w - 31, y, 30, 60);
+        ctx.fillRect(x, y + 5, w - 30, 50);
+        ctx.beginPath();
+        ctx.moveTo(x, y + 5); ctx.lineTo(x + w - 30, y + 5);
+        ctx.moveTo(x, y + 55); ctx.lineTo(x + w - 30, y + 55);
+        ctx.stroke();
+      } else if (dir === 'down') {
+        // 竖管倒置：管口在底部，管身向上延伸
+        ctx.fillRect(x + 5, y, 50, h - 30);
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y); ctx.lineTo(x + 5, y + h - 30);
+        ctx.moveTo(x + 55, y); ctx.lineTo(x + 55, y + h - 30);
+        ctx.stroke();
+        ctx.fillRect(x, y + h - 31, 60, 30); ctx.strokeRect(x, y + h - 31, 60, 30);
+      } else {
+        // dir='up' 默认竖管：管口在顶部，管身向下
+        ctx.fillRect(x + 5, y + 30, 50, h - 30);
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
+        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h);
+        ctx.stroke();
+        ctx.fillRect(x, y + 1, 60, 30); ctx.strokeRect(x, y + 1, 60, 30);
+      }
     },
     onEnter: function (p, s, xx, state) {
       var C = getC();
@@ -134,22 +161,43 @@
   PipeTypes[60] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
-      // 底部竖管身（只画左右线）
-      ctx.fillStyle = '#00e600'; ctx.fillRect(x + 5, y + 30, 50, h - 30);
-      ctx.strokeStyle = '#000';
-      ctx.beginPath();
-      ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
-      ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h);
-      ctx.stroke();
-      // 顶部管口
-      ctx.fillStyle = '#00e600'; ctx.fillRect(x, y + 1, 60, 30);
-      ctx.strokeStyle = '#000'; ctx.strokeRect(x, y + 1, 60, 30);
+      var dir = s.dir || 'up';
+      ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+      var markCx, markCy;
+      if (dir === 'left') {
+        ctx.fillRect(x + 1, y, 30, 60); ctx.strokeRect(x + 1, y, 30, 60);
+        ctx.fillRect(x + 30, y + 5, w - 30, 50);
+        ctx.beginPath();
+        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w, y + 5);
+        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w, y + 55); ctx.stroke();
+        markCx = x + 16; markCy = y + 30;
+      } else if (dir === 'right') {
+        ctx.fillRect(x + w - 31, y, 30, 60); ctx.strokeRect(x + w - 31, y, 30, 60);
+        ctx.fillRect(x, y + 5, w - 30, 50);
+        ctx.beginPath();
+        ctx.moveTo(x, y + 5); ctx.lineTo(x + w - 30, y + 5);
+        ctx.moveTo(x, y + 55); ctx.lineTo(x + w - 30, y + 55); ctx.stroke();
+        markCx = x + w - 15; markCy = y + 30;
+      } else if (dir === 'down') {
+        ctx.fillRect(x + 5, y, 50, h - 30);
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y); ctx.lineTo(x + 5, y + h - 30);
+        ctx.moveTo(x + 55, y); ctx.lineTo(x + 55, y + h - 30); ctx.stroke();
+        ctx.fillRect(x, y + h - 31, 60, 30); ctx.strokeRect(x, y + h - 31, 60, 30);
+        markCx = x + 30; markCy = y + h - 16;
+      } else { // up
+        ctx.fillRect(x + 5, y + 30, 50, h - 30);
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
+        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h); ctx.stroke();
+        ctx.fillRect(x, y + 1, 60, 30); ctx.strokeRect(x, y + 1, 60, 30);
+        markCx = x + 30; markCy = y + 16;
+      }
       // 传送标记：管口中央黄色菱形
-      var cx = x + 30, cy = y + 16;
       ctx.fillStyle = '#ffe600';
       ctx.beginPath();
-      ctx.moveTo(cx, cy - 8); ctx.lineTo(cx + 8, cy);
-      ctx.lineTo(cx, cy + 8); ctx.lineTo(cx - 8, cy);
+      ctx.moveTo(markCx, markCy - 8); ctx.lineTo(markCx + 8, markCy);
+      ctx.lineTo(markCx, markCy + 8); ctx.lineTo(markCx - 8, markCy);
       ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#000'; ctx.stroke();
     },
@@ -453,6 +501,123 @@
       s.sa = -800000000;
     }
   });
+
+  // ==================== 连接管道（精确碰撞 + 统一边框）====================
+  // 拆分策略：play.html convert 时每个 connector 生成 1+N 条碰撞 pipe + 1 条边框 pipe
+  //   stype 74: 中心块 2×2 tile — 只 fillRect（碰撞）
+  //   stype 75: 单臂段 — 只 fillRect（碰撞）
+  //   stype 76: 统一边框 pipe（非实体）— 完整 stub + 2-side + 去帽 边框渲染（与编辑器一致）
+
+  PipeTypes[74] = {
+    solid: true,
+    render: function (ctx, s, x, y, w, h) {
+      ctx.fillStyle = '#00e600';
+      ctx.fillRect(x, y, w, h);
+      // 边框由 stype 76 统一画，这里不 stroke
+    }
+  };
+
+  PipeTypes[75] = {
+    solid: true,
+    render: function (ctx, s, x, y, w, h) {
+      // 臂段只居中填管身（50px 宽），不画整 tile 避免视觉溢出
+      // dir=up/down → 管身垂直 50px 宽；dir=left/right → 管身水平 50px 高
+      ctx.fillStyle = '#00e600';
+      var HALF = 4; // (58-50)/2 = 4px 偏移
+      if (s.dir === 'up' || s.dir === 'down') {
+        ctx.fillRect(x + HALF, y, 50, h);
+      } else {
+        ctx.fillRect(x, y + HALF, w, 50);
+      }
+      // 边框由 stype 76 统一画
+    }
+  };
+
+  PipeTypes[76] = {
+    solid: false,
+    render: function (ctx, s, x, y, w, h) {
+      // 统一边框：与 editor.js drawElement connector 完全一致的 stub + 2-side + 去帽
+      var TILE_PX = 29;
+      var PIPE_W = 50;
+      var HALF_PIPE_W = 25;
+      // s.lengths = [up, down, left, right]，s.dirs = ['up', 'right', ...] 或 s.rot+s.id
+      var L = s.lengths || [1, 1, 1, 1];
+      for (var _i = 0; _i < 4; _i++) L[_i] = Math.max(1, Math.min(4, L[_i] | 0 || 1));
+      var dirs = s.dirs || ['up', 'down', 'left', 'right'];
+      var dirLen = { up: L[0], down: L[1], left: L[2], right: L[3] };
+      var hasArm = { up: false, down: false, left: false, right: false };
+      dirs.forEach(function (dd) { hasArm[dd] = true; });
+      // 原始锚点 tile 的虚拟像素坐标（相对于 s 的 bounding box 左上角 x, y）
+      // 中心块左上角 = x + leftLen*TILE_PX, y + upLen*TILE_PX
+      var centerX = x + L[2] * TILE_PX;
+      var centerY = y + L[0] * TILE_PX;
+
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+
+      // 中心块 4 条边的 stub
+      ctx.beginPath();
+      if (hasArm.up) {
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(centerX + TILE_PX - HALF_PIPE_W, centerY);
+        ctx.moveTo(centerX + TILE_PX + HALF_PIPE_W, centerY);
+        ctx.lineTo(centerX + 2 * TILE_PX, centerY);
+      } else { ctx.moveTo(centerX, centerY); ctx.lineTo(centerX + 2 * TILE_PX, centerY); }
+      ctx.stroke();
+
+      ctx.beginPath();
+      if (hasArm.down) {
+        ctx.moveTo(centerX, centerY + 2 * TILE_PX);
+        ctx.lineTo(centerX + TILE_PX - HALF_PIPE_W, centerY + 2 * TILE_PX);
+        ctx.moveTo(centerX + TILE_PX + HALF_PIPE_W, centerY + 2 * TILE_PX);
+        ctx.lineTo(centerX + 2 * TILE_PX, centerY + 2 * TILE_PX);
+      } else { ctx.moveTo(centerX, centerY + 2 * TILE_PX); ctx.lineTo(centerX + 2 * TILE_PX, centerY + 2 * TILE_PX); }
+      ctx.stroke();
+
+      ctx.beginPath();
+      if (hasArm.left) {
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(centerX, centerY + TILE_PX - HALF_PIPE_W);
+        ctx.moveTo(centerX, centerY + TILE_PX + HALF_PIPE_W);
+        ctx.lineTo(centerX, centerY + 2 * TILE_PX);
+      } else { ctx.moveTo(centerX, centerY); ctx.lineTo(centerX, centerY + 2 * TILE_PX); }
+      ctx.stroke();
+
+      ctx.beginPath();
+      if (hasArm.right) {
+        ctx.moveTo(centerX + 2 * TILE_PX, centerY);
+        ctx.lineTo(centerX + 2 * TILE_PX, centerY + TILE_PX - HALF_PIPE_W);
+        ctx.moveTo(centerX + 2 * TILE_PX, centerY + TILE_PX + HALF_PIPE_W);
+        ctx.lineTo(centerX + 2 * TILE_PX, centerY + 2 * TILE_PX);
+      } else { ctx.moveTo(centerX + 2 * TILE_PX, centerY); ctx.lineTo(centerX + 2 * TILE_PX, centerY + 2 * TILE_PX); }
+      ctx.stroke();
+
+      // 每臂 2 侧（去帽，端口开口）
+      dirs.forEach(function (dd) {
+        var len = dirLen[dd];
+        var armPx = len * TILE_PX;
+        ctx.beginPath();
+        if (dd === 'up') {
+          var ux = centerX + TILE_PX - HALF_PIPE_W, uy = centerY - armPx;
+          ctx.moveTo(ux, uy); ctx.lineTo(ux, centerY);
+          ctx.moveTo(ux + PIPE_W, uy); ctx.lineTo(ux + PIPE_W, centerY);
+        } else if (dd === 'down') {
+          var dx = centerX + TILE_PX - HALF_PIPE_W;
+          var dy1 = centerY + 2 * TILE_PX, dy2 = dy1 + armPx;
+          ctx.moveTo(dx, dy1); ctx.lineTo(dx, dy2);
+          ctx.moveTo(dx + PIPE_W, dy1); ctx.lineTo(dx + PIPE_W, dy2);
+        } else if (dd === 'left') {
+          var ly = centerY + TILE_PX - HALF_PIPE_W, lx1 = centerX - armPx;
+          ctx.moveTo(lx1, ly); ctx.lineTo(centerX, ly);
+          ctx.moveTo(lx1, ly + PIPE_W); ctx.lineTo(centerX, ly + PIPE_W);
+        } else if (dd === 'right') {
+          var rx = centerX + 2 * TILE_PX, ry = centerY + TILE_PX - HALF_PIPE_W;
+          ctx.moveTo(rx, ry); ctx.lineTo(rx + armPx, ry);
+          ctx.moveTo(rx, ry + PIPE_W); ctx.lineTo(rx + armPx, ry + PIPE_W);
+        }
+        ctx.stroke();
+      });
+    }
+  };
 
   // ==================== 注册接口 ====================
 
