@@ -443,7 +443,10 @@
       pushEvent({
         kind: 'death', n: state.life, f: _debugFrame,
         reason: hurtInfo.reason, reasonCn: reasonCn,
-        uid: hurtInfo.uid || null, ma: p.ma, mb: p.mb
+        uid: hurtInfo.uid || null, ma: p.ma, mb: p.mb,
+        // 敌人伤害：记录命中瞬间敌人位置（原版陷阱即时生成的敌人没有 uid，靠坐标溯源）
+        ex: (hurtInfo.detail && hurtInfo.detail.aa !== undefined) ? hurtInfo.detail.aa : null,
+        ey: (hurtInfo.detail && hurtInfo.detail.ab !== undefined) ? hurtInfo.detail.ab : null
       });
       p.mkeytm = 12; p.mhp = -20; p.mtype = C.MTYPE.DEAD; p.mtm = 0;
       A.playSE(C.SE.DEATH); A.bgmStop();
@@ -1162,7 +1165,7 @@
         if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200)) {
           if (p.mmutekion !== 1 && p.mtype !== C.MTYPE.DEAD) {
             if ((e.atype !== 2 || e.axtype !== 0) && p.mhp >= 1) {
-              markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype });
+              markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype, aa: e.aa, ab: e.ab });
               p.mhp -= 1;
               _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
             }
@@ -1331,6 +1334,10 @@
       }
     } else if (e.atype === 30) {
       S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 79) {
+      // 大脸怪（stype103/104 隐形陷阱带生成，12000×1500 横向飞行体）：
+      // 贴图在 omake.png（sheet 5）id 0，不在 teki.png(sheet3)，早期移植遗漏导致它完全隐形
+      S.draw(ctx, 0, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
     } else if (e.atype === 6) {
       if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
         S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
@@ -1928,6 +1935,7 @@
     0: '白猫怪', 1: '绿龟', 2: '龟壳', 3: '幽灵', 4: '国王怪',
     5: '吐舌猫', 6: '机器人', 7: '弹簧白猫', 8: '奔跑怪', 9: '弹跳火焰',
     10: '横向火焰', 30: '小猫咪', 31: '肌肉鸡',
+    79: '大脸怪',
     80: '脸云怪', 81: '普通云怪', 82: '隐形云怪', 83: '刺球', 84: '火球',
     85: '假旗杆', 86: '桃色方块猫', 87: '火焰棒', 90: '黄色光束',
     101: '火花', 102: '紫毒蘑菇', 105: '绿问号球', 110: '恶星'

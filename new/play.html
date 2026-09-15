@@ -206,9 +206,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=evlog1"></script>
+<script src="elements.js?v=evlog2"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=evlog1"></script>
+<script src="engine.js?v=evlog2"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -593,10 +593,17 @@ body.dragging #dropTip { display: flex; }
     for (var i = logs.length - 1; i >= 0; i--) {
       var ev = logs[i];
       if (ev.kind === 'death') {
+        var uidTxt = ev.uid
+          ? ' · 元素 <code>' + escHtml(ev.uid) + '</code>'
+          : (ev.reason === 'enemy' ? ' · 无实例 uid（隐形机关即时生成的敌人）' : ' · 无实例 uid（地图机制）');
+        var enemyTxt = (ev.ex !== null && ev.ex !== undefined)
+          ? ' · 敌人位置 x=' + Math.round(ev.ex / 100) + ' y=' + Math.round(ev.ey / 100) +
+            '（约第 ' + Math.round(ev.ex / 2900) + ' 列）'
+          : '';
         html += '<div class="log-item death"><div class="log-title">💀 第 ' + ev.n + ' 次阵亡 · ' +
           escHtml(ev.reasonCn) + '</div><div class="log-meta">游戏时间 ' + fmtFrame(ev.f) +
-          '（帧 ' + ev.f + '） · 坐标 ' + escHtml(coordText(ev)) +
-          (ev.uid ? ' · 元素 <code>' + escHtml(ev.uid) + '</code>' : ' · 无实例 uid（地图机制）') +
+          '（帧 ' + ev.f + '） · 玩家坐标 ' + escHtml(coordText(ev)) +
+          enemyTxt + uidTxt +
           '</div></div>';
       } else {
         var viaText = ev.via === 'warp' ? '传送管道抵达终点' : '触碰终点旗杆';
