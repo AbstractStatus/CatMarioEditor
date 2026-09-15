@@ -506,6 +506,17 @@
   // TILE 比例的工具：原始设计按 TILE=29，所以任何硬编码 px 都除以 29 再乘 TILE
   function tilePx(n) { return Math.round(n / CAT.TILE * TILE); }
 
+  // 高清资源自适应绘图：
+  // 源分辨率 >= 目标 1.5× 视为高清重绘资源，用高质量双线性插值（平滑曲线）；
+  // 原版像素图（naturalW ≈ 目标）保持最近邻，放大后仍是锐利方块。
+  // 主画布已按 DPR 出图，dw/dh 为 CSS 像素，浏览器直接采样到最终设备像素。
+  function drawImg(im, dx, dy, dw, dh) {
+    var hd = im.naturalWidth >= dw * 1.5 || im.naturalHeight >= dh * 1.5;
+    if (hd) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
+    ctx.drawImage(im, Math.round(dx), Math.round(dy), Math.ceil(dw), Math.ceil(dh));
+    if (hd) { ctx.imageSmoothingEnabled = false; ctx.imageSmoothingQuality = 'low'; }
+  }
+
   function drawSprite(el, def, x, y, alpha) {
     var im = getImg(def);
     if (!im || !im.complete || im.naturalWidth === 0) return;
@@ -513,17 +524,17 @@
     if (def.custom) {
       // 自定义元素：按 tw×th 格子数绘制
       var cw = TILE * (def.tw || 1), ch = TILE * (def.th || 1);
-      ctx.drawImage(im, Math.round(x), Math.round(y), cw, ch);
+      drawImg(im, x, y, cw, ch);
     } else if (def.cat === 'bg') {
       // 背景图：按 manifest 设计尺寸随 TILE 等比放大（跨多格，按锚点位置放置）
       var bs = bgDrawSize(def, im);
-      ctx.drawImage(im, Math.round(x), Math.round(y), bs.w, bs.h);
+      drawImg(im, x, y, bs.w, bs.h);
     } else {
       // 所有非背景元素：强制缩放到 TILE × TILE
       var dx = Math.round(x);
       var dy = Math.round(y);
       if (def.id === 'player_start') dy = Math.round(y - (TILE - TILE)); // 脚在格底（dh=TILE）
-      ctx.drawImage(im, dx, dy, TILE, TILE);
+      drawImg(im, dx, dy, TILE, TILE);
     }
     ctx.globalAlpha = 1;
   }
@@ -574,7 +585,7 @@
       var Lw = liftLen(e) * TILE;
       ctx.globalAlpha = a;
       if (im && im.complete && im.naturalWidth) {
-        ctx.drawImage(im, Math.round(x - 1), Math.round(y + tilePx(7)), Lw + 2, tilePx(14));
+        drawImg(im, x - 1, y + tilePx(7), Lw + 2, tilePx(14));
       } else {
         ctx.fillStyle = d.img.indexOf('yellow') >= 0 ? '#dcdc00' :
                         d.img.indexOf('green') >= 0 ? '#00dcdc' : '#b0b0b0';
@@ -624,7 +635,7 @@
         var bx = fi.ori === 'h' ? x + bi * TILE : x;
         var by = fi.ori === 'h' ? y : y + bi * TILE;
         if (bimg && bimg.complete && bimg.naturalWidth) {
-          ctx.drawImage(bimg, Math.round(bx), Math.round(by), TILE, TILE);
+          drawImg(bimg, bx, by, TILE, TILE);
         } else {
           ctx.fillStyle = '#b5652a';
           ctx.fillRect(bx + 1, by + 1, TILE - 2, TILE - 2);
@@ -647,7 +658,7 @@
       ctx.globalAlpha = a * 0.35;
       var him = getImg(d);
       if (him && him.complete) {
-        ctx.drawImage(him, Math.round(x), Math.round(y), TILE, TILE);
+        drawImg(him, x, y, TILE, TILE);
       }
       ctx.globalAlpha = 1;
       ctx.setLineDash([4, 3]);
@@ -667,7 +678,7 @@
           : getImg(CAT.byId('item_mushroom_purple'));
       ctx.globalAlpha = a * 0.55;
       if (hpImg && hpImg.complete) {
-        ctx.drawImage(hpImg, Math.round(x), Math.round(y), TILE, TILE);
+        drawImg(hpImg, x, y, TILE, TILE);
       }
       ctx.globalAlpha = 1;
       ctx.setLineDash([4, 3]);
@@ -698,9 +709,9 @@
     if (d.id === 'pipe_trap') {
       var pt = getImg(CAT.byId('pipe_top')), pb = getImg(CAT.byId('pipe_body'));
       ctx.globalAlpha = a;
-      if (pt && pt.complete) ctx.drawImage(pt, x, y, 2 * TILE, TILE);
+      if (pt && pt.complete) drawImg(pt, x, y, 2 * TILE, TILE);
       for (var py = 1; py < 4; py++) {
-        if (pb && pb.complete) ctx.drawImage(pb, x, y + py * TILE, 2 * TILE, TILE);
+        if (pb && pb.complete) drawImg(pb, x, y + py * TILE, 2 * TILE, TILE);
       }
       ctx.globalAlpha = 1;
       return;
@@ -892,7 +903,7 @@
         var bs2 = bgDrawSize(d, im2);
         dx2 = x; dy2 = y;
         dw2 = bs2.w; dh2 = bs2.h;
-        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
+        drawImg(im2, dx2, dy2, dw2, dh2);
       } else if (d.cat === 'struct' || d.cat === 'enemy') {
         // 管道/旗杆/假旗杆/大敌人：按 tw/th 格数等比缩放
         dx2 = x; dy2 = y;
@@ -910,12 +921,12 @@
           dw2 = tw * TILE;
           dh2 = th * TILE;
         }
-        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
+        drawImg(im2, dx2, dy2, dw2, dh2);
       } else {
         // 方块/物品：按 tw/th 格数缩放（默认 1×1，block_pipe_top/body 是 2×1）
         dx2 = x; dy2 = y;
         dw2 = tw * TILE; dh2 = th * TILE;
-        ctx.drawImage(im2, Math.round(dx2), Math.round(dy2), dw2, dh2);
+        drawImg(im2, dx2, dy2, dw2, dh2);
       }
       ctx.globalAlpha = 1;
     }
@@ -926,10 +937,18 @@
 
     var W = state.cols * TILE;
     var H = (ROWS + EXTRA_TOP_ROWS) * TILE;
-    if (canvas.width !== W) canvas.width = W;
-    if (canvas.height !== H) canvas.height = H;
+    // 按设备像素比(DPR)出图：高清资源直接采样到物理像素，避免低分 backing 被二次放大产生锯齿。
+    // CSS 显示尺寸固定为 W×H（坐标/命中检测均基于 CSS 像素，与 backing 无关）。
+    var dpr = window.devicePixelRatio || 1;
+    var BW = Math.round(W * dpr), BH = Math.round(H * dpr);
+    if (canvas.width !== BW) canvas.width = BW;
+    if (canvas.height !== BH) canvas.height = BH;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // 关掉插值：所有 drawImage 用 nearest-neighbor，保持像素艺术锐利
+    // 默认 nearest-neighbor，保持原版像素艺术锐利；
+    // 高清重绘资源在 drawImg 内临时切换为高质量平滑插值
     ctx.imageSmoothingEnabled = false;
 
     // 天空（正常区域 + 超界区域统一背景，但超界区画虚线分隔）
@@ -1668,9 +1687,13 @@
         var thumb = document.createElement('div');
         thumb.className = 'pal-thumb';
         var im = document.createElement('img');
+        im.alt = d.name;
+        // 高清重绘资源（>=64px）走浏览器平滑缩放，原版像素小图保持 pixelated 锐利
+        im.addEventListener('load', function () {
+          if (im.naturalWidth >= 64 || im.naturalHeight >= 64) im.classList.add('pal-hd');
+        });
         if (d.dataUrl) im.src = d.dataUrl;
         else im.src = ASSETS + 'sprites/' + d.img;
-        im.alt = d.name;
         thumb.appendChild(im);
         b.appendChild(thumb);
 

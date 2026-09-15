@@ -1327,12 +1327,16 @@
       if (FLIP_ATYPES[e.atype] && e.ad > 0) {
         var sp = S.get(e.atype, 3);
         if (sp && sp.img) {
+          // 与 Sprites.draw 一致：高清资源走高质量平滑插值，像素图保持最近邻
+          var hdFlip = sp.img.naturalWidth >= sp.w * 1.5 || sp.img.naturalHeight >= sp.h * 1.5;
+          if (hdFlip) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
           ctx.save();
           ctx.translate(dx + sp.w / 2, dy + sp.h / 2);
           ctx.scale(1, -1);
           if (m) ctx.scale(-1, 1);
-          ctx.drawImage(sp.img, -sp.w / 2, -sp.h / 2);
+          ctx.drawImage(sp.img, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
           ctx.restore();
+          if (hdFlip) { ctx.imageSmoothingEnabled = false; ctx.imageSmoothingQuality = 'low'; }
         } else { S.draw(ctx, e.atype, 3, dx, dy, m); }
       } else {
         S.draw(ctx, e.atype, 3, dx, dy, m);

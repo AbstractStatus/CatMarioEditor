@@ -170,6 +170,10 @@ html, body {
   max-height: 50px;
   image-rendering: pixelated;
 }
+/* 高清重绘资源：浏览器平滑缩放，避免曲线边缘出方块锯齿 */
+.pal-thumb img.pal-hd {
+  image-rendering: auto;
+}
 .pal-add {
   border-style: dashed;
   border-color: #5a6478;
@@ -245,7 +249,8 @@ html, body {
 #ruler { display: block; }
 #stage {
   display: block;
-  image-rendering: pixelated;
+  /* backing 已按 devicePixelRatio 原生出图，无需再让 CSS 做像素化放大；
+     高清资源需要平滑显示，像素风资源已在 canvas 内以 nearest-neighbor 栅格化 */
   cursor: crosshair;
   box-shadow: 0 0 0 1px #333a48;
 }

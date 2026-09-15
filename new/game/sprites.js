@@ -94,20 +94,30 @@
   };
 
   // 绘制精灵到画布上下文
+  // 自适应：无论替换的 PNG 原始分辨率多大（高清重绘/原版像素图），
+  // 一律把整图缩放到 manifest 声明的 w/h，绝不按 naturalWidth/Height 绘制
   Sprites.draw = function (ctx, id, sheet, x, y, mirror) {
     var s = Sprites.get(id, sheet);
     if (!s || !s.img) return false;
     var w = s.w, h = s.h;
     if (x + w < 0 || x > C.CANVAS_W) return false;
+    var img = s.img;
+    // 高清重绘资源（源分辨率 >= 逻辑尺寸 1.5×）：高质量双线性插值，曲线平滑；
+    // 原版像素图（naturalW≈逻辑尺寸）仍走引擎默认的 nearest-neighbor，保持方块锐利。
+    // 注意：渲染在 setTransform(_baseScale) 下直接进行，浏览器会把高清源图
+    // 一次性采样到最终设备像素，不存在“先缩到 30px 再放大”的中间锯齿。
+    var hd = img.naturalWidth >= w * 1.5 || img.naturalHeight >= h * 1.5;
+    if (hd) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     if (mirror) {
       ctx.save();
       ctx.translate(x + w, y);
       ctx.scale(-1, 1);
-      ctx.drawImage(s.img, 0, 0, w, h, 0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
       ctx.restore();
     } else {
-      ctx.drawImage(s.img, x, y);
+      ctx.drawImage(img, x, y, w, h);
     }
+    if (hd) { ctx.imageSmoothingEnabled = false; ctx.imageSmoothingQuality = 'low'; }
     return true;
   };
 
