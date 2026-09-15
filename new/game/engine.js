@@ -413,12 +413,17 @@
     // MTYPE 变化追踪
     if (p._prevMtype !== p.mtype) {
       _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, mtm: p.mtm, before: true, mtypeChange: true, prevMtype: p._prevMtype });
+      // 进入旗杆滑行 = 通关瞬间（旗杆 uid 由 elements.js stype300 onCollide 写入）
+      if (p.mtype === C.MTYPE.GOAL_SLIDE) {
+        pushEvent({ kind: 'goal', via: 'pole', f: _debugFrame, uid: state._goalTouchUid || null, ma: p.ma, mb: p.mb });
+        state._goalTouchUid = null;
+      }
       p._prevMtype = p.mtype;
     }
 
     // 死亡
     if (p.mhp <= 0 && p.mhp >= -9) {
-      var hurtInfo = state._lastHurt || { reason: 'unknown', uid: null };
+      var hurtInfo = state._lastHurt || { reason: 'unknown', uid: null, detail: null };
       // 调试：死亡瞬间输出最后伤害来源（uid 对应编辑器中的元素实例，便于复现）
       console.warn('[catmario] 玩家死亡 f=' + _debugFrame +
         ' 来源=' + hurtInfo.reason + (hurtInfo.uid ? (' uid=' + hurtInfo.uid) : '（无实例uid）') +
@@ -426,6 +431,20 @@
       _debugLog.push({ f: _debugFrame, key: 0, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: false, death: true, mhp: p.mhp, hurt: hurtInfo });
       state._lastHurt = null;
       state.life++;
+      // 阵亡事件（试玩页"日志"面板展示：原因中文化，敌人碰撞额外标明敌人种类）
+      var reasonCn = HURT_REASON_CN[hurtInfo.reason] || ('未知伤害（' + hurtInfo.reason + '）');
+      if (hurtInfo.reason === 'enemy' && hurtInfo.detail) {
+        var enemyName = ENEMY_NAME_CN[hurtInfo.detail.atype];
+        if (enemyName) {
+          reasonCn = '敌人碰撞：' + enemyName +
+            (hurtInfo.detail.atype === 2 ? (hurtInfo.detail.axtype >= 1 ? '（龟壳滑动中）' : '（静止龟壳）') : '');
+        }
+      }
+      pushEvent({
+        kind: 'death', n: state.life, f: _debugFrame,
+        reason: hurtInfo.reason, reasonCn: reasonCn,
+        uid: hurtInfo.uid || null, ma: p.ma, mb: p.mb
+      });
       p.mkeytm = 12; p.mhp = -20; p.mtype = C.MTYPE.DEAD; p.mtm = 0;
       A.playSE(C.SE.DEATH); A.bgmStop();
     }
@@ -479,6 +498,7 @@
               // 传送管道口：交给宿主（试玩页）决定目标世界或游戏结束
               // onWarp 返回 false 表示宿主自行处理结局（如回标题），引擎不再重载关卡
               proceed = (typeof state.onWarp === 'function') ? state.onWarp(warp) !== false : false;
+              if (warp.end) pushEvent({ kind: 'goal', via: 'warp', f: _debugFrame, uid: warp.uid || null, ma: p.ma, mb: p.mb });
             } else {
               state.stc++;   // 普通进管：进入下一子关
             }
@@ -1142,7 +1162,7 @@
         if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200)) {
           if (p.mmutekion !== 1 && p.mtype !== C.MTYPE.DEAD) {
             if ((e.atype !== 2 || e.axtype !== 0) && p.mhp >= 1) {
-              markHurt('enemy', e.uid);
+              markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype });
               p.mhp -= 1;
               _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
             }
@@ -1876,9 +1896,42 @@
   var _debugKey = 0, _debugFrame = 0;
   var _debugLog = [];
   // 记录最近一次伤害来源（uid=编辑器元素实例 id），死亡时输出，串联“编辑器元素↔游戏内死亡”
-  function markHurt(reason, uid) {
-    state._lastHurt = { reason: reason, uid: uid || null, f: _debugFrame };
+  // detail：可选补充信息（如敌人 atype/axtype），死亡时转成中文原因
+  function markHurt(reason, uid, detail) {
+    state._lastHurt = { reason: reason, uid: uid || null, f: _debugFrame, detail: detail || null };
   }
+
+  // ===== 阵亡 / 通关事件日志（供试玩页“日志”面板展示，与底层 _debugLog 调试流分离）=====
+  var _eventLog = [];
+  var EVENT_LOG_MAX = 100;
+  function pushEvent(ev) {
+    ev.ts = Date.now();
+    _eventLog.push(ev);
+    if (_eventLog.length > EVENT_LOG_MAX) _eventLog.shift();
+  }
+  // 伤害原因 → 中文（与各 markHurt 调用点一一对应）
+  var HURT_REASON_CN = {
+    'trap-pipe': '陷阱管道：进入伪装管道，被带到高空后抛下',
+    'out-of-world': '坠入深渊：掉出地图底部',
+    'spike': '尖刺：撞上地刺',
+    'fatigue-lift': '疲劳升降台：站台停留过久失控坠落',
+    'firebar': '火焰棒：被旋转火球烧到',
+    'enemy': '敌人碰撞',
+    'flower': '火焰花：碰到伤人火花',
+    'poison-mushroom': '毒蘑菇：吃下紫毒蘑菇',
+    'bad-star': '坏星：碰到恶魔星',
+    'fall-brick': '坠落砖组：被运动中的砖组砸中',
+    'unknown': '未知原因'
+  };
+  // 敌人 atype → 中文名（atype 即触发器 btype，见 spawnEnemy）
+  var ENEMY_NAME_CN = {
+    0: '白猫怪', 1: '绿龟', 2: '龟壳', 3: '幽灵', 4: '国王怪',
+    5: '吐舌猫', 6: '机器人', 7: '弹簧白猫', 8: '奔跑怪', 9: '弹跳火焰',
+    10: '横向火焰', 30: '小猫咪', 31: '肌肉鸡',
+    80: '脸云怪', 81: '普通云怪', 82: '隐形云怪', 83: '刺球', 84: '火球',
+    85: '假旗杆', 86: '桃色方块猫', 87: '火焰棒', 90: '黄色光束',
+    101: '火花', 102: '紫毒蘑菇', 105: '绿问号球', 110: '恶星'
+  };
   Engine.getState = function () {
     return { proc: state.proc, key: _debugKey, frame: _debugFrame, maintm: state.maintm, blocks: state.blocks.length, fx: state.fx, collideCount: _debugCollideCount, collideTop: _debugCollideTop, player: state.player ? { ma: state.player.ma, mb: state.player.mb, mc: state.player.mc, md: state.player.md, mzimen: state.player.mzimen, mhp: state.player.mhp, mtype: state.player.mtype } : null };
   };
@@ -1919,6 +1972,12 @@
     });
     return output;
   };
+
+  // 阵亡/通关事件日志：返回事件数组的副本（按时间正序）
+  // 事件结构：{kind:'death', n, f, reason, reasonCn, uid, ma, mb, ts}
+  //          {kind:'goal', via:'pole'|'warp', f, uid, ma, mb, ts}
+  Engine.getEventLog = function () { return _eventLog.slice(); };
+  Engine.clearEventLog = function () { _eventLog.length = 0; };
 
   Engine.debugPipes = function () {
     var result = [];

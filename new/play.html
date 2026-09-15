@@ -95,6 +95,58 @@ canvas#canvas {
 #dropTip { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
   background: rgba(20,40,90,.55); color: #fff; font-size: 22px; pointer-events: none; z-index: 30; }
 body.dragging #dropTip { display: flex; }
+
+/* 阵亡/通关日志 */
+#logBtn { position: relative; }
+#logBadge {
+  display: inline-block; min-width: 15px; margin-left: 4px; padding: 0 4px;
+  background: #e04848; color: #fff; border-radius: 8px;
+  font-size: 10px; line-height: 15px; text-align: center;
+}
+#logBadge.hide { display: none; }
+#logMask {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(0, 0, 0, .7);
+  display: none; align-items: center; justify-content: center;
+  padding: 16px;
+}
+#logMask.show { display: flex; }
+#logPanel {
+  position: relative;
+  width: 620px; max-width: 96vw; max-height: 78vh;
+  display: flex; flex-direction: column;
+  background: #20242e; border: 1px solid #333a48; border-radius: 10px;
+  padding: 14px 18px; color: #d8dee9; font-size: 13px;
+}
+.log-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+#logPanel h3 { color: #ffd75e; font-size: 14px; }
+#logClear {
+  background: #3a3f4d; color: #d8dee9; border: 1px solid #4a5163; border-radius: 5px;
+  padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+#logClear:hover { background: #484e5e; }
+#logClose {
+  position: absolute; top: 6px; right: 10px;
+  background: transparent; border: none; color: #9aa4b8;
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+#logClose:hover { color: #fff; }
+#logList { overflow: auto; flex: 1; padding-right: 4px; }
+.log-empty { color: #8b94a7; text-align: center; padding: 34px 0; line-height: 2; }
+.log-item {
+  border-left: 3px solid #5a6275; border-radius: 0 6px 6px 0;
+  background: #2a2f3c; margin: 7px 0; padding: 6px 10px;
+}
+.log-item.death { border-left-color: #e05a5a; }
+.log-item.goal { border-left-color: #54c96a; }
+.log-title { font-weight: bold; font-size: 13px; }
+.log-item.death .log-title { color: #ff8f8f; }
+.log-item.goal .log-title { color: #8be895; }
+.log-meta { color: #98a2b6; font-size: 11px; margin-top: 2px; line-height: 1.7; }
+.log-meta code {
+  background: #313747; border-radius: 3px; padding: 0 5px;
+  font-family: monospace; color: #cfd7e6;
+}
 </style>
 </head>
 <body>
@@ -112,6 +164,7 @@ body.dragging #dropTip { display: flex; }
   <button id="startBtn">▶ 开始游戏</button>
   <button id="retryBtn">↺ 回到标题</button>
   <button id="infoBtn">ℹ️ 详情</button>
+  <button id="logBtn">📜 日志<span id="logBadge" class="hide">0</span></button>
   <span id="status">正在加载游戏引擎…</span>
 </div>
 
@@ -131,6 +184,17 @@ body.dragging #dropTip { display: flex; }
     </div>
   </div>
 </div>
+<!-- 阵亡/通关日志面板 -->
+<div id="logMask">
+  <div id="logPanel">
+    <button id="logClose" title="关闭">×</button>
+    <div class="log-head">
+      <h3>📜 阵亡 / 通关日志</h3>
+      <button id="logClear">清空</button>
+    </div>
+    <div id="logList"></div>
+  </div>
+</div>
 <div id="dropTip">松开以加载关卡 JSON</div>
 
 <!-- 关卡数据（原版 1-1 字节图，自定义关卡不使用，仅保持引擎加载顺序一致） -->
@@ -142,9 +206,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=uid1"></script>
+<script src="elements.js?v=evlog1"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=uid1"></script>
+<script src="engine.js?v=evlog1"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -493,8 +557,78 @@ body.dragging #dropTip { display: flex; }
     if (ev.target === modalMask) closeModal();
   });
   window.addEventListener('keydown', function (ev) {
-    if (ev.keyCode === 27) closeModal();   // Esc 关闭弹窗
+    if (ev.keyCode === 27) { closeModal(); closeLogPanel(); }   // Esc 关闭弹窗
   });
+
+  /* ---------- 阵亡 / 通关日志面板 ---------- */
+  var logBtn = document.getElementById('logBtn');
+  var logBadge = document.getElementById('logBadge');
+  var logMask = document.getElementById('logMask');
+  var logListEl = document.getElementById('logList');
+  var logSeen = 0, logLastRender = -1;
+
+  function escHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  // 物理帧（30fps；从标题新开游戏时清零，死亡重开不清）→ m:ss.t
+  function fmtFrame(f) {
+    var tenths = Math.floor(f / 3);
+    var sec = Math.floor(tenths / 10);
+    return Math.floor(sec / 60) + ':' + ('0' + (sec % 60)).slice(-2) + '.' + (tenths % 10);
+  }
+  function coordText(ev) {
+    // 陷阱管道阵亡时玩家已被移到离屏坐标（mb=-80000000），不显示无意义的 y
+    if (ev.mb !== undefined && ev.mb < -1000000) return 'x=' + Math.round(ev.ma / 100) + '（管道动画离屏中）';
+    return 'x=' + Math.round(ev.ma / 100) + ' y=' + Math.round(ev.mb / 100) +
+      '（约第 ' + Math.round(ev.ma / 2900) + ' 列）';
+  }
+  function renderLogs(logs) {
+    if (!logs.length) {
+      logListEl.innerHTML = '<div class="log-empty">暂无阵亡 / 通关记录<br>死亡和通关都会自动记录在这里</div>';
+      return;
+    }
+    var html = '';
+    for (var i = logs.length - 1; i >= 0; i--) {
+      var ev = logs[i];
+      if (ev.kind === 'death') {
+        html += '<div class="log-item death"><div class="log-title">💀 第 ' + ev.n + ' 次阵亡 · ' +
+          escHtml(ev.reasonCn) + '</div><div class="log-meta">游戏时间 ' + fmtFrame(ev.f) +
+          '（帧 ' + ev.f + '） · 坐标 ' + escHtml(coordText(ev)) +
+          (ev.uid ? ' · 元素 <code>' + escHtml(ev.uid) + '</code>' : ' · 无实例 uid（地图机制）') +
+          '</div></div>';
+      } else {
+        var viaText = ev.via === 'warp' ? '传送管道抵达终点' : '触碰终点旗杆';
+        html += '<div class="log-item goal"><div class="log-title">🏁 通关 · ' + viaText +
+          '</div><div class="log-meta">游戏时间 ' + fmtFrame(ev.f) + '（帧 ' + ev.f + '） · 坐标 ' +
+          escHtml(coordText(ev)) + (ev.uid ? ' · 元素 <code>' + escHtml(ev.uid) + '</code>' : '') +
+          '</div></div>';
+      }
+    }
+    logListEl.innerHTML = html;
+  }
+  function pollLog() {
+    if (!window.GameEngine || !GameEngine.getEventLog) return;
+    var logs = GameEngine.getEventLog();
+    if (logMask.classList.contains('show')) {
+      logSeen = logs.length;   // 面板开着时一切视为已读
+      if (logLastRender !== logs.length) { renderLogs(logs); logLastRender = logs.length; }
+    }
+    var unread = logs.length - logSeen;
+    if (unread > 0) { logBadge.textContent = unread; logBadge.classList.remove('hide'); }
+    else logBadge.classList.add('hide');
+  }
+  function closeLogPanel() { logMask.classList.remove('show'); }
+  logBtn.addEventListener('click', function () { logMask.classList.add('show'); pollLog(); });
+  document.getElementById('logClose').addEventListener('click', closeLogPanel);
+  logMask.addEventListener('click', function (ev) { if (ev.target === logMask) closeLogPanel(); });
+  document.getElementById('logClear').addEventListener('click', function () {
+    if (window.GameEngine && GameEngine.clearEventLog) GameEngine.clearEventLog();
+    logSeen = 0; logLastRender = -1;
+    pollLog();
+  });
+  setInterval(pollLog, 500);
 
   var CN_NAMES = {
     player_start: '玩家起点', item_mushroom_red: '红蘑菇', item_mushroom_dark: '毒蘑菇',

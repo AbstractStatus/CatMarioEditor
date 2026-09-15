@@ -159,7 +159,8 @@
           p.mb + p.mnobib > xx[9] - 1000 && p.mb + p.mnobib < xx[9] + xx[1] + 3000 &&
           p.mzimen === 1 && p.actaon[3] === 1 && p.mtype === 0) {
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
-        p._warp = s.warp || null;
+        // 带上管道实例 uid，供直接通关(warp.end)事件溯源
+        p._warp = s.warp ? { end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null } : null;
         p._trapPipe = null;
         return true;
       }
@@ -342,6 +343,8 @@
     onCollide: function (p, s, xx, state, A) {
       var C = getC();
       if (p.mtype === 0 && p.mb < xx[9] + s.sd + xx[0] - 3000 && p.mhp >= 1) {
+        // 记录旗杆实例 uid，供引擎在进入 GOAL_SLIDE 时写入通关事件
+        state._goalTouchUid = s.uid || null;
         A.bgmStop(); p.mtype = C.MTYPE.GOAL_SLIDE; p.mtm = 0;
         p.ma = s.sa - 2000; A.playSE(C.SE.GOAL);
       }
