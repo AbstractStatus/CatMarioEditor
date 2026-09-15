@@ -91,10 +91,10 @@
       tw: 1, th: 1, mapId: 8, hint: 'ttype=8，白色猫脸方块' },
     { id: 'block_spike', cat: 'block', name: '尖刺块', kind: 'sprite', img: 'block/block_spike.png',
       tw: 1, th: 1, mapId: 10, hint: 'ttype=10，落地后致命' },
-    { id: 'block_pipe_top', cat: 'block', name: '管道砖(顶)', kind: 'sprite',
-      img: 'vector/pipe_top.png', tw: 2, th: 1, mapId: 40, hint: '原版管道外观砖块(顶部帽)，grid字节40，实心碰撞' },
-    { id: 'block_pipe_body', cat: 'block', name: '管道砖(身)', kind: 'sprite',
-      img: 'vector/pipe_body.png', tw: 2, th: 1, mapId: 41, hint: '原版管道外观砖块(直段)，grid字节41，实心碰撞' },
+    { id: 'block_pipe_top', cat: 'block', name: '管道砖(顶)', kind: 'sprite', internal: true,
+      img: 'vector/pipe_top.png', tw: 2, th: 1, mapId: 40, hint: '原版内部用：grid字节40 → 顶部帽' },
+    { id: 'block_pipe_body', cat: 'block', name: '管道砖(身)', kind: 'sprite', internal: true,
+      img: 'vector/pipe_body.png', tw: 2, th: 1, mapId: 41, hint: '原版内部用：grid字节41/43/44 → 管身' },
 
     // ================= 方块（特殊机关块，brock2.png） =================
     { id: 'b2_hint', cat: 'block', name: '提示块(橙圆)', kind: 'sprite', img: 'block/b2_hint.png',

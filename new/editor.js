@@ -737,9 +737,10 @@
       var hasArm = { up: false, down: false, left: false, right: false };
       dirs.forEach(function (dd) { hasArm[dd] = true; });
 
-      // 编辑器 canvas：TILE=29，管身宽 = round(50/29*TILE) ≈ 50 虚拟像素按比例
+      // 编辑器 canvas：TILE=29，管身宽 = round(50/29*TILE) ≈ 50 虚拟像素
       var bW = Math.round(50 / 29 * TILE);
       var bHalf = bW / 2;
+      var PIPE_OVER = 4;  // 管身末端溢出 = (2*TILE - bW)/2，正好填满缝隙
 
       // ===== 第一遍：全部填充 =====
       ctx.fillStyle = '#00e600';
@@ -748,10 +749,10 @@
       dirs.forEach(function (dd) {
         var armLen = dirLenMap[dd];
         var pxLen = armLen * TILE;
-        if (dd === 'up') ctx.fillRect(x + TILE - bHalf, y - pxLen, bW, pxLen);
-        else if (dd === 'down') ctx.fillRect(x + TILE - bHalf, y + 2 * TILE, bW, pxLen);
-        else if (dd === 'left') ctx.fillRect(x - pxLen, y + TILE - bHalf, pxLen, bW);
-        else ctx.fillRect(x + 2 * TILE, y + TILE - bHalf, pxLen, bW);
+        if (dd === 'up') ctx.fillRect(x + TILE - bHalf, y - pxLen - PIPE_OVER, bW, pxLen + PIPE_OVER);
+        else if (dd === 'down') ctx.fillRect(x + TILE - bHalf, y + 2 * TILE, bW, pxLen + PIPE_OVER);
+        else if (dd === 'left') ctx.fillRect(x - pxLen - PIPE_OVER, y + TILE - bHalf, pxLen + PIPE_OVER, bW);
+        else ctx.fillRect(x + 2 * TILE, y + TILE - bHalf, pxLen + PIPE_OVER, bW);
       });
 
       // ===== 第二遍：精准边框（无叠合）=====
@@ -803,22 +804,22 @@
         var pxLen = armLen * TILE;
         ctx.beginPath();
         if (dd === 'up') {
-          var ux = x + TILE - bHalf, uy = y - pxLen;
+          var ux = x + TILE - bHalf, uy = y - pxLen - PIPE_OVER;
           ctx.moveTo(ux, uy); ctx.lineTo(ux, y);
           ctx.moveTo(ux + bW, uy); ctx.lineTo(ux + bW, y);
         } else if (dd === 'down') {
           var dx = x + TILE - bHalf;
-          var dy1 = y + 2 * TILE, dy2 = dy1 + pxLen;
+          var dy1 = y + 2 * TILE, dy2 = dy1 + pxLen + PIPE_OVER;
           ctx.moveTo(dx, dy1); ctx.lineTo(dx, dy2);
           ctx.moveTo(dx + bW, dy1); ctx.lineTo(dx + bW, dy2);
         } else if (dd === 'left') {
-          var ly = y + TILE - bHalf, lx1 = x - pxLen;
+          var ly = y + TILE - bHalf, lx1 = x - pxLen - PIPE_OVER;
           ctx.moveTo(lx1, ly); ctx.lineTo(x, ly);
           ctx.moveTo(lx1, ly + bW); ctx.lineTo(x, ly + bW);
         } else {
           var rx = x + 2 * TILE, ry = y + TILE - bHalf;
-          ctx.moveTo(rx, ry); ctx.lineTo(rx + pxLen, ry);
-          ctx.moveTo(rx, ry + bW); ctx.lineTo(rx + pxLen, ry + bW);
+          ctx.moveTo(rx, ry); ctx.lineTo(rx + pxLen + PIPE_OVER, ry);
+          ctx.moveTo(rx, ry + bW); ctx.lineTo(rx + pxLen + PIPE_OVER, ry + bW);
         }
         ctx.stroke();
       });
@@ -833,25 +834,31 @@
       var pmDir = e.dir || d.dir || 'up';
       var pmPipeW = Math.round(50 / 29 * TILE);
       var bodyThick = pmLen * TILE;
+      var PIPE_OVER = 4;
       ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      // 辅助函数：画管身（fillRect + 两侧线，去远端帽）
+      // 辅助函数：画管身（fillRect + 两侧线，去远端帽，末端溢出 OVER px）
       function drawPipeBody(bx, by, bw, bh, dir) {
-        ctx.fillRect(bx, by, bw, bh);
+        // 末端沿延伸方向多画 OVER px
+        var fillX = bx, fillY = by, fillW = bw, fillH = bh;
+        if (dir === 'down') { fillH += PIPE_OVER; }
+        else if (dir === 'up') { fillY -= PIPE_OVER; fillH += PIPE_OVER; }
+        else if (dir === 'right') { fillW += PIPE_OVER; }
+        else { fillX -= PIPE_OVER; fillW += PIPE_OVER; }
+        ctx.fillRect(fillX, fillY, fillW, fillH);
+        // 两侧线也同步延伸
         ctx.beginPath();
         if (dir === 'up') {
-          // 管身向上延伸：两侧线从管身底到管口下沿，去上帽
-          ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh);
-          ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh);
+          ctx.moveTo(bx, by - PIPE_OVER); ctx.lineTo(bx, by + bh);
+          ctx.moveTo(bx + bw, by - PIPE_OVER); ctx.lineTo(bx + bw, by + bh);
         } else if (dir === 'down') {
-          // 管身向下延伸：两侧线从管口下沿到底部，去下帽
-          ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh);
-          ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh);
+          ctx.moveTo(bx, by); ctx.lineTo(bx, by + bh + PIPE_OVER);
+          ctx.moveTo(bx + bw, by); ctx.lineTo(bx + bw, by + bh + PIPE_OVER);
         } else if (dir === 'left') {
-          ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by);
-          ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw, by + bh);
+          ctx.moveTo(bx - PIPE_OVER, by); ctx.lineTo(bx + bw, by);
+          ctx.moveTo(bx - PIPE_OVER, by + bh); ctx.lineTo(bx + bw, by + bh);
         } else { // right
-          ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by);
-          ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw, by + bh);
+          ctx.moveTo(bx, by); ctx.lineTo(bx + bw + PIPE_OVER, by);
+          ctx.moveTo(bx, by + bh); ctx.lineTo(bx + bw + PIPE_OVER, by + bh);
         }
         ctx.stroke();
       }
@@ -1653,6 +1660,7 @@
 
       CAT.ELEMENTS.forEach(function (d) {
         if (d.cat !== cat) return;
+        if (d.internal) return;  // 内部元素（原版 grid 转换用）不显示在 palette
         var b = document.createElement('div');
         b.className = 'pal-item';
         b.dataset.id = d.id;
@@ -2500,9 +2508,8 @@
   // 字节网格值 → 元素 id（与 play.html TILE_VAL 互逆）
   var W_BYTE_ID = { 1: 'block_brick', 2: 'block_question', 3: 'block_hard', 4: 'block_stair',
     5: 'block_ground_top', 6: 'block_ground_fill', 7: 'block_hidden', 8: 'block_cat_shut',
-    9: 'item_coin', 10: 'block_spike', 30: 'bg_midflag',
-    // 原版管道装饰砖块：v=40→管道顶部(带圆角), v=41/43/44→管道管身(直段)
-    40: 'block_pipe_top', 41: 'block_pipe_body', 43: 'block_pipe_body', 44: 'block_pipe_body' };
+    9: 'item_coin', 10: 'block_spike', 30: 'bg_midflag' };
+  // 注：原版管道装饰砖块 v=40(pipe_top)/v=41/43/44(pipe_body) 已由 pipe_mouth/connector 自绘，不再作为独立元素导入
   var W_ENEMY0 = ['enemy_syobon', 'enemy_turtle', 'enemy_shell', 'enemy_ghost', 'enemy_king',
     'enemy_tongue_cat', 'enemy_robot', 'enemy_syobon_pad', 'enemy_runner', 'enemy_flame'];
   var W_BG0 = ['bg_hill_house', 'bg_grass', 'bg_cloud_face', 'bg_tree',
@@ -2588,6 +2595,7 @@
       if (!v) continue;
       note(tt);
       var guid = 'g' + t + '_' + tt;   // 网格字节元素：行_列 天然唯一
+      if (v === 40 || v === 41 || v === 43 || v === 44) continue;  // 管道装饰砖：由 pipe_mouth/connector 自绘，跳过
       if (v === 99) add('goal_pole', tt, Math.min(t, 11), null, guid);
       else if (v >= 20 && v <= 29) add('lift_yellow', tt, t, { len: 1 }, guid);
       else if (v >= 50 && v <= 79) add(W_ENEMY0[v - 50], tt, t, null, guid);
@@ -2632,16 +2640,12 @@
         var pmLen2 = Math.max(1, Math.min(20, Math.max(1, Math.round((p.sd + 100) / 2900) - 1)));
         add('pipe_mouth', pmCol2, pmRow2, { length: pmLen2, dir: 'up', entry: 'warp', warp: p.warp || { end: true, id: null } }, puid);
       } else if (p.stype === 40) {
-        // 左进入管道（原版简单 AABB，玩家从左进入）
-        // sa=col*2900, sb=(row*29-12)*100, sc=3000, sd=5800
-        // 当 sc 变长时是横管（方向看 sc/sd 比）
+        // 原版左进入管道（简单 AABB，无 onEnter，只是实心绿色矩形）
+        // 位置：sa=col*2900, sb=(row*29-12)*100, sc=3000, sd=5800
+        // 作为特殊 pipe_mouth 存：stype=40 标记，dir='left'
         var pmCol40 = Math.round(p.sa / 2900);
         var pmRow40 = Math.round((p.sb / 100 + 12) / 29);
-        var pmDir40 = (p.sc >= p.sd) ? 'right' : 'up';  // sc>=sd → 横管
-        var pmLen40;
-        if (pmDir40 === 'right') pmLen40 = Math.max(1, Math.round((p.sc + 100) / 2900) - 1);
-        else pmLen40 = Math.max(1, Math.round((p.sd + 100) / 2900) - 1);
-        add('pipe_mouth', pmCol40, pmRow40, { length: pmLen40, dir: pmDir40, entry: 'none' }, puid);
+        add('pipe_mouth', pmCol40, pmRow40, { length: 1, dir: 'left', entry: 'none', _origStype: 40 }, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
         // 原版横管向左口
         add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'none' }, puid);

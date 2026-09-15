@@ -206,9 +206,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=custom2"></script>
 <script src="audio.js?v=custom2"></script>
 <script src="input.js?v=custom2"></script>
-<script src="elements.js?v=evlog9"></script>
+<script src="elements.js?v=evlog10"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=evlog9"></script>
+<script src="engine.js?v=evlog10"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -372,49 +372,46 @@ body.dragging #dropTip { display: flex; }
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
       } else if (id === 'pipe_mouth') {
-        // pipe_mouth → stype=50(普通/陷阱) 或 60(传送)
-        // 原版竖管: sc=6000(2tile宽), sd=(length+1)*2900-100, sa=col*2900+500, sb=(row*29-12)*100
         var pmLen = Math.max(1, Math.min(20, e.length | 0 || 1));
         var pmDir = e.dir || 'up';
         var pmEntry = e.entry || 'none';
-        var pmStype, pmSxtype, pmWarp = null;
-        if (pmEntry === 'trap') { pmStype = 50; pmSxtype = 0; }
-        else if (pmEntry === 'warp') {
-          pmStype = 60; pmSxtype = 1;
-          pmWarp = e.warp && (e.warp.end || e.warp.id)
-            ? { end: !!e.warp.end, id: e.warp.id || null }
-            : { end: true, id: null };
-        } else { pmStype = 50; pmSxtype = 1; }
-        var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
-        // 坐标/尺寸：按方向分配（anchor 都是管口位置）
-        // 竖管：sc=6000(2tile宽), sd=(len+1)*2900-100
-        // 横管：sd=6000(2tile高), sc=(len+1)*2900-100
-        if (pmDir === 'up') {
-          // 管口在上 (c,r)，管身向下延伸 pmLen 格
-          pmPipe.sa = c * 2900 + 500;
-          pmPipe.sb = (r * 29 - 12) * 100;
-          pmPipe.sc = 6000;
-          pmPipe.sd = (pmLen + 1) * 2900 - 100;
-        } else if (pmDir === 'down') {
-          // 管口在下，管身向上延伸 pmLen 格（管口 tile 行 = row + pmLen）
-          pmPipe.sa = c * 2900 + 500;
-          pmPipe.sb = ((r + pmLen) * 29 - 12) * 100;
-          pmPipe.sc = 6000;
-          pmPipe.sd = (pmLen + 1) * 2900 - 100;
-        } else if (pmDir === 'left') {
-          // 管口在左 (c,r)，管身向右延伸 pmLen 格
-          pmPipe.sa = c * 2900;
-          pmPipe.sb = (r * 29 - 12) * 100;
-          pmPipe.sc = (pmLen + 1) * 2900 - 100;
-          pmPipe.sd = 6000;
-        } else { // right
-          // 管口在右，管身向左延伸 pmLen 格（管口 tile 列 = col + pmLen）
-          pmPipe.sa = c * 2900;
-          pmPipe.sb = (r * 29 - 12) * 100;
-          pmPipe.sc = (pmLen + 1) * 2900 - 100;
-          pmPipe.sd = 6000;
+        var pmWarp = null;
+        // 原版 stype=40 左进入管道（保持原样）
+        if (e._origStype === 40) {
+          pipes.push({ sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: 0, uid: e.uid || null, dir: 'left' });
+        } else {
+          var pmStype, pmSxtype;
+          if (pmEntry === 'trap') { pmStype = 50; pmSxtype = 0; }
+          else if (pmEntry === 'warp') {
+            pmStype = 60; pmSxtype = 1;
+            pmWarp = e.warp && (e.warp.end || e.warp.id)
+              ? { end: !!e.warp.end, id: e.warp.id || null }
+              : { end: true, id: null };
+          } else { pmStype = 50; pmSxtype = 1; }
+          var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
+          if (pmDir === 'up') {
+            pmPipe.sa = c * 2900 + 500;
+            pmPipe.sb = (r * 29 - 12) * 100;
+            pmPipe.sc = 6000;
+            pmPipe.sd = (pmLen + 1) * 2900 - 100;
+          } else if (pmDir === 'down') {
+            pmPipe.sa = c * 2900 + 500;
+            pmPipe.sb = ((r + pmLen) * 29 - 12) * 100;
+            pmPipe.sc = 6000;
+            pmPipe.sd = (pmLen + 1) * 2900 - 100;
+          } else if (pmDir === 'left') {
+            pmPipe.sa = c * 2900;
+            pmPipe.sb = (r * 29 - 12) * 100;
+            pmPipe.sc = (pmLen + 1) * 2900 - 100;
+            pmPipe.sd = 6000;
+          } else { // right
+            pmPipe.sa = c * 2900;
+            pmPipe.sb = (r * 29 - 12) * 100;
+            pmPipe.sc = (pmLen + 1) * 2900 - 100;
+            pmPipe.sd = 6000;
+          }
+          pipes.push(pmPipe);
         }
-        pipes.push(pmPipe);
       } else if (id === 'pipe_cross' || id === 'pipe_tee' || id === 'pipe_L_a' || id === 'pipe_L_b') {
         // 准备 lengths 数组（规范化到基础方向 [up,down,left,right]，范围 1-4）
         var _clen = e.lengths || d.lengths || [1, 1, 1, 1];

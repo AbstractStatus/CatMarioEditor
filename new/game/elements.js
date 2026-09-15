@@ -104,37 +104,34 @@
     solid: true,
     render: function (ctx, s, x, y, w, h) {
       var dir = s.dir || 'up';
+      var PIPE_OVER = 4;
       ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       if (dir === 'left') {
-        // 横管：管口在左侧 x 起 30px，管身向右延伸 50px 高
         ctx.fillRect(x + 1, y, 30, 60); ctx.strokeRect(x + 1, y, 30, 60);
-        ctx.fillRect(x + 30, y + 5, w - 30, 50);
+        ctx.fillRect(x + 30, y + 5, w - 30 + PIPE_OVER, 50);
         ctx.beginPath();
-        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w, y + 5);
-        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w, y + 55);
+        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w + PIPE_OVER, y + 5);
+        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w + PIPE_OVER, y + 55);
         ctx.stroke();
       } else if (dir === 'right') {
-        // 横管：管口在右侧 w-30 起 30px，管身向左
         ctx.fillRect(x + w - 31, y, 30, 60); ctx.strokeRect(x + w - 31, y, 30, 60);
-        ctx.fillRect(x, y + 5, w - 30, 50);
+        ctx.fillRect(x - PIPE_OVER, y + 5, w - 30 + PIPE_OVER, 50);
         ctx.beginPath();
-        ctx.moveTo(x, y + 5); ctx.lineTo(x + w - 30, y + 5);
-        ctx.moveTo(x, y + 55); ctx.lineTo(x + w - 30, y + 55);
+        ctx.moveTo(x - PIPE_OVER, y + 5); ctx.lineTo(x + w - 30, y + 5);
+        ctx.moveTo(x - PIPE_OVER, y + 55); ctx.lineTo(x + w - 30, y + 55);
         ctx.stroke();
       } else if (dir === 'down') {
-        // 竖管倒置：管口在底部，管身向上延伸
-        ctx.fillRect(x + 5, y, 50, h - 30);
+        ctx.fillRect(x + 5, y - PIPE_OVER, 50, h - 30 + PIPE_OVER);
         ctx.beginPath();
-        ctx.moveTo(x + 5, y); ctx.lineTo(x + 5, y + h - 30);
-        ctx.moveTo(x + 55, y); ctx.lineTo(x + 55, y + h - 30);
+        ctx.moveTo(x + 5, y - PIPE_OVER); ctx.lineTo(x + 5, y + h - 30);
+        ctx.moveTo(x + 55, y - PIPE_OVER); ctx.lineTo(x + 55, y + h - 30);
         ctx.stroke();
         ctx.fillRect(x, y + h - 31, 60, 30); ctx.strokeRect(x, y + h - 31, 60, 30);
       } else {
-        // dir='up' 默认竖管：管口在顶部，管身向下
-        ctx.fillRect(x + 5, y + 30, 50, h - 30);
+        ctx.fillRect(x + 5, y + 30, 50, h - 30 + PIPE_OVER);
         ctx.beginPath();
-        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
-        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h);
+        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h + PIPE_OVER);
+        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h + PIPE_OVER);
         ctx.stroke();
         ctx.fillRect(x, y + 1, 60, 30); ctx.strokeRect(x, y + 1, 60, 30);
       }
@@ -162,38 +159,38 @@
     solid: true,
     render: function (ctx, s, x, y, w, h) {
       var dir = s.dir || 'up';
+      var PIPE_OVER = 4;
       ctx.fillStyle = '#00e600'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
       var markCx, markCy;
       if (dir === 'left') {
         ctx.fillRect(x + 1, y, 30, 60); ctx.strokeRect(x + 1, y, 30, 60);
-        ctx.fillRect(x + 30, y + 5, w - 30, 50);
+        ctx.fillRect(x + 30, y + 5, w - 30 + PIPE_OVER, 50);
         ctx.beginPath();
-        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w, y + 5);
-        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w, y + 55); ctx.stroke();
+        ctx.moveTo(x + 30, y + 5); ctx.lineTo(x + w + PIPE_OVER, y + 5);
+        ctx.moveTo(x + 30, y + 55); ctx.lineTo(x + w + PIPE_OVER, y + 55); ctx.stroke();
         markCx = x + 16; markCy = y + 30;
       } else if (dir === 'right') {
         ctx.fillRect(x + w - 31, y, 30, 60); ctx.strokeRect(x + w - 31, y, 30, 60);
-        ctx.fillRect(x, y + 5, w - 30, 50);
+        ctx.fillRect(x - PIPE_OVER, y + 5, w - 30 + PIPE_OVER, 50);
         ctx.beginPath();
-        ctx.moveTo(x, y + 5); ctx.lineTo(x + w - 30, y + 5);
-        ctx.moveTo(x, y + 55); ctx.lineTo(x + w - 30, y + 55); ctx.stroke();
+        ctx.moveTo(x - PIPE_OVER, y + 5); ctx.lineTo(x + w - 30, y + 5);
+        ctx.moveTo(x - PIPE_OVER, y + 55); ctx.lineTo(x + w - 30, y + 55); ctx.stroke();
         markCx = x + w - 15; markCy = y + 30;
       } else if (dir === 'down') {
-        ctx.fillRect(x + 5, y, 50, h - 30);
+        ctx.fillRect(x + 5, y - PIPE_OVER, 50, h - 30 + PIPE_OVER);
         ctx.beginPath();
-        ctx.moveTo(x + 5, y); ctx.lineTo(x + 5, y + h - 30);
-        ctx.moveTo(x + 55, y); ctx.lineTo(x + 55, y + h - 30); ctx.stroke();
+        ctx.moveTo(x + 5, y - PIPE_OVER); ctx.lineTo(x + 5, y + h - 30);
+        ctx.moveTo(x + 55, y - PIPE_OVER); ctx.lineTo(x + 55, y + h - 30); ctx.stroke();
         ctx.fillRect(x, y + h - 31, 60, 30); ctx.strokeRect(x, y + h - 31, 60, 30);
         markCx = x + 30; markCy = y + h - 16;
       } else { // up
-        ctx.fillRect(x + 5, y + 30, 50, h - 30);
+        ctx.fillRect(x + 5, y + 30, 50, h - 30 + PIPE_OVER);
         ctx.beginPath();
-        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h);
-        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h); ctx.stroke();
+        ctx.moveTo(x + 5, y + 30); ctx.lineTo(x + 5, y + h + PIPE_OVER);
+        ctx.moveTo(x + 55, y + 30); ctx.lineTo(x + 55, y + h + PIPE_OVER); ctx.stroke();
         ctx.fillRect(x, y + 1, 60, 30); ctx.strokeRect(x, y + 1, 60, 30);
         markCx = x + 30; markCy = y + 16;
       }
-      // 传送标记：管口中央黄色菱形
       ctx.fillStyle = '#ffe600';
       ctx.beginPath();
       ctx.moveTo(markCx, markCy - 8); ctx.lineTo(markCx + 8, markCy);
@@ -520,26 +517,34 @@
   PipeTypes[75] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
-      // 臂段只居中填管身（50px 宽），不画整 tile 避免视觉溢出
-      // dir=up/down → 管身垂直 50px 宽；dir=left/right → 管身水平 50px 高
       ctx.fillStyle = '#00e600';
-      var HALF = 4; // (58-50)/2 = 4px 偏移
+      var HALF = 4;
+      var PIPE_OVER = 4;
       if (s.dir === 'up' || s.dir === 'down') {
-        ctx.fillRect(x + HALF, y, 50, h);
+        // 竖臂：管身沿 y 方向延伸，末端溢出 PIPE_OVER
+        if (s.dir === 'down') {
+          ctx.fillRect(x + HALF, y, 50, h + PIPE_OVER);
+        } else {
+          ctx.fillRect(x + HALF, y - PIPE_OVER, 50, h + PIPE_OVER);
+        }
       } else {
-        ctx.fillRect(x, y + HALF, w, 50);
+        // 横臂：管身沿 x 方向延伸
+        if (s.dir === 'right') {
+          ctx.fillRect(x, y + HALF, w + PIPE_OVER, 50);
+        } else {
+          ctx.fillRect(x - PIPE_OVER, y + HALF, w + PIPE_OVER, 50);
+        }
       }
-      // 边框由 stype 76 统一画
     }
   };
 
   PipeTypes[76] = {
     solid: false,
     render: function (ctx, s, x, y, w, h) {
-      // 统一边框：与 editor.js drawElement connector 完全一致的 stub + 2-side + 去帽
       var TILE_PX = 29;
       var PIPE_W = 50;
       var HALF_PIPE_W = 25;
+      var PIPE_OVER = 4;
       // s.lengths = [up, down, left, right]，s.dirs = ['up', 'right', ...] 或 s.rot+s.id
       var L = s.lengths || [1, 1, 1, 1];
       for (var _i = 0; _i < 4; _i++) L[_i] = Math.max(1, Math.min(4, L[_i] | 0 || 1));
@@ -547,8 +552,6 @@
       var dirLen = { up: L[0], down: L[1], left: L[2], right: L[3] };
       var hasArm = { up: false, down: false, left: false, right: false };
       dirs.forEach(function (dd) { hasArm[dd] = true; });
-      // 原始锚点 tile 的虚拟像素坐标（相对于 s 的 bounding box 左上角 x, y）
-      // 中心块左上角 = x + leftLen*TILE_PX, y + upLen*TILE_PX
       var centerX = x + L[2] * TILE_PX;
       var centerY = y + L[0] * TILE_PX;
 
@@ -591,28 +594,28 @@
       } else { ctx.moveTo(centerX + 2 * TILE_PX, centerY); ctx.lineTo(centerX + 2 * TILE_PX, centerY + 2 * TILE_PX); }
       ctx.stroke();
 
-      // 每臂 2 侧（去帽，端口开口）
+      // 每臂 2 侧（去帽，端口开口，末端溢出 OVER 与邻管无缝）
       dirs.forEach(function (dd) {
         var len = dirLen[dd];
         var armPx = len * TILE_PX;
         ctx.beginPath();
         if (dd === 'up') {
-          var ux = centerX + TILE_PX - HALF_PIPE_W, uy = centerY - armPx;
+          var ux = centerX + TILE_PX - HALF_PIPE_W, uy = centerY - armPx - PIPE_OVER;
           ctx.moveTo(ux, uy); ctx.lineTo(ux, centerY);
           ctx.moveTo(ux + PIPE_W, uy); ctx.lineTo(ux + PIPE_W, centerY);
         } else if (dd === 'down') {
           var dx = centerX + TILE_PX - HALF_PIPE_W;
-          var dy1 = centerY + 2 * TILE_PX, dy2 = dy1 + armPx;
+          var dy1 = centerY + 2 * TILE_PX, dy2 = dy1 + armPx + PIPE_OVER;
           ctx.moveTo(dx, dy1); ctx.lineTo(dx, dy2);
           ctx.moveTo(dx + PIPE_W, dy1); ctx.lineTo(dx + PIPE_W, dy2);
         } else if (dd === 'left') {
-          var ly = centerY + TILE_PX - HALF_PIPE_W, lx1 = centerX - armPx;
+          var ly = centerY + TILE_PX - HALF_PIPE_W, lx1 = centerX - armPx - PIPE_OVER;
           ctx.moveTo(lx1, ly); ctx.lineTo(centerX, ly);
           ctx.moveTo(lx1, ly + PIPE_W); ctx.lineTo(centerX, ly + PIPE_W);
         } else if (dd === 'right') {
           var rx = centerX + 2 * TILE_PX, ry = centerY + TILE_PX - HALF_PIPE_W;
-          ctx.moveTo(rx, ry); ctx.lineTo(rx + armPx, ry);
-          ctx.moveTo(rx, ry + PIPE_W); ctx.lineTo(rx + armPx, ry + PIPE_W);
+          ctx.moveTo(rx, ry); ctx.lineTo(rx + armPx + PIPE_OVER, ry);
+          ctx.moveTo(rx, ry + PIPE_W); ctx.lineTo(rx + armPx + PIPE_OVER, ry + PIPE_W);
         }
         ctx.stroke();
       });
