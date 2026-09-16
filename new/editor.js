@@ -301,8 +301,28 @@
 
   function liftLen(e) { return e.len || CAT.byId(e.id).len || CAT.byId(e.id).tw || 3; }
 
+  // footprint → 画布像素矩形（支持 pixel 级精确覆盖，如中间旗按 40x60 原始比例绘制）
+  function fpRect(fp) {
+    var x = fp.c0 * TILE, y = (fp.r0 + EXTRA_TOP_ROWS) * TILE;
+    var w = (fp.c1 - fp.c0 + 1) * TILE, h = (fp.r1 - fp.r0 + 1) * TILE;
+    if (fp.pixel) {
+      x += fp.pixel.dx; y += fp.pixel.dy;
+      w = fp.pixel.w; h = fp.pixel.h;
+    }
+    return { x: x, y: y, w: w, h: h };
+  }
+
   function footprintOf(e) {
     var d = CAT.byId(e.id);
+    if (d.id === 'bg_midflag') {
+      // 中间旗：格子对齐——旗子占放置行顶 ~ 下一行行底（高 2 格整）、左贴 col 格线，
+      // 宽保持原版 40px 比例；选中框 = pixel 精确矩形，与视觉完全重合且上下左三边贴格线
+      var vw = Math.round(40 / 29 * TILE);
+      return {
+        c0: e.col, c1: e.col + 1, r0: e.row, r1: e.row + 1, tw: 2, th: 2,
+        pixel: { dx: 0, dy: 0, w: vw, h: 2 * TILE }
+      };
+    }
     if (d.id === 'platform_hang') {
       var pi = platInfo(e);
       return { c0: e.col, c1: e.col + pi.w - 1, r0: e.row, r1: e.row, tw: pi.w, th: 1 };
@@ -351,8 +371,14 @@
       return { c0: c0, c1: c1, r0: r0, r1: r1, tw: c1 - c0 + 1, th: r1 - r0 + 1 };
     }
     if (d.id === 'pipe_mouth') {
-      // 管口 1 tile + 管身 length tile，共 height = 1 + length
+      // 管口 1 tile + 管身 length tile，共 1 + length 格
       var _pmLen = Math.max(1, Math.min(20, e.length | 0 || d.length || 1));
+      var _pmDir = e.dir || d.dir || 'up';
+      if (_pmDir === 'left' || _pmDir === 'right') {
+        // 横管：(length+1) 宽 × 2 高
+        return { c0: e.col, c1: e.col + _pmLen, r0: e.row, r1: e.row + 1, tw: _pmLen + 1, th: 2 };
+      }
+      // 竖管（up/down）：2 宽 × (length+1) 高
       return { c0: e.col, c1: e.col + 1, r0: e.row, r1: e.row + _pmLen, tw: 2, th: _pmLen + 1 };
     }
     var fp = footprint(d, e.col, e.row);
@@ -386,6 +412,12 @@
       tw = d.ori === 'v' ? 1 : (d.count || 3);
       th = d.ori === 'v' ? (d.count || 3) : 1;
     }
+    if (d.id === 'pipe_mouth') {
+      var _pmLen0 = Math.max(1, Math.min(20, d.length || 1));
+      var _pmDir0 = d.dir || 'up';
+      if (_pmDir0 === 'left' || _pmDir0 === 'right') { tw = _pmLen0 + 1; th = 2; }
+      else { tw = 2; th = _pmLen0 + 1; }
+    }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
     row = Math.max(row, -EXTRA_TOP_ROWS);
@@ -399,10 +431,11 @@
       var _tmp = { id: d.id, col: col, row: row, lengths: (d.lengths || [1, 1]).slice(), rot: 0 };
       fp = footprintOf(_tmp);
     }
-    // pipe_mouth：用临时元素计算动态 length+1 的 footprint（避免用静态 d.th=4 误删下方方块）
+    // pipe_mouth：用临时元素计算动态 footprint（含方向）
     if (d.id === 'pipe_mouth') {
       var _pmLenTmp = Math.max(1, Math.min(20, d.length || 1));
-      fp = footprintOf({ id: 'pipe_mouth', col: col, row: row, length: _pmLenTmp });
+      var _pmDirTmp = d.dir || 'up';
+      fp = footprintOf({ id: 'pipe_mouth', col: col, row: row, length: _pmLenTmp, dir: _pmDirTmp });
     }
 
     // 移除占位重叠的实体
@@ -913,10 +946,11 @@
           dh2 = Math.round(im2.naturalHeight / 29 * TILE);
           dy2 = y + TILE - dh2;
         } else if (d.id === 'bg_midflag') {
-          // 中间旗：按原版 haikei(40,182,40,60) 的 40x60 像素绘制，旗底对齐放置格底
+          // 中间旗：格子对齐绘制——高度取整 2 格，占放置行+下一行（顶=放置行行顶，底=下一行行底），
+          // 宽度保持原版 40px 比例（左贴格线）；play.html convert 同步 sb=row*29
           dw2 = Math.round(40 / 29 * TILE);
-          dh2 = Math.round(60 / 29 * TILE);
-          dy2 = y + TILE - dh2;
+          dh2 = 2 * TILE;
+          dy2 = y;
         } else {
           dw2 = tw * TILE;
           dh2 = th * TILE;
@@ -1017,11 +1051,10 @@
         // 构造临时元素用于 drawElement + footprintOf
         var _pe = { id: d.id, col: col, row: row, len: d.len, length: d.length, dir: d.dir, rot: d.rot, ori: d.ori, count: d.count, w: d.w, h: d.h, drop: d.drop, warp: d.warp };
         drawElement(_pe, 0.55);
-        var fp = footprintOf(_pe);
+        var fp = fpRect(footprintOf(_pe));
         ctx.strokeStyle = 'rgba(20,80,255,0.9)';
         ctx.lineWidth = 2;
-        ctx.strokeRect(fp.c0 * TILE + 1, (fp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
-          (fp.c1 - fp.c0 + 1) * TILE - 2, (fp.r1 - fp.r0 + 1) * TILE - 2);
+        ctx.strokeRect(fp.x + 1, fp.y + 1, fp.w - 2, fp.h - 2);
       }
     } else if (hover && tool === 'eraser') {
       ctx.strokeStyle = 'rgba(255,40,40,0.9)';
@@ -1031,13 +1064,12 @@
 
     // 选中高亮框
     if (selected) {
-      var sfp = footprintOf(selected);
+      var sfp = fpRect(footprintOf(selected));
       ctx.save();
       ctx.strokeStyle = '#ff7a00';
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
-      ctx.strokeRect(sfp.c0 * TILE + 1, (sfp.r0 + EXTRA_TOP_ROWS) * TILE + 1,
-        (sfp.c1 - sfp.c0 + 1) * TILE - 2, (sfp.r1 - sfp.r0 + 1) * TILE - 2);
+      ctx.strokeRect(sfp.x + 1, sfp.y + 1, sfp.w - 2, sfp.h - 2);
       ctx.restore();
     }
 

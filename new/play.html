@@ -244,6 +244,7 @@ body.dragging #dropTip { display: flex; }
     bg_hill_house: 80, bg_grass: 81, bg_cloud_face: 82, bg_tree: 83,
     bg_cloud_angry: 84, bg_tree_round: 85, bg_lava: 86
   };
+  // 注：bg_midflag 虽在表中保留（原版字节网格兼容），但编辑器 JSON 走 convert 专属分支（格子对齐 sb）
   // 注：goal_pole(99) 单独处理（行号需钳制）；lift_* 走 lifts 数组（保留颜色/长度）
 
   // 特殊方块 → tyobi ttype（语义按新引擎/原版 main.cpp 实际行为）
@@ -321,6 +322,17 @@ body.dragging #dropTip { display: flex; }
       if (id === 'goal_pole') {
         if (r > 11) r = 11;               // 杆高 = (12-行) 格
         if (put(r, c, 99, e.uid)) used++;
+      } else if (id === 'bg_midflag') {
+        // 中间旗 stype=500：与编辑器格子对齐视觉一致——旗子占放置行顶 ~ 下一行行底
+        // （高2格58px）、宽40px左贴col格线；不走字节30（引擎 loadStage 写死 sb=(row*29-12)，
+        // 与格线对不齐）。碰撞 AABB sc/sd 精确匹配视觉 40×58
+        pipes.push({
+          sa: c * 2900, sb: (r * 29) * 100,
+          sc: 4000, sd: 5800,
+          stype: 500, sxtype: 0, sgtype: 0, sr: 0,
+          uid: e.uid || null
+        });
+        used++;
       } else if (TILE_VAL[id] !== undefined) {
         if (put(r, c, TILE_VAL[id], e.uid)) used++;
       } else if (LIFT_SRSP[id] !== undefined) {
