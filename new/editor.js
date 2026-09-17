@@ -195,7 +195,8 @@
         if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
         if (e.hintType) o.hintType = e.hintType;
         if (e.hintCustom) o.hintCustom = e.hintCustom;
-        if (e.hv != null) o.hv = e.hv;
+        if (e.pop) o.pop = e.pop;
+        if (e.mass) o.mass = true;
         return o;
       })
     };
@@ -456,6 +457,7 @@
     if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
     if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
     if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; }
+    if (d.id === 'block_question' || d.id === 'block_hidden') { ne.pop = d.pop || 'coin'; ne.mass = !!d.mass; }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
       ne.lengths = (d.lengths || [1, 1]).slice();
       ne.rot = 0;
@@ -687,38 +689,54 @@
       return;
     }
 
-    if (d.id === 'block_hidden') {
-      ctx.globalAlpha = a * 0.35;
-      var him = getImg(d);
-      if (him && him.complete) {
-        drawImg(him, x, y, TILE, TILE);
+    // 问号块/隐藏块：底图 + 弹出对象图标 + 量产角标
+    if (d.id === 'block_question' || d.id === 'block_hidden') {
+      var qpop = e.pop || d.pop || 'coin';
+      var qmass = !!e.mass;
+      var hidden = d.id === 'block_hidden';
+      var qImgId = qpop === 'mushroom' ? 'item_mushroom_red'
+        : qpop === 'poison' ? 'item_mushroom_purple'
+        : qpop === 'flower' ? 'item_flower'
+        : qpop === 'enemy' ? 'enemy_syobon'
+        : qpop === 'badstar' ? 'item_star'
+        : qpop === 'pswitch' ? 'b2_pswitch'
+        : 'item_coin';
+      var qImg = getImg(CAT.byId(qImgId));
+      if (hidden) {
+        // 隐形块：半透明内容物 + 按弹出对象着色的虚线框（游戏中完全不可见）
+        ctx.globalAlpha = a * 0.55;
+        if (qImg && qImg.complete) drawImg(qImg, x, y, TILE, TILE);
+        ctx.globalAlpha = 1;
+        ctx.setLineDash([4, 3]);
+        var qBC = { coin: '#e8c14d', poison: '#b04de8', pswitch: '#4db4e8',
+          mushroom: '#e05555', enemy: '#7dc95e', flower: '#ff9a3c', badstar: '#ffe14d' };
+        ctx.strokeStyle = qBC[qpop] || '#e8c14d';
+        ctx.lineWidth = Math.max(1.5, TILE / 20);
+        ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
+        ctx.setLineDash([]);
+      } else {
+        // 可见问号块：先画问号精灵，内容物非金币时叠加半透明内容图标
+        drawSprite(e, d, x, y, a);
+        if (qpop !== 'coin' && qImg && qImg.complete) {
+          ctx.globalAlpha = a * 0.55;
+          drawImg(qImg, x + TILE * 0.2, y + TILE * 0.2, TILE * 0.6, TILE * 0.6);
+          ctx.globalAlpha = 1;
+        }
       }
-      ctx.globalAlpha = 1;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = '#c00';
-      ctx.lineWidth = Math.max(1.5, TILE / 20);
-      ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
-      ctx.setLineDash([]);
-      return;
-    }
-
-    if (d.id === 'block_hidden_poison') {
-      // ttype=114：游戏中完全隐形，编辑器用半透明内容物 + 彩色虚线框揭示
-      // hv=0 紫毒蘑菇(紫框) / hv=2 金币(金框) / hv=10 P开关(蓝框)
-      var hpv = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
-      var hpImg = hpv === 2 ? getImg(CAT.byId('item_coin'))
-        : hpv === 10 ? getImg(CAT.byId('b2_pswitch'))
-          : getImg(CAT.byId('item_mushroom_purple'));
-      ctx.globalAlpha = a * 0.55;
-      if (hpImg && hpImg.complete) {
-        drawImg(hpImg, x, y, TILE, TILE);
+      if (qmass) {
+        // 量产角标：右上角金底“量”字
+        var bs = tilePx(11);
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#e8a000';
+        ctx.fillRect(x + TILE - bs - 1, y + 1, bs, bs);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.strokeRect(x + TILE - bs - 1, y + 1, bs, bs);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold ' + tilePx(8) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('量', x + TILE - bs / 2 - 1, y + 1 + bs / 2 + 0.5);
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = hpv === 0 ? '#b04de8' : (hpv === 2 ? '#e8c14d' : '#4db4e8');
-      ctx.lineWidth = Math.max(1.5, TILE / 20);
-      ctx.strokeRect(x + 1.5, y + 1.5, TILE - 3, TILE - 3);
-      ctx.setLineDash([]);
       return;
     }
 
@@ -1357,18 +1375,27 @@
       }
       propBody.appendChild(propRow('传送目标', fWarp, '进入管道后前往'));
     }
-    // 隐藏块(毒蘑菇) ttype=114：隐藏内容选择（对应原版 txtype 0/2/10）
-    var fHiddenV = null;
-    if (d.id === 'block_hidden_poison') {
-      fHiddenV = document.createElement('select');
-      [['0', '紫毒蘑菇（原版1-2管道旁陷阱）'], ['2', '金币（顶出金币后变脆弱块）'],
-       ['10', 'P开关联动（强化火焰棒）']].forEach(function (op) {
+    // 问号块/隐藏块：弹出对象（两者取并集）+ 是否量产（默认金币/否）
+    var fQPop = null, fQMass = null;
+    if (d.id === 'block_question' || d.id === 'block_hidden') {
+      var qPopOpts = [['coin', '金币（默认）'], ['mushroom', '红蘑菇'], ['poison', '毒蘑菇'],
+        ['enemy', '白猫怪（敌人）'], ['flower', '火焰花'], ['badstar', '坏星星'], ['pswitch', 'P开关']];
+      fQPop = document.createElement('select');
+      qPopOpts.forEach(function (op) {
         var o = document.createElement('option');
         o.value = op[0]; o.textContent = op[1];
-        fHiddenV.appendChild(o);
+        if ((selected.pop || d.pop || 'coin') === op[0]) o.selected = true;
+        fQPop.appendChild(o);
       });
-      fHiddenV.value = String((selected.hv === 2 || selected.hv === 10) ? selected.hv : 0);
-      propBody.appendChild(propRow('隐藏内容', fHiddenV, '游戏中完全隐形，从下方顶到才触发'));
+      propBody.appendChild(propRow('弹出对象', fQPop, '从下方顶到方块时弹出的内容'));
+      fQMass = document.createElement('select');
+      [['no', '否：只弹出一次（默认）'], ['yes', '是：量产（连续弹出）']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fQMass.appendChild(o);
+      });
+      fQMass.value = (selected.mass || d.mass) ? 'yes' : 'no';
+      propBody.appendChild(propRow('是否量产', fQMass, '金币连出20枚、其余每约16帧弹一个；P开关无量产'));
     }
     // 提示块：消息类型选择 + 自定义文本
     var fHintType = null, fHintText = null;
@@ -1435,7 +1462,10 @@
           selected.hintCustom = null;
         }
       }
-      if (fHiddenV) selected.hv = parseInt(fHiddenV.value, 10) || 0;
+      if (fQPop) {
+        selected.pop = fQPop.value;
+        selected.mass = fQMass.value === 'yes';
+      }
       // 连接管保存：per-port lengths + rot
       if (fPortInputs) {
         if (fCrot) selected.rot = ((parseInt(fCrot.value, 10) || 0) % 360 + 360) % 360;
@@ -2571,24 +2601,41 @@
     'bg_cloud_angry', 'bg_tree_round', 'bg_lava'];
   function wBlockId(type, xt) {
     xt = xt || 0;
-    if (type === 100) return 'block_brick';
-    if (type === 101) return xt === 0 ? 'block_q_enemy' : 'block_question';
-    if (type === 102) return 'block_q_mushroom';   // 红蘑菇/绿1up 问号块（绿1up 无独立元素）
-    if (type === 103) return 'block_q_poison';
-    if (type === 104) return 'block_q_badstar';
-    if (type === 110 || type === 111) return 'block_q_poison_mass';
-    if (type === 112 || type === 113) return 'block_q_coin_mass';
-    if (type === 114) return 'block_hidden_poison';   // 隠し毒きのこ：游戏中隐形，顶到才出紫毒蘑菇
-    if (type === 117) return xt === 1 ? 'b2_note_peach' : 'b2_note_white';
-    if (type === 120) return 'item_jumppad';
-    if (type === 130) return 'b2_on';
-    if (type === 131) return 'b2_off';
-    if (type === 140) return 'b2_sword';
-    if (type === 141) return 'b2_blade';
-    if (type === 142) return 'b2_pineapple';
-    if (type === 300) return 'b2_hint';
-    if (type === 400) return 'b2_pswitch';
-    if (type === 800) return 'item_coin';
+    if (type === 100) return { id: 'block_brick' };
+    // ttype=101 txtype：0=白猫怪 1=皇冠怪 3/10=火焰花 4=机器人（皇冠怪/机器人按敌人近似）
+    if (type === 101) return (xt === 3 || xt === 10)
+      ? { id: 'block_question', extra: { pop: 'flower' } }
+      : { id: 'block_question', extra: { pop: 'enemy' } };
+    if (type === 102) return { id: 'block_question', extra: { pop: 'mushroom' } };
+    if (type === 103) return { id: 'block_question', extra: { pop: 'poison' } };
+    if (type === 104) return { id: 'block_question', extra: { pop: 'badstar' } };
+    // 问号块出P开关（引擎新增 ttype=105：顶出后原地变P开关块400）
+    if (type === 105) return { id: 'block_question', extra: { pop: 'pswitch' } };
+    // 量产块（110→111）：xt 选择量产对象 0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星
+    if (type === 110 || type === 111) return {
+      id: 'block_question',
+      extra: { pop: ({ 1: 'enemy', 2: 'mushroom', 3: 'flower', 4: 'badstar' })[xt] || 'poison', mass: true }
+    };
+    if (type === 112 || type === 113) return { id: 'block_question', extra: { pop: 'coin', mass: true } };
+    // 隐藏块 txtype（弹出对象与问号块取并集）：
+    //   单发 0=毒蘑菇 2=金币 4=红蘑菇 6=白猫怪 8=火焰花 10=P开关 11=坏星
+    //   量产 12=金币 20=毒蘑菇 22=红蘑菇 26=白猫怪 28=火焰花 30=坏星
+    if (type === 114) {
+      var hM = { 12: 'coin', 20: 'poison', 22: 'mushroom', 26: 'enemy', 28: 'flower', 30: 'badstar' };
+      if (hM[xt] != null) return { id: 'block_hidden', extra: { pop: hM[xt], mass: true } };
+      var hS = { 0: 'poison', 2: 'coin', 4: 'mushroom', 6: 'enemy', 8: 'flower', 10: 'pswitch', 11: 'badstar' };
+      return { id: 'block_hidden', extra: { pop: hS[xt] || 'poison' } };
+    }
+    if (type === 117) return { id: xt === 1 ? 'b2_note_peach' : 'b2_note_white' };
+    if (type === 120) return { id: 'item_jumppad' };
+    if (type === 130) return { id: 'b2_on' };
+    if (type === 131) return { id: 'b2_off' };
+    if (type === 140) return { id: 'b2_sword' };
+    if (type === 141) return { id: 'b2_blade' };
+    if (type === 142) return { id: 'b2_pineapple' };
+    if (type === 300) return { id: 'b2_hint' };
+    if (type === 400) return { id: 'b2_pswitch' };
+    if (type === 800) return { id: 'item_coin' };
     return null;
   }
   function wEnemyId(t) {
@@ -2674,15 +2721,14 @@
     (def.blocks || []).forEach(function (b, bi) {
       var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
       note(col);
-      var bid = vid(wBlockId(b.type, b.xt));
-      var extra = null;
+      var wb = wBlockId(b.type, b.xt);
+      // 问号块/隐藏块带 pop/mass 属性时不套主题外观变体（变体是纯金币外观的字节块）
+      var plainQ = wb && (wb.id === 'block_question' || wb.id === 'block_hidden') && wb.extra;
+      var bid = (wb && !plainQ) ? vid(wb.id) : (wb ? wb.id : null);
+      var extra = wb && wb.extra ? JSON.parse(JSON.stringify(wb.extra)) : null;
       // 提示块：恢复 txtype → hintType
       if (b.type === 300 && b.xt >= 1 && b.xt <= 100) {
         extra = { hintType: String(b.xt) };
-      }
-      // 隐藏块(114)：保留原版 txtype 变体（0=紫毒蘑菇, 2=金币, 10=P开关联动）
-      if (b.type === 114) {
-        extra = { hv: (b.xt === 2 || b.xt === 10) ? b.xt : 0 };
       }
       add(bid, col, row, extra, 'b' + bi);
     });
@@ -3013,7 +3059,37 @@
     }
     // 新载入一关：重置 uid 占用表（uid 仅要求关卡内唯一）
     uidSeq = 0; uidSet = Object.create(null);
-    state.elements = data.elements.filter(function (e) {
+    // 旧档变体元素映射：问号块/隐藏块已统一为 pop/mass 属性模型
+    var LEGACY_QMAP = {
+      block_q_mushroom:    { pop: 'mushroom' },
+      block_q_enemy:       { pop: 'enemy' },
+      block_q_poison:      { pop: 'poison' },
+      block_q_poison_mass: { pop: 'poison', mass: true },
+      block_q_coin_mass:   { pop: 'coin', mass: true },
+      block_q_badstar:     { pop: 'badstar' }
+    };
+    var rawEls = data.elements.map(function (e) {
+      if (!e || typeof e.id !== 'string') return e;
+      if (LEGACY_QMAP[e.id]) {
+        var lm = LEGACY_QMAP[e.id];
+        var ne2 = {};
+        for (var lk in e) ne2[lk] = e[lk];
+        ne2.id = 'block_question';
+        ne2.pop = lm.pop;
+        ne2.mass = !!lm.mass;
+        return ne2;
+      }
+      if (e.id === 'block_hidden_poison') {
+        var nh = {};
+        for (var hk in e) nh[hk] = e[hk];
+        nh.id = 'block_hidden';
+        nh.pop = e.hv === 2 ? 'coin' : (e.hv === 10 ? 'pswitch' : 'poison');
+        nh.mass = false;
+        return nh;
+      }
+      return e;
+    });
+    state.elements = rawEls.filter(function (e) {
       return e && CAT.byId(e.id) && typeof e.col === 'number' && typeof e.row === 'number';
     }).map(function (e) {
       var ed = CAT.byId(e.id);
@@ -3025,8 +3101,11 @@
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
-      // 隐藏块(毒蘑菇)的隐藏内容变体（0=紫毒蘑菇 2=金币 10=P开关），必须保留 0
-      if (e.id === 'block_hidden_poison' && e.hv != null) out.hv = e.hv | 0;
+      // 问号块/隐藏块的弹出对象与量产标记（pop 必须保留，mass 默认 false）
+      if (e.id === 'block_question' || e.id === 'block_hidden') {
+        if (e.pop) out.pop = String(e.pop);
+        out.mass = !!e.mass;
+      }
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;

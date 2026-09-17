@@ -73,6 +73,13 @@ html, body {
   font-size: 13px;
 }
 
+/* ---------- 下拉选项可读性：深色select的下拉列表默认白底，选项文字继承浅色会白底白字不可见 ---------- */
+select { color-scheme: dark; }
+select option, select optgroup {
+  background: #1a1d24;
+  color: #d8dee9;
+}
+
 /* ---------- 主体三栏 ---------- */
 #main {
   flex: 1;
@@ -380,11 +387,11 @@ html, body {
 .prop-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .prop-row > label { min-width: 112px; color: #aab; }
 .prop-row input, .prop-row select {
-  flex: 1; background: #1a1d24; border: 1px solid #3a4152; color: #fff;
-  border-radius: 6px; padding: 6px 8px; font-size: 13px; min-width: 0;
+  flex: 0 1 auto; min-width: 130px; background: #1a1d24; border: 1px solid #3a4152; color: #fff;
+  border-radius: 6px; padding: 6px 8px; font-size: 13px;
 }
 .prop-row input:focus, .prop-row select:focus { outline: none; border-color: #5a7bd0; }
-.prop-row .prop-note { color: #778; font-size: 11px; }
+.prop-row .prop-note { color: #778; font-size: 11px; flex: 1 1 0; min-width: 90px; overflow-wrap: anywhere; }
 .prop-foot {
   display: flex; gap: 10px; justify-content: flex-end; padding: 12px 16px;
   background: #1f222a; border-top: 1px solid #3a4152;

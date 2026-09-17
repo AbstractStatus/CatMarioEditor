@@ -115,6 +115,19 @@
     playSeFile(id);
   };
 
+  // 停止指定音效（暂停并复位音效池中的对应元素）。
+  // 不传 id 时停止所有音效。用于阵亡时切断终点/通关等长曲目
+  // （goal.mp3、4-clear.mp3 等走音效池播放，bgmStop 停不掉）。
+  Audio.stopSe = function (id) {
+    Object.keys(sePools).forEach(function (k) {
+      if (id !== undefined && id !== null && Number(k) !== Number(id)) return;
+      var pool = sePools[k];
+      for (var i = 0; i < pool.length; i++) {
+        try { pool[i].pause(); pool[i].currentTime = 0; } catch (e) {}
+      }
+    });
+  };
+
   Audio.bgmChange = function (id) {
     if (currentBgm === id && bgmEl) return;
     currentBgm = id;

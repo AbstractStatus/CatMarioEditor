@@ -454,6 +454,8 @@
         ey: (hurtInfo.detail && hurtInfo.detail.ab !== undefined) ? hurtInfo.detail.ab : null
       });
       p.mkeytm = 12; p.mhp = -20; p.mtype = C.MTYPE.DEAD; p.mtm = 0;
+      // 终点/通关曲目走音效池，bgmStop 停不掉：阵亡时先切断再播死亡音效
+      A.stopSe(C.SE.GOAL); A.stopSe(C.SE.SWORD_CLEAR); A.stopSe(C.SE.ALL_CLEAR);
       A.playSE(C.SE.DEATH); A.bgmStop();
     }
     if (p.mtype === C.MTYPE.DEAD) {
@@ -713,18 +715,32 @@
             var e104 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 110, 0);
             e104.abrocktm = 16; if (b.uid) e104.uid = b.uid + '#item';
           }
+          if (b.ttype === 105 && xx[17] === 1) {
+            // 问号块出P开关（编辑器统一问号块新增）：原地变成P开关块(400)，站上去触发
+            A.playSE(8); b.ttype = 400;
+          }
           if (b.ttype === 110 && xx[17] === 1) { b.ttype = 111; b.thp = 999; }
           if (b.ttype === 111 && b.ta - state.fx >= 0) {
             b.thp++;
-            if (b.thp >= 16) { b.thp = 0; A.playSE(8); var e111 = spawnEnemy(b.ta, b.tb, 0, 0, 0, 102, 1); e111.abrocktm = 16; if (b.uid) e111.uid = b.uid + '#item'; }
+            if (b.thp >= 16) {
+              b.thp = 0; A.playSE(8);
+              // 量产对象由 txtype 选择（编辑器统一问号块）：
+              //   0=紫毒蘑菇(原版默认) 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星
+              var massMap = { 1: [0, 0], 2: [100, 0], 3: [101, 0], 4: [110, 0] };
+              var msp = massMap[b.txtype] || [102, 1];
+              var e111 = spawnEnemy(b.ta, b.tb, 0, 0, 0, msp[0], msp[1]);
+              e111.abrocktm = 16; if (b.uid) e111.uid = b.uid + '#item';
+            }
           }
           if (b.ttype === 112 && xx[17] === 1) { b.ttype = 113; b.thp = 999; b.titem = 0; }
           if (b.ttype === 113 && b.ta - state.fx >= 0) {
             if (b.titem <= 19) b.thp++;
             if (b.thp >= 3) { b.thp = 0; b.titem++; A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16); }
           }
-          // 隐藏毒蘑菇块（ttype=114，原版行 2323-2344）：平时隐形且不碰撞，仅从下方顶到时触发
-          // txtype=0：变已用块(3)并顶出紫毒蘑菇(atype102)；txtype=2：吐金币后变脆弱块(115)
+          // 隐藏块（ttype=114，原版行 2323-2344）：平时隐形且不碰撞，仅从下方顶到时触发
+          // 编辑器统一隐藏块的 txtype 语义（弹出对象与问号块取并集）：
+          //   单发：0=紫毒蘑菇(变3) 2=金币(变115脆弱块) 4=红蘑菇 6=白猫怪 8=火焰花 10=P开关(变400) 11=坏星
+          //   量产：12=金币(变113连出20枚) 20=毒蘑菇 22=红蘑菇 26=白猫怪 28=火焰花 30=坏星（变111循环）
           if (b.ttype === 114 && xx[17] === 1) {
             if (b.txtype === 0) {
               A.playSE(8); b.ttype = 3;
@@ -733,6 +749,23 @@
             } else if (b.txtype === 2) {
               A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
               b.ttype = 115; b.txtype = 0;
+            } else if (b.txtype === 12) {
+              // 金币量产：与 112→113 相同，立即出1枚后每3帧1枚共20枚
+              b.ttype = 113; b.thp = 999; b.titem = 0;
+            } else if (b.txtype === 20 || b.txtype === 22 || b.txtype === 26 || b.txtype === 28 || b.txtype === 30) {
+              // 量产：与 110→111 相同，立即出1个后每16帧1个持续弹出
+              // txtype 重映射到 111 量产循环的对象键（0毒 1白猫怪 2红蘑菇 3火焰花 4坏星）
+              b.ttype = 111; b.thp = 999;
+              b.txtype = { 20: 0, 22: 2, 26: 1, 28: 3, 30: 4 }[b.txtype];
+            } else if (b.txtype === 4 || b.txtype === 6 || b.txtype === 8 || b.txtype === 11) {
+              // 单发道具：4=红蘑菇 6=白猫怪 8=火焰花 11=坏星 → 生成后变已用块(3)
+              var hm114 = { 4: [100, 0], 6: [0, 0], 8: [101, 0], 11: [110, 0] }[b.txtype];
+              A.playSE(8); b.ttype = 3;
+              var hx114 = spawnEnemy(b.ta, b.tb, 0, 0, 0, hm114[0], hm114[1]);
+              if (hx114) { hx114.abrocktm = 16; if (b.uid) hx114.uid = b.uid + '#item'; }
+            } else if (b.txtype === 10) {
+              // P开关：原地变成P开关块（站上去触发全体方块变金币）
+              A.playSE(8); b.ttype = 400;
             }
           }
           // 提示块（ttype=300）：玩家从下方顶到时弹出消息框
@@ -1543,12 +1576,13 @@
         S.draw(ctx, 1, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 400) {
         S.draw(ctx, 2, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (b.ttype === 100 || b.ttype === 101 || b.ttype === 102 || b.ttype === 103 || b.ttype === 104) {
+      } else if (b.ttype === 100 || b.ttype === 101 || b.ttype === 102 || b.ttype === 103 || b.ttype === 104 || b.ttype === 105) {
         S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (b.ttype === 110 || b.ttype === 111) {
-        S.draw(ctx, 1 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (b.ttype === 112 || b.ttype === 113 || (b.ttype === 115 && b.txtype !== 1 && b.txtype !== 3)) {
-        // 原版行 1084：t115 txtype=0 与 111/113 同贴图
+      } else if (b.ttype === 110 || b.ttype === 112) {
+        // 量产问号块未顶过：显示问号块外观（与编辑器统一模型一致，原为砖块/硬块外观）
+        S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === 111 || b.ttype === 113 || (b.ttype === 115 && b.txtype !== 1 && b.txtype !== 3)) {
+        // 顶过后（量产中/已用）：已用块外观
         S.draw(ctx, 3 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 115 && (b.txtype === 1 || b.txtype === 3)) {
         // 原版行 1080/1098：t115 txtype=1/3 与 112/104 同贴图
@@ -1838,13 +1872,15 @@
         }
         _stepHold = true;                         // 按住时由 loop() 以 _STEP_RATE 连步
       }
-      if (e.keyCode === 32) {                     // Space: 加速
+      if (e.keyCode === 32) {                     // Space: 加速（不再跳跃）
         state.speedup = true;
+        e.preventDefault();
       }
     });
     window.addEventListener('keyup', function (e) {
       if (e.keyCode === 32) {
         state.speedup = false;
+        e.preventDefault();
       }
       if (e.keyCode === 70) {
         _stepHold = false;

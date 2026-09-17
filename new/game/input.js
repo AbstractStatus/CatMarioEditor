@@ -19,7 +19,7 @@
         case 39: return C.KEY.RIGHT;
         case 40: return C.KEY.DOWN;
         case 13: return C.KEY.CLICK;
-        case 32: return C.KEY.JUMP;
+        // 空格(32)不再映射为跳跃，仅保留引擎中的 2x 加速功能（跳跃用上箭头）
         default: return 0;
       }
     };
