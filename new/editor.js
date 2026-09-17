@@ -234,6 +234,7 @@
   var dragging = false;       // 是否正在拖动选中元素
   var dragOrigCol = 0, dragOrigRow = 0;   // 拖动开始时元素位置
   var dragStartCol = 0, dragStartRow = 0; // 拖动开始时鼠标所在格
+  var dblSeedUid = null;      // 双击第一下按下时该格已有元素的 uid（区分“双击已有元素”与“空白处放置”）
 
   // 命中测试：按图层从高到低，返回第一个覆盖 (col,row) 的元素
   function hitTest(col, row) {
@@ -2349,6 +2350,13 @@
     paintBtn = ev.button;
     paintedCells = {};
 
+    // 双击手势第一下（detail===1）按下时，记录该格“已存在”的元素；
+    // 供 dblclick 判定，避免空白处双击先触发放置、再误弹属性框
+    if (ev.button === 0 && ev.detail === 1) {
+      var _seedHit = hitTest(cell.col, cell.row);
+      dblSeedUid = _seedHit ? _seedHit.uid : null;
+    }
+
     if (ev.button === 2) {
       // 右键：取消当前工具选择，不擦除元素
       cancelTool();
@@ -2373,7 +2381,7 @@
         // 调试：点击选中时打印该元素实例完整数据（含 uid/自定义字段）
         console.log('[editor] 选中元素实例 [' + hit.uid + ']', JSON.parse(JSON.stringify(hit)));
         hintEl.textContent = '已选中：[' + hit.uid + '] ' + (CAT.byId(hit.id).name || hit.id) +
-          '（按住拖动可移动，按 Delete 删除，点上方"⚙ 属性"可编辑属性）';
+          '（双击可编辑属性，按住拖动可移动，按 Delete 删除）';
       } else if (tool) {
         // 空白处：放置当前工具元素
         pushHistory();
@@ -2457,6 +2465,18 @@
   });
   canvas.addEventListener('mouseleave', function () { hover = null; requestRender(); });
   canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  // 双击画布上已有元素：选中并弹出属性框（与上方“⚙ 属性”按钮同一弹窗）
+  canvas.addEventListener('dblclick', function (ev) {
+    ev.preventDefault();
+    var cell = evtCell(ev);
+    var hit = hitTest(cell.col, cell.row);
+    // 仅当双击起始时该位置已有同一元素才弹窗（空白处双击放置元素不弹、橡皮擦除后不弹）
+    if (!hit || !dblSeedUid || hit.uid !== dblSeedUid) return;
+    selected = hit;
+    updatePropBtn();
+    requestRender();
+    openPropModal();
+  });
   // 左侧栏右键：取消工具选择
   paletteEl.addEventListener('contextmenu', function (ev) {
     ev.preventDefault();
