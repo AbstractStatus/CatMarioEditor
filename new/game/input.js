@@ -24,7 +24,17 @@
       }
     };
 
+    // 事件来自表单控件（如镜头宽度滑块）时放行：
+    // 不注入游戏按键，也不能 preventDefault（否则方向键/Home/End 无法调节控件）
+    var fromControl = function (e) {
+      var t = e.target;
+      if (!t || !t.tagName) return false;
+      var tag = t.tagName;
+      return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || t.isContentEditable;
+    };
+
     var onKeyDown = function (e) {
+      if (fromControl(e)) return;
       var b = map(e.keyCode);
       if (b) {
         keyState |= b;
@@ -32,6 +42,7 @@
       }
     };
     var onKeyUp = function (e) {
+      if (fromControl(e)) return;
       var b = map(e.keyCode);
       if (b) {
         keyState &= ~b;

@@ -49,6 +49,26 @@
       justify-content: center;
       font-size: 14px;
     }
+    /* 镜头宽度调节条（#wrap 80vh + #viewbar 20vh = 100vh） */
+    #viewbar {
+      height: 20vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      background: #000;
+      color: #ccc;
+      font-size: 13px;
+      user-select: none;
+    }
+    #viewbar input[type="range"] {
+      width: 42vw;
+      max-width: 460px;
+      accent-color: #48b048;
+      cursor: pointer;
+    }
+    #viewbar .vw-end { color: #888; font-size: 12px; }
+    #viewbar .vw-label { color: #ddd; }
   </style>
 </head>
 <body>
@@ -56,6 +76,13 @@
     <canvas id="game"></canvas>
     <div id="loading">加载中...</div>
     <div id="hint"></div>
+  </div>
+  <div id="viewbar">
+    <span class="vw-label">镜头宽度</span>
+    <span class="vw-end">正方形</span>
+    <input type="range" id="vieww" min="0" max="100" step="1" value="100"
+           title="向左拖动收窄镜头（最小与高度相等），向右占满页面宽度">
+    <span class="vw-end">满宽</span>
   </div>
 
   <!-- 关卡数据 -->
@@ -66,18 +93,44 @@
   <script src="constants.js?v=3"></script>
   <script src="sprites.js?v=hd2"></script>
   <script src="audio.js?v=6"></script>
-  <script src="input.js?v=4"></script>
+  <script src="input.js?v=5"></script>
   <script src="elements.js?v=3"></script>
   <script src="levels.js?v=1"></script>
-  <script src="engine.js?v=hd6"></script>
+  <script src="engine.js?v=hd7"></script>
 
   <script>
     (function () {
       var canvas = document.getElementById('game');
       var hint = document.getElementById('hint');
       var loading = document.getElementById('loading');
+      var wrap = document.getElementById('wrap');
 
       GameEngine.init(canvas);
+
+      // ---- 镜头宽度调节 ----
+      // factor: 0 = 宽=高（正方形，虚拟宽 420）；1 = 占满页面宽度
+      // 引擎 resizeCanvas 每帧读取 canvas 的实际 CSS 尺寸并同步 FXMAX，
+      // 这里只需控制 canvas.style.width，选择自动居中（#wrap 为 flex 容器）
+      var VIEW_W_KEY = 'catmario_view_factor';
+      var viewFactor = parseFloat(localStorage.getItem(VIEW_W_KEY));
+      if (!(viewFactor >= 0 && viewFactor <= 1)) viewFactor = 1;
+      var viewSlider = document.getElementById('vieww');
+      viewSlider.value = String(Math.round(viewFactor * 100));
+
+      function applyViewWidth() {
+        var maxW = wrap.clientWidth;              // 上限：页面满宽
+        var h = wrap.clientHeight;                // 画布高（80vh）
+        var minW = Math.min(maxW, h);             // 下限：与高度相等的正方形
+        var w = Math.round(minW + viewFactor * (maxW - minW));
+        canvas.style.width = w + 'px';
+      }
+      viewSlider.addEventListener('input', function () {
+        viewFactor = viewSlider.value / 100;
+        localStorage.setItem(VIEW_W_KEY, String(viewFactor));
+        applyViewWidth();
+      });
+      window.addEventListener('resize', applyViewWidth);
+      applyViewWidth();
 
       // 首次用户交互解锁音频
       var audioUnlocked = false;

@@ -43,6 +43,22 @@ canvas#canvas {
   font-size: 14px;
 }
 
+/* 镜头宽度调节条（固定在底部剩余区域，#wrap=80vh+顶40px） */
+#viewbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  height: calc(20vh - 40px);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: #000; color: #ccc; font-size: 13px;
+  user-select: none;
+}
+#viewbar input[type="range"] {
+  width: 42vw; max-width: 460px;
+  accent-color: #48b048;
+  cursor: pointer;
+}
+#viewbar .vw-end { color: #888; font-size: 12px; }
+#viewbar .vw-label { color: #ddd; }
+
 /* 悬浮顶栏：半透明覆盖在画面顶部，不占布局空间 */
 #topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 5;
@@ -155,6 +171,15 @@ body.dragging #dropTip { display: flex; }
   <div id="loading">加载中...</div>
 </div>
 
+<!-- 镜头宽度调节条 -->
+<div id="viewbar">
+  <span class="vw-label">镜头宽度</span>
+  <span class="vw-end">正方形</span>
+  <input type="range" id="vieww" min="0" max="100" step="1" value="100"
+         title="向左拖动收窄镜头（最小与高度相等），向右占满页面宽度">
+  <span class="vw-end">满宽</span>
+</div>
+
 <!-- 悬浮顶栏 -->
 <div id="topbar">
   <b>🐱 猫里奥 · 自定义关卡试玩</b>
@@ -205,10 +230,10 @@ body.dragging #dropTip { display: flex; }
 <script src="constants.js?v=custom2"></script>
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom3"></script>
-<script src="input.js?v=custom3"></script>
+<script src="input.js?v=custom4"></script>
 <script src="elements.js?v=evlog13"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd6"></script>
+<script src="engine.js?v=hd7"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js"></script>
 <script>
@@ -867,6 +892,35 @@ body.dragging #dropTip { display: flex; }
   GameEngine.init(canvas);
   setStatus('引擎已就绪', 'ok');
   setTimeout(function () { loadingEl.style.display = 'none'; }, 500);
+
+  /* ---------- 镜头宽度调节 ----------
+   * factor: 0 = 宽=高（正方形，虚拟宽 420）；1 = 占满页面宽度
+   * 引擎 resizeCanvas 每帧读取 canvas 的实际 CSS 尺寸并同步 FXMAX，
+   * 这里只控制 canvas.style.width，#wrap 为 flex 容器自动居中。
+   * 与 game/index.html 共用 localStorage 键，两处设置互通。 */
+  (function () {
+    var VIEW_W_KEY = 'catmario_view_factor';
+    var wrapEl = document.getElementById('wrap');
+    var slider = document.getElementById('vieww');
+    var factor = parseFloat(localStorage.getItem(VIEW_W_KEY));
+    if (!(factor >= 0 && factor <= 1)) factor = 1;
+    slider.value = String(Math.round(factor * 100));
+
+    function applyViewWidth() {
+      var maxW = wrapEl.clientWidth;            // 上限：页面满宽
+      var h = wrapEl.clientHeight;              // 画面高（80vh）
+      var minW = Math.min(maxW, h);             // 下限：与高度相等的正方形
+      var w = Math.round(minW + factor * (maxW - minW));
+      canvas.style.width = w + 'px';
+    }
+    slider.addEventListener('input', function () {
+      factor = slider.value / 100;
+      localStorage.setItem(VIEW_W_KEY, String(factor));
+      applyViewWidth();
+    });
+    window.addEventListener('resize', applyViewWidth);
+    applyViewWidth();
+  })();
 
   // 传送管道口（stype=60）：进入后按目标切换世界或游戏结束
   GameEngine.setWarpHandler(function (warp) {

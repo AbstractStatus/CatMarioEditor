@@ -1788,16 +1788,17 @@
   var _STEP_DELAY = 300;             // 按住 300ms 后开始连步（同系统 repeat 初延迟）
   var _STEP_RATE = 50;               // 连步间隔 50ms ≈ 20 步/秒
 
-  // ---- 响应式：等比例缩放 + 镜头变宽 ----
+  // ---- 响应式：等比例缩放 + 镜头宽度可变 ----
   // 策略：
   //   1) 以画布高度为基准，取 baseScale = canvas.height / 420（等比例缩放所有虚拟坐标）
-  //   2) 画布实际宽度除以 baseScale = virtW，作为虚拟宽度（可变，镜头变宽）
+  //   2) 画布实际宽度除以 baseScale = virtW，作为虚拟宽度（可变，镜头宽度由宿主控制）
   //   3) 动态更新 C.CANVAS_W / C.FXMAX，使剔除 / 背景 / 精灵绘制覆盖新的虚拟宽度
+  //   virtW 下限 = 420（CSS 宽=高，画面正方形），无上限（随页面宽度占满）
   var _BASE_CANVAS_W = C.CANVAS_W;
   var _BASE_CANVAS_H = C.CANVAS_H;
   var _BASE_FXMAX = C.FXMAX;
   var _baseScale = 1;       // 等比例缩放系数
-  var _virtW = C.CANVAS_W;  // 当前虚拟宽度（>= 480，可变）
+  var _virtW = C.CANVAS_W;  // 当前虚拟宽度（420~..., 可变；420=与高度相等的正方形）
 
   function resizeCanvas() {
     if (!canvas) return;
@@ -1813,7 +1814,7 @@
     if (canvas.width === newW && canvas.height === newH) {
       // 即使尺寸没变也更新虚拟宽度（DPR/窗口变宽时 FXMAX 仍要刷新）
       _baseScale = newH / _BASE_CANVAS_H;
-      _virtW = Math.max(_BASE_CANVAS_W, Math.round(newW / _baseScale));
+      _virtW = Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
       C.CANVAS_W = _virtW;
       C.FXMAX    = _virtW * 100;
       return;
@@ -1822,7 +1823,7 @@
     canvas.width  = newW;
     canvas.height = newH;
     _baseScale = newH / _BASE_CANVAS_H;
-    _virtW = Math.max(_BASE_CANVAS_W, Math.round(newW / _baseScale));
+    _virtW = Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
     C.CANVAS_W = _virtW;
     C.FXMAX    = _virtW * 100;
   }
