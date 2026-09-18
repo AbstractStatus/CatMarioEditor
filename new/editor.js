@@ -197,6 +197,7 @@
         if (e.hintCustom) o.hintCustom = e.hintCustom;
         if (e.pop) o.pop = e.pop;
         if (e.mass) o.mass = true;
+        if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
         return o;
       })
     };
@@ -232,6 +233,7 @@
   // ---------- 选中 / 拖动 ----------
   var selected = null;        // 当前选中的元素（state.elements 中的引用）
   var dragging = false;       // 是否正在拖动选中元素
+  var dragCommitted = false;  // 本次拖动是否已真正移位并入撤销栈（仅单击选中不入栈）
   var dragOrigCol = 0, dragOrigRow = 0;   // 拖动开始时元素位置
   var dragStartCol = 0, dragStartRow = 0; // 拖动开始时鼠标所在格
   var dblSeedUid = null;      // 双击第一下按下时该格已有元素的 uid（区分“双击已有元素”与“空白处放置”）
@@ -316,6 +318,10 @@
 
   function footprintOf(e) {
     var d = CAT.byId(e.id);
+    if (d.id === '_trapzone') {
+      // 内部陷阱触发区：空区间 footprint——hitTest 选不中、eraseAt 擦不掉、不参与占格
+      return { c0: e.col, c1: e.col - 1, r0: e.row, r1: e.row - 1, tw: 0, th: 0 };
+    }
     if (d.id === 'bg_midflag') {
       // 中间旗：格子对齐——旗子占放置行顶 ~ 下一行行底（高 2 格整）、左贴 col 格线，
       // 宽保持原版 40px 比例；选中框 = pixel 精确矩形，与视觉完全重合且上下左三边贴格线
@@ -397,7 +403,8 @@
   // 实体类：占格互斥（方块/管道/旗杆/升降台/机关块）
   // player_start / bg_midflag 不参与互斥（中间旗是背景装饰，可与方块同格）
   function isSolid(d) {
-    return d.cat === 'block' || (d.cat === 'struct' && d.id !== 'player_start' && d.id !== 'bg_midflag');
+    return d.cat === 'block' ||
+      (d.cat === 'struct' && d.id !== 'player_start' && d.id !== 'bg_midflag' && d.id !== '_trapzone');
   }
 
   function placeAt(col, row) {
@@ -578,6 +585,7 @@
   function drawElement(e, alpha) {
     var d = CAT.byId(e.id);
     if (!d) return;
+    if (d.id === '_trapzone') return;   // 内部陷阱触发区：画布完全不可见（引擎侧默认同样不可见）
     var x = e.col * TILE, y = (e.row + EXTRA_TOP_ROWS) * TILE;
     var a = alpha == null ? 1 : alpha;
 
@@ -2369,11 +2377,12 @@
     } else {
       var hit = hitTest(cell.col, cell.row);
       if (hit) {
-        // 命中已有元素：选中并准备拖动
-        pushHistory();
+        // 命中已有元素：仅选中；单击/双击不产生编辑历史（避免误清空原版世界高保真 def），
+        // 真正发生拖动移位时才在 mousemove 中把拖动前状态压入撤销栈
         inStroke = true;
         selected = hit;
         dragging = true;
+        dragCommitted = false;
         dragOrigCol = hit.col;
         dragOrigRow = hit.row;
         dragStartCol = cell.col;
@@ -2431,6 +2440,9 @@
       nc = Math.max(0, Math.min(state.cols - tw, nc));
       nr = Math.max(-EXTRA_TOP_ROWS, Math.min(ROWS - th, nr));
       if (nc !== selected.col || nr !== selected.row) {
+        // 首次真正移位：先把拖动前状态压入撤销栈（snapshot 必须在改坐标之前），
+        // 仅单击选中不移动时不产生历史、不丢失原版世界高保真 def
+        if (!dragCommitted) { pushHistory(); dragCommitted = true; }
         selected.col = nc;
         selected.row = nr;
       }
@@ -2460,7 +2472,8 @@
     inStroke = false;
     if (dragging) {
       dragging = false;
-      persist();
+      if (dragCommitted) persist();   // 仅真正移位后才自动保存
+      dragCommitted = false;
     }
   });
   canvas.addEventListener('mouseleave', function () { hover = null; requestRender(); });
@@ -2797,8 +2810,15 @@
         else if (p.mov) fdir = horiz ? 'down' : 'right';
         else fdir = 'down';
         add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir }, puid);
+      } else if (p.stype >= 100 && p.stype <= 104) {
+        // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
+        // 编辑器暂不暴露为可放置元素，以内部元素 _trapzone 保留原始世界坐标，
+        // 试玩 convert 时 1:1 还原；刷新恢复、编辑其他元素都不会使其丢失
+        add('_trapzone', col, row, {
+          trap: { stype: p.stype, sxtype: p.sxtype || 0, sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd }
+        }, puid);
       } else {
-        skip++;   // 51 其他变体/52 下落块、100-103 陷阱区/火焰管/消息、40 进入管等暂不在编辑器暴露
+        skip++;   // 51 其他变体/52 下落块、火焰管/消息、40 进入管等暂不在编辑器暴露
       }
     });
     // 4) 敌人/道具触发器（ba/bb 世界单位）
@@ -3144,6 +3164,15 @@
         } else {
           out.lengths = (ed.lengths || [1, 1]).slice();
         }
+      }
+      // 内部陷阱触发区：原样保留 stype/sxtype + 世界坐标矩形（sa/sb/sc/sd）
+      if (e.id === '_trapzone' && e.trap && typeof e.trap === 'object') {
+        var tz = e.trap;
+        out.trap = {
+          stype: Math.max(100, Math.min(104, tz.stype | 0)),
+          sxtype: tz.sxtype | 0,
+          sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0
+        };
       }
       // 管道口字段放行：length + dir + entry
       if (e.id === 'pipe_mouth') {

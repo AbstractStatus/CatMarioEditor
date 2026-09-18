@@ -414,6 +414,15 @@ body.dragging #dropTip { display: flex; }
         } else {
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
+      } else if (id === '_trapzone') {
+        // 内部陷阱触发区（原版 stype 100-104，非实体 AABB）：原始世界坐标 1:1 还原
+        // 100猫脸怪 / 101幽灵天降 / 102按sxtype天降敌人 / 103激光炮 / 104光束
+        var tz = e.trap || {};
+        pipes.push({
+          sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0,
+          stype: tz.stype | 0, sxtype: tz.sxtype | 0, uid: e.uid || null
+        });
+        used++;
       } else if (id === 'pipe_mouth') {
         var pmLen = Math.max(1, Math.min(20, e.length | 0 || 1));
         var pmDir = e.dir || 'up';
