@@ -1045,6 +1045,39 @@
           }
           break;
         case 5: xx[10] = 160; break;
+        case 6:
+          // デフラグさん（方块机器人）：原版 main.cpp:3035-3085
+          xx[10] = 120;   // 平时贴地行走速度
+          if (e.atm >= 10) {
+            e.atm++;
+            if (p.mhp >= 1) {
+              // 抓住玩家期间（atm 11~19）：把玩家锁在头顶（ab 上方 30px），机器人停步
+              if (e.atm <= 19) { p.ma = e.aa; p.mb = e.ab - 3000; p.mtype = C.MTYPE.NORMAL; }
+              xx[10] = 0;
+              // atm==20：向右上方抛出玩家（mc=700 / md=-1200），锁键 24 帧
+              if (e.atm === 20) {
+                p.mc = 700; p.mkeytm = 24; p.md = -1200;
+                p.mb = e.ab - 1000 - 3000;
+                e.amuki = 1;
+                if (e.axtype === 1) { p.mc = 840; e.axtype = 0; }
+              }
+              if (e.atm === 40) { e.amuki = 0; e.atm = 0; }
+            }
+          }
+          if (e.atm >= 220) { e.atm = 0; e.amuki = 0; }
+          // 他の敵を投げる：碰到道具类敌人(atype>=100)时举过头顶再抛出
+          // （abrocktm=120：先上升 20 帧，到 100 时按通用逻辑 ad=-1200/ac=700 弹出）
+          for (var ri = 0; ri < state.enemies.length; ri++) {
+            var re = state.enemies[ri];
+            if (re === e || re.aa < -800000 || re.atype < 100) continue;
+            if (e.aa + e.anobia > re.aa + 500 && e.aa < re.aa + re.anobia - 500 &&
+                e.ab + e.anobib > re.ab - 800 &&
+                e.ab + e.anobib < re.ab + 6300) {
+              re.amuki = 1; re.aa = e.aa + 300; re.ab = e.ab - 3000; re.abrocktm = 120;
+              e.atm = 200; e.amuki = 1;
+            }
+          }
+          break;
         case 7:
           e.azimentype = 0;
           xx[11] = 400;
@@ -1181,6 +1214,9 @@
               e.axtype = 1;
             }
           }
+          // デフラグさん：从上方接触也进入抓取流程（原版 main.cpp:3540-3542），
+          // 不弹死玩家；随后通用反弹逻辑本帧仍会播踩踏音/轻弹，下一帧起被抓取锁定覆盖
+          if (e.atype === 6) { e.atm = 10; p.md = 0; p.actaon[2] = 0; }
           if (e.atype === 7) e.aa = -900000;
           if (e.atype === 85) {
             if (xx[25] === 0) { A.playSE(5); p.mb = xx[9] - 4000; p.md = -1000; e.axtype = 5; }
@@ -1203,10 +1239,14 @@
         if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200)) {
           if (p.mmutekion !== 1 && p.mtype !== C.MTYPE.DEAD) {
             if ((e.atype !== 2 || e.axtype !== 0) && p.mhp >= 1) {
-              markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype, aa: e.aa, ab: e.ab });
-              p.mhp -= 1;
-              _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
+              // 方块机器人(atype=6)接触不造成伤害：改为抓住玩家并抛投（原版 main.cpp:3586-3597）
+              if (e.atype !== 6) {
+                markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype, aa: e.aa, ab: e.ab });
+                p.mhp -= 1;
+                _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
+              }
             }
+            if (e.atype === 6) e.atm = 10;
           }
         }
         // 道具拾取

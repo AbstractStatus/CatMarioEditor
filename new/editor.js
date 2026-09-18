@@ -972,6 +972,13 @@
           dw2 = Math.round(im2.naturalWidth / 29 * TILE);
           dh2 = Math.round(im2.naturalHeight / 29 * TILE);
           dy2 = y + TILE - dh2;
+        } else if (d.id === 'enemy_robot') {
+          // 方块机器人占 2 格高但精灵为 36x50：按 manifest 逻辑比例绘制（不拉伸），
+          // 脚底对齐占格底边（与游戏中落地姿态一致）；左侧贴格线，宽 36 向右微溢出
+          var rd = designSize[d.img] || { w: im2.naturalWidth, h: im2.naturalHeight };
+          dw2 = Math.round(rd.w / 29 * TILE);
+          dh2 = Math.round(rd.h / 29 * TILE);
+          dy2 = y + 2 * TILE - dh2;
         } else if (d.id === 'bg_midflag') {
           // 中间旗：格子对齐绘制——高度取整 2 格，占放置行+下一行（顶=放置行行顶，底=下一行行底），
           // 宽度保持原版 40px 比例（左贴格线）；play.html convert 同步 sb=row*29
