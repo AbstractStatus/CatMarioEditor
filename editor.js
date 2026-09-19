@@ -319,8 +319,8 @@
   function footprintOf(e) {
     var d = CAT.byId(e.id);
     if (d.id === '_trapzone') {
-      // 内部陷阱触发区：空区间 footprint——hitTest 选不中、eraseAt 擦不掉、不参与占格
-      return { c0: e.col, c1: e.col - 1, r0: e.row, r1: e.row - 1, tw: 0, th: 0 };
+      // 陷阱触发区：仅显示起始区域（1×2 格标记），实际 AABB（trap.sc/sd）保留给试玩，不在画布展开
+      return { c0: e.col, c1: e.col, r0: e.row, r1: e.row + 1, tw: 1, th: 2 };
     }
     if (d.id === 'bg_midflag') {
       // 中间旗：格子对齐——旗子占放置行顶 ~ 下一行行底（高 2 格整）、左贴 col 格线，
@@ -427,6 +427,7 @@
       if (_pmDir0 === 'left' || _pmDir0 === 'right') { tw = _pmLen0 + 1; th = 2; }
       else { tw = 2; th = _pmLen0 + 1; }
     }
+    if (d.id === '_trapzone') { tw = 1; th = 2; }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
     row = Math.max(row, -EXTRA_TOP_ROWS);
@@ -471,6 +472,16 @@
       ne.rot = 0;
     }
     if (d.xt) ne.xt = d.xt;
+    if (d.id === '_trapzone') {
+      ne.trap = {
+        stype: d.trapStype || 101,
+        sxtype: d.trapSxtype || 0,
+        sa: col * 2900,
+        sb: (row * 29 - 12) * 100,
+        sc: d.trapW || 7000,
+        sd: d.trapH || 70000
+      };
+    }
     if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
     state.elements.push(ne);
     if (d.warpable) { selected = ne; updateWarpSel(); }
@@ -585,7 +596,32 @@
   function drawElement(e, alpha) {
     var d = CAT.byId(e.id);
     if (!d) return;
-    if (d.id === '_trapzone') return;   // 内部陷阱触发区：画布完全不可见（引擎侧默认同样不可见）
+    if (d.id === '_trapzone') {
+      // 陷阱触发区：仅绘制起始标记（1×2 格），不展开完整 AABB（过程区域不显示）
+      var tz = e.trap || {};
+      var tx = e.col * TILE, ty = (e.row + EXTRA_TOP_ROWS) * TILE;
+      var tw = TILE, th = 2 * TILE;
+      ctx.save();
+      ctx.globalAlpha = a * 0.9;
+      var st = tz.stype || d.trapStype || 101;
+      var colors = { 100: '#ff5c5c', 101: '#c084fc', 102: '#fbbf24', 103: '#38bdf8', 104: '#34d399' };
+      var col = colors[st] || '#ff00ff';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(tx + 1, ty + 1, tw - 2, th - 2);
+      ctx.setLineDash([]);
+      // 标签
+      var names = { 100: '猫脸', 101: '幽灵', 102: '天降', 103: '激光', 104: '光束' };
+      var label = names[st] || st;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = col;
+      ctx.fillRect(tx, ty, tw, 15);
+      ctx.fillStyle = '#0b0e14';
+      ctx.fillText(label, tx + 3, ty + 12);
+      ctx.restore();
+      return;
+    }
     var x = e.col * TILE, y = (e.row + EXTRA_TOP_ROWS) * TILE;
     var a = alpha == null ? 1 : alpha;
 
@@ -1355,6 +1391,21 @@
       });
       propBody.appendChild(propRow('开口方向', fPmDir, '决定管口朝向和管身延伸方向'));
     }
+    // 陷阱触发区：stype + sxtype
+    var fTzStype = null, fTzSxtype = null;
+    if (d.id === '_trapzone') {
+      var tz0 = selected.trap || {};
+      fTzStype = document.createElement('select');
+      [['100', '100：猫脸怪（地面生成白幽灵）'], ['101', '101：天降白幽灵'],
+        ['102', '102：按 sxtype 天降敌人'], ['103', '103：激光炮'], ['104', '104：光束']].forEach(function (op) {
+        var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+        if (String(tz0.stype || d.trapStype || 101) === op[0]) o.selected = true;
+        fTzStype.appendChild(o);
+      });
+      propBody.appendChild(propRow('触发类型', fTzStype, '玩家进入 AABB 区域时触发'));
+      fTzSxtype = numInput(0, 999, tz0.sxtype != null ? tz0.sxtype : (d.trapSxtype || 0));
+      propBody.appendChild(propRow('子类型 sxtype', fTzSxtype, '102 用：0=4白猫/9=3幽灵天降/10=转101 等'));
+    }
     if (d.id.indexOf('lift_') === 0) {
       fLen = numInput(1, 50, liftLen(selected));
       propBody.appendChild(propRow('平台长度', fLen, '格'));
@@ -1519,6 +1570,14 @@
         }
       }
       if (fPmDir) selected.dir = fPmDir.value;
+      // 陷阱触发区保存：stype/sxtype + 同步 sa/sb 到新坐标
+      if (fTzStype) {
+        if (!selected.trap) selected.trap = { sa: selected.col * 2900, sb: (selected.row * 29 - 12) * 100, sc: d.trapW || 7000, sd: d.trapH || 70000 };
+        selected.trap.stype = Math.max(100, Math.min(104, parseInt(fTzStype.value, 10) || 101));
+        selected.trap.sxtype = Math.max(0, parseInt(fTzSxtype.value, 10) || 0);
+        selected.trap.sa = selected.col * 2900;
+        selected.trap.sb = (selected.row * 29 - 12) * 100;
+      }
       persist();
       requestRender();
       closePropModal();
@@ -2442,6 +2501,7 @@
         tw = fdi.ori === 'h' ? fdi.count : 1;
         th = fdi.ori === 'h' ? 1 : fdi.count;
       }
+      if (d.id === '_trapzone') { tw = 1; th = 2; }
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
       nc = Math.max(0, Math.min(state.cols - tw, nc));
@@ -2452,6 +2512,11 @@
         if (!dragCommitted) { pushHistory(); dragCommitted = true; }
         selected.col = nc;
         selected.row = nr;
+        // 陷阱触发区：拖动时同步世界坐标 sa/sb
+        if (selected.id === '_trapzone' && selected.trap) {
+          selected.trap.sa = nc * 2900;
+          selected.trap.sb = (nr * 29 - 12) * 100;
+        }
       }
       requestRender();
       return;
@@ -2819,7 +2884,7 @@
         add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir }, puid);
       } else if (p.stype >= 100 && p.stype <= 104) {
         // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
-        // 编辑器暂不暴露为可放置元素，以内部元素 _trapzone 保留原始世界坐标，
+        // 以 _trapzone 元素保留原始世界坐标，画布以虚线框可视化，可编辑 stype/sxtype、可拖动，
         // 试玩 convert 时 1:1 还原；刷新恢复、编辑其他元素都不会使其丢失
         add('_trapzone', col, row, {
           trap: { stype: p.stype, sxtype: p.sxtype || 0, sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd }

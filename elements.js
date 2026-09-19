@@ -83,9 +83,11 @@
       img: 'vector/pipe_top.png', tw: 2, th: 1, mapId: 40, hint: '原版内部用：grid字节40 → 顶部帽' },
     { id: 'block_pipe_body', cat: 'block', name: '管道砖(身)', kind: 'sprite', internal: true,
       img: 'vector/pipe_body.png', tw: 2, th: 1, mapId: 41, hint: '原版内部用：grid字节41/43/44 → 管身' },
-    { id: '_trapzone', cat: 'struct', name: '陷阱触发区(内部)', kind: 'special', internal: true,
-      tw: 1, th: 1, hint: '原版 stype 100-104 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：' +
-        '画布不可见、不可选、不参与占格，仅随原版世界保留原始世界坐标，试玩时 1:1 还原，刷新或编辑其他元素均不丢失' },
+    { id: '_trapzone', cat: 'struct', name: '陷阱触发区', kind: 'special', img: 'enemy/enemy_ghost.png',
+      tw: 1, th: 1, trapStype: 101, trapSxtype: 0, trapW: 7000, trapH: 70000,
+      hint: '原版 stype 100-104 非实体 AABB 触发区：玩家进入区域时触发。' +
+        '100=猫脸怪(生成白幽灵) / 101=天降白幽灵 / 102=按sxtype天降敌人 / 103=激光炮 / 104=光束。' +
+        '画布以虚线框显示，可调 stype/sxtype，试玩时 1:1 还原' },
 
     // ================= 方块（特殊机关块，brock2.png） =================
     { id: 'b2_hint', cat: 'block', name: '提示块(橙圆)', kind: 'sprite', img: 'block/b2_hint.png',
