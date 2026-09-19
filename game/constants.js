@@ -208,7 +208,7 @@
     OVERWORLD: 1, UNDERGROUND: 2, CASTLE: 4
   };
 
-  // ---- 资源路径（相对于 new/game/）----
+  // ---- 资源路径（相对于 game/）----
   C.RES = {
     SPRITE_DIR: '../assets/sprites/',
     AUDIO_DIR: '../assets/audio/',

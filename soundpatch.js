@@ -9,7 +9,7 @@
  *
  *  补丁做两件事：
  *  1. 劫持 AudioBufferSourceNode.start：三参数调用且偏移/时长命中音效
- *     切片表时，不播原切片，改为用 HTMLAudio 播放 new/soundEffect/ 下
+ *     切片表时，不播原切片，改为用 HTMLAudio 播放 soundEffect/ 下
  *     的拆分 mp3（池化元素支持同名音效重叠播放）；stop 同样劫持以
  *     支持 soundstop（如玩家阵亡时 goal.mp3 停止）。
  *  2. 劫持 XMLHttpRequest：把引擎对 snd/se1.mp3、snd/se2.mp3 的请求

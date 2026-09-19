@@ -1,5 +1,5 @@
 var fs = require('fs');
-var src = fs.readFileSync('r:/PythonNewProcject/NewCatMarioEditor/new/stage11_data.js', 'utf8');
+var src = fs.readFileSync('r:/PythonNewProcject/NewCatMarioEditor/stage11_data.js', 'utf8');
 var m = src.match(/window\.STAGE11_IMAGE_B64\s*=\s*"([^"]+)"/);
 var data = Buffer.from(m[1], 'base64');
 var rows = 17, cols = 646;
