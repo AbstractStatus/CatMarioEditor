@@ -15,7 +15,7 @@ import os
 import re
 import json
 
-SRC = os.path.join(os.path.dirname(__file__), "..", "..", "catmario", "src", "main.cpp")
+SRC = os.path.join(os.path.dirname(__file__), "..", "tiwb_catmario", "src", "main.cpp")
 OUT = os.path.join(os.path.dirname(__file__), "..", "stages_data.js")
 
 # ---- 安全表达式求值（仅允许数字与 + - * ( ) 空格）----
@@ -254,9 +254,12 @@ def main():
         scrollx = ev(sx_m.group(1)) if sx_m else 3600 * 100
 
         # ma/mb 在 stage() 顶部初始化为 5600/32000（main.cpp:1649），部分关卡在分支内
-        # 显式覆盖（如 1-2 的 ma=7500/mb=27000）。正则在分支内找不到时回退到默认值。
-        ma_m = re.search(r"\bma\s*=\s*([^;]+?)\s*;", body)
-        mb_m = re.search(r"\bmb\s*=\s*([^;]+?)\s*;", body)
+        # 显式覆盖（如 1-4 的 ma=12000/mb=6000）。正则在分支内找不到时回退到默认值。
+        # 注意排除 stagepoint 条件块（如 1-3 的 if(stagepoint==1){ma=4500;mb=-3000;}），
+        # 那是子关卡传送回来的回归点，不是关卡初始出生点
+        body_spawn = "\n".join(ln for ln in body.splitlines() if "stagepoint" not in ln)
+        ma_m = re.search(r"\bma\s*=\s*([^;]+?)\s*;", body_spawn)
+        mb_m = re.search(r"\bmb\s*=\s*([^;]+?)\s*;", body_spawn)
         # 直接输出世界坐标（ma/mb 同系），引擎按原单位放置；
         # 不再换算为编辑器像素口径，避免出生点被二次偏移
         spawn = {"ma": ev(ma_m.group(1)) if ma_m else 5600,
