@@ -231,9 +231,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom4"></script>
 <script src="input.js?v=custom4"></script>
-<script src="elements.js?v=evlog14"></script>
+<script src="elements.js?v=evlog16"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd11"></script>
+<script src="engine.js?v=hd13"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js?v=shell12"></script>
 <script>
@@ -591,6 +591,7 @@ body.dragging #dropTip { display: flex; }
           stype: 51, sxtype: id === 'block_fall_d' ? 1 : 0,
           mov: { axis: fAxis, dir: fSign },
           delay: fDelay,
+          chain: e.chain || null,
           uid: e.uid || null
         });
       } else if (id === 'player_start') {

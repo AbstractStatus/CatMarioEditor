@@ -223,11 +223,30 @@
   //   2) 通用配置 mov={axis:'x'|'y', dir:-1|1}（编辑器"坠落砖组"）：横排沿 y、竖排沿 x，
   //      长轴"完全进入"+ 位于运动方向一侧时触发，四方向均可。
   // delay 属性（秒，默认0）：触发后等待指定秒数才开始坠落（延时期间保持实体可踩）。
+  // chain 属性（默认空=靠近触发）：本砖组被触发时联动触发目标砖组（按 uid 引用，
+  //   目标按自身 delay 倒计时后坠落）；沿链递归传播，已触发的目标不重复触发（天然防环）。
   // physics 返回 true = 本帧运动中，引擎跳过该实体的常规碰撞。
+
+  // 链式触发：沿 chain 引用递归触发后续坠落砖组（stype=51），各自按自身 delay 倒计时
+  function triggerFallChain(s, state, depth) {
+    if (!s.chain || depth > 8) return;
+    var list = state.pipes || [];
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (t.uid && t.uid === s.chain && t.stype === 51 && t.sgtype === 0) {
+        t.sgtype = 1;
+        if (t.sr == null) t.sr = 0;
+        t.sdelay = Math.max(0, Math.round((t.delay || 0) * 60));
+        triggerFallChain(t, state, depth + 1);
+      }
+    }
+  }
+
   PipeTypes[51] = {
     solid: true,
     physics: function (p, s, xx, state) {
       var C = getC();
+      var chainTrig = false;   // sxtype=1/2 连锁触发（旧引擎语义：立即坠落、不外传链）
       if (s.sgtype === 0) {
         var triggered = false;
         if (s.mov) {
@@ -245,12 +264,34 @@
               : (p.ma > s.sa + s.sc + 200);        // 向右：玩家在右侧
           }
           if (longIn && onSide) triggered = true;
-        } else if (s.sxtype === 0 || s.sxtype === 1 || s.sxtype === 2 || s.sxtype === 10) {
+        } else if (s.sxtype === 0 || s.sxtype === 10) {
           // 经典横排：右缘越过第一块砖（sxtype10 余量 1200）+ 脚底在砖组顶下方
-          // sxtype=1/2（1-2-1 连锁桥）沿用同款玩家触发条件，延时由 delay 提供
           var margin = s.sxtype === 10 ? 1200 : 3200;
           if (p.ma + p.mnobia > s.sa + margin && p.ma + p.mnobia < s.sa + s.sc - 200 &&
               p.mb + p.mnobib > s.sb + 3000) triggered = true;
+        } else if (s.sxtype === 1 || s.sxtype === 2) {
+          if (s.chain) {
+            // 旧引擎连锁崩塌桥（main.cpp:2484-2488，1-2-1）：不自触发（无靠近检测），
+            // 仅当链式监视目标坠落到位后触发，延时无效、立即坠落：
+            //   sxtype=1：目标坠落至绝对高度 sb>=25000 且玩家右缘在目标左侧（回头陷阱）
+            //   sxtype=2：目标坠落至绝对高度 sb>=48000 且玩家存活
+            var tgt = null;
+            for (var fi = 0; fi < state.pipes.length; fi++) {
+              var fp = state.pipes[fi];
+              if (fp !== s && fp.uid && fp.uid === s.chain) { tgt = fp; break; }
+            }
+            if (tgt && tgt.stype === 51) {
+              var th = s.sxtype === 1 ? 25000 : 48000;
+              if (tgt.sb >= th) {
+                if (s.sxtype === 1) { if (tgt.sa > p.ma + p.mnobia) { triggered = true; chainTrig = true; } }
+                else if (p.mhp >= 1) { triggered = true; chainTrig = true; }
+              }
+            }
+          } else {
+            // 兜底：未接线（编辑器单独放置的地下砖组）→ 退化为靠近触发（同 sxtype=0），延时有效
+            if (p.ma + p.mnobia > s.sa + 3200 && p.ma + p.mnobia < s.sa + s.sc - 200 &&
+                p.mb + p.mnobib > s.sb + 3000) triggered = true;
+          }
         } else if (s.sxtype === 3 || s.sxtype === 4) {
           // 城堡二维砖块阵：玩家到达固定高度且水平进入时坠落（sxtype4 带 100 初速）
           var hmin = s.sxtype === 3 ? 30000 : 25000;
@@ -263,8 +304,15 @@
         if (triggered) {
           s.sgtype = 1;
           if (s.sr == null) s.sr = 0;
-          // 延时：触发后等待 delay 秒才开始运动（sdelay 单位=帧）
-          s.sdelay = Math.max(0, Math.round((s.delay || 0) * 60));
+          if (chainTrig) {
+            // 连锁崩塌桥：旧引擎无延时概念，立即坠落
+            s.sdelay = 0;
+          } else {
+            // 延时：触发后等待 delay 秒才开始运动（sdelay 单位=帧）
+            s.sdelay = Math.max(0, Math.round((s.delay || 0) * 60));
+            // 链式触发：联动触发 chain 指向的目标砖组
+            triggerFallChain(s, state, 0);
+          }
         }
       }
 

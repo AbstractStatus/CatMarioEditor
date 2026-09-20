@@ -188,16 +188,21 @@
     });
 
     // 管道
+    var _fbCreated = [];   // stype=51 砖组创建记录（原版连锁自动接线用）
     def.pipes.forEach(function (p) {
       var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0, uid: p.uid || null };
+      if (p.stype === 51) _fbCreated.push({ p: p, pipe: pipe });
       // stype=60 传送管道口：保留传送目标 {end,id}
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
       // stype=51 延时（秒）：convert 路径由元素 delay 提供；原版 sxtype=1/2（1-2-1 连锁桥）
-      // 无 delay 字段，注入近似值（原版链式触发 ≈ 前块坠落到位的耗时）
+      // 无 delay 字段，注入兜底值（仅当连锁自动接线未命中目标时才生效——
+      // 接线成功后走旧引擎连锁语义，物理侧忽略 delay）
       if (p.delay != null) pipe.delay = Math.max(0, +p.delay || 0);
       else if (p.stype === 51 && (p.sxtype === 1 || p.sxtype === 2)) pipe.delay = p.sxtype === 1 ? 0.5 : 1;
+      // stype=51 链式触发：目标砖组 uid（触发本组时联动触发目标，目标按自身 delay 倒计时）
+      if (p.chain) pipe.chain = String(p.chain);
       // 自定义元素管道：保留 _custom 用于渲染
       if (p._custom) pipe._custom = p._custom;
       // connector 统一边框 pipe（stype 76）：保留 lengths + dirs
@@ -207,6 +212,27 @@
       if (p.dir) pipe.dir = p.dir;
       state.pipes.push(pipe);
     });
+
+    // 原版 1-2-1 连锁崩塌桥自动接线（无显式 chain 的 sxtype=1/2）：
+    // 按管线顺序（=旧引擎 sa[] 数组顺序）sxtype=1 → 首个 sxtype=0 砖组、sxtype=2 → 首个 sxtype=1 砖组。
+    // 接线后走旧引擎连锁语义（监视目标绝对高度 sb>=25000/48000 + 玩家位置/存活条件），
+    // 未找到目标则保持 delay 兜底（靠近触发）。
+    (function () {
+      for (var wi = 0; wi < _fbCreated.length; wi++) {
+        var w = _fbCreated[wi];
+        if (w.p.chain) continue;
+        var sx = w.p.sxtype || 0;
+        if (sx !== 1 && sx !== 2) continue;
+        var want = (sx === 1) ? 0 : 1;
+        for (var wj = 0; wj < _fbCreated.length; wj++) {
+          var c = _fbCreated[wj];
+          if (c === w || (c.p.sxtype || 0) !== want) continue;
+          if (!c.pipe.uid) c.pipe.uid = '_fb' + wj;   // 原版数据无 uid，补内部编号
+          w.pipe.chain = c.pipe.uid;
+          break;
+        }
+      }
+    })();
 
     // 注册自定义 stype（>=700）到 PipeTypes，提供实体碰撞 + 图片渲染
     def.pipes.forEach(function (p) {

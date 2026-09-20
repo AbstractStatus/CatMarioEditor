@@ -201,6 +201,7 @@
         if (e.count != null) o.count = e.count;
         if (e.dir) o.dir = e.dir;
         if (e.delay != null) o.delay = e.delay;
+        if (e.chain) o.chain = e.chain;   // 坠落砖组链式触发目标 uid
         if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
         return o;
       })
@@ -269,7 +270,8 @@
     var delay = (e && e.delay != null) ? +e.delay : (d.delay != null ? d.delay : 0);
     if (!isFinite(delay) || delay < 0) delay = 0;
     if (delay > 10) delay = 10;
-    return { ori: ori, count: count, dir: dir, delay: delay };
+    var chain = (e && e.chain) ? String(e.chain) : '';
+    return { ori: ori, count: count, dir: dir, delay: delay, chain: chain };
   }
 
   // 悬挂站台属性（元素实例缺省时取元素定义默认值）
@@ -1294,7 +1296,7 @@
     propBody.appendChild(posRow);
 
     var fTotal = null, fRot = null, fLen = null, fWarp = null;
-    var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null;
+    var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
       fTotal = numInput(1, 21, (selected.xt || d.xt || 5) + 1);
@@ -1342,6 +1344,37 @@
       fFallDelay = numInput(0, 10, fi0.delay);
       fFallDelay.step = '0.5';
       propBody.appendChild(propRow('延时(秒)', fFallDelay, '触发后等待再坠落，0=立即；延时期间砖组可踩'));
+
+      // 链式触发：本砖组被触发时联动触发目标砖组（目标按自身延时坠落）；默认无=靠近触发
+      fFallChain = document.createElement('select');
+      var _fcNone = document.createElement('option');
+      _fcNone.value = '__none__'; _fcNone.textContent = '无（靠近触发）';
+      fFallChain.appendChild(_fcNone);
+      var _fcFound = false;
+      state.elements.forEach(function (el) {
+        if (el === selected || (el.id !== 'block_fall' && el.id !== 'block_fall_d')) return;
+        var eld = CAT.byId(el.id);
+        var o = document.createElement('option');
+        o.value = el.uid || '';
+        o.textContent = '#' + (el.uid || '?') + ' ' + (eld ? eld.name : el.id) + ' (' + el.col + ',' + el.row + ')';
+        fFallChain.appendChild(o);
+        if (el.uid && el.uid === fi0.chain) _fcFound = true;
+      });
+      if (fi0.chain) {
+        // 悬空引用（目标已删除）：保留原值并标注，便于重新指定或清除
+        if (!_fcFound) {
+          var oDangle = document.createElement('option');
+          oDangle.value = fi0.chain;
+          oDangle.textContent = '(悬空) #' + fi0.chain;
+          fFallChain.appendChild(oDangle);
+        }
+        fFallChain.value = fi0.chain;
+      } else {
+        fFallChain.value = '__none__';
+      }
+      propBody.appendChild(propRow('链式触发', fFallChain, d.id === 'block_fall_d'
+        ? '监视目标砖组（旧引擎1-2-1连锁）：目标坠落到位(高度25000/48000)且玩家位置满足时本组崩塌，延时无效；未选=靠近触发'
+        : '本组被触发（含被链式触发）时，联动触发所选砖组；多级链条依次传播'));
     }
     // 连接管：每端口长度编辑
     var fPortInputs = null, fPortIdxs = null, fCrot = null;
@@ -1537,6 +1570,11 @@
           if (!isFinite(nDelay) || nDelay < 0) nDelay = 0;
           if (nDelay > 10) nDelay = 10;
           selected.delay = Math.round(nDelay * 2) / 2;   // 0.5 秒步进
+        }
+        if (fFallChain) {
+          var nChain = (fFallChain.value === '__none__' || !fFallChain.value) ? '' : fFallChain.value;
+          if (nChain) selected.chain = nChain;
+          else delete selected.chain;   // 空引用不落盘
         }
       }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
@@ -2859,6 +2897,8 @@
       add(bid, col, row, extra, 'b' + bi);
     });
     // 3) 独立管道/墙体（sa/sb 世界单位）
+    // 1-2-1 连锁崩塌桥自动接线记忆：最近 sxtype=0 砖组 uid（_faUid）/ sxtype=1 砖组 uid（_fb1Uid）
+    var _faUid = null, _fb1Uid = null;
     (def.pipes || []).forEach(function (p, pi) {
       var col = Math.round(p.sa / 100 / 29), row = Math.round((p.sb / 100 + 12) / 29);
       note(col);
@@ -2902,16 +2942,21 @@
         if (p.mov && p.mov.dir < 0) fdir = horiz ? 'up' : 'left';
         else if (p.mov) fdir = horiz ? 'down' : 'right';
         else fdir = 'down';
-        add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir }, puid);
+        add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir, chain: p.chain || '' }, puid);
+        _faUid = puid;   // 记忆最近 sxtype=0 砖组（供 sxtype=1 连锁监视接线）
       } else if (p.stype === 51 && (p.sxtype === 1 || p.sxtype === 2) && p.sc >= p.sd) {
         // 坠落砖组·延时（sxtype=1/2 地下砖横排，1-2-1 连锁崩塌桥）：
-        // 原版链式触发（前块坠落到阈值后连锁），通用化为 delay 延时
+        // 旧引擎连锁（main.cpp:2484-2488）：sxtype=1 监视首个 sxtype=0 砖组（其坠落至
+        // sb>=25000 且玩家右缘在其左侧才崩塌）；sxtype=2 监视 sxtype=1 砖组（坠落至
+        // sb>=48000 且玩家存活）。按管线顺序自动接线，引擎 loadStage 同规则兜底
         var fdnum = Math.round((p.sc + 1) / 3000);
         fdnum = Math.max(2, Math.min(12, fdnum || 3));
         add('block_fall_d', col, row, {
           ori: 'h', count: fdnum, dir: 'down',
-          delay: p.delay != null ? +p.delay : (p.sxtype === 1 ? 0.5 : 1)
+          delay: p.delay != null ? +p.delay : (p.sxtype === 1 ? 0.5 : 1),
+          chain: p.chain || (p.sxtype === 1 ? _faUid : _fb1Uid) || ''
         }, puid);
+        if (p.sxtype === 1) _fb1Uid = puid;   // 记忆最近 sxtype=1 砖组（供 sxtype=2 接线）
       } else if (p.stype >= 100 && p.stype <= 104) {
         // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
         // 以 _trapzone 元素保留原始世界坐标，画布以虚线框可视化，可编辑 stype/sxtype、可拖动，
@@ -3258,6 +3303,7 @@
         if (e.count != null) out.count = e.count | 0;
         if (e.dir) out.dir = String(e.dir);
         if (e.delay != null) out.delay = Math.max(0, +e.delay || 0);
+        if (e.chain) out.chain = String(e.chain);   // 链式触发目标 uid（悬空引用运行时自动忽略）
       }
       // 连接管字段放行：rot + lengths 数组
       if (e.id === 'pipe_cross' || e.id === 'pipe_tee' || e.id === 'pipe_L_a' || e.id === 'pipe_L_b') {
