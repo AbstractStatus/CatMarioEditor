@@ -197,6 +197,10 @@
         if (e.hintCustom) o.hintCustom = e.hintCustom;
         if (e.pop) o.pop = e.pop;
         if (e.mass) o.mass = true;
+        if (e.ori) o.ori = e.ori;
+        if (e.count != null) o.count = e.count;
+        if (e.dir) o.dir = e.dir;
+        if (e.delay != null) o.delay = e.delay;
         if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
         return o;
       })
@@ -252,9 +256,9 @@
 
   function cellKey(c, r) { return c + ',' + r; }
 
-  // 坠落砖组属性（元素实例缺省时取元素定义默认值）
+  // 坠落砖组属性（元素实例缺省时取元素定义默认值；block_fall_d 为地下砖延时变体）
   function fallInfo(e) {
-    var d = CAT.byId('block_fall');
+    var d = CAT.byId((e && e.id) || 'block_fall') || CAT.byId('block_fall');
     var ori = (e && e.ori === 'v') ? 'v' : 'h';
     var count = (e && e.count != null) ? (e.count | 0) : (d.count || 3);
     if (!count || count < 2) count = 2;
@@ -262,7 +266,10 @@
     var dir = (e && e.dir) || d.dir || 'down';
     var valid = ori === 'h' ? { up: 1, down: 1 } : { left: 1, right: 1 };
     if (!valid[dir]) dir = ori === 'h' ? 'down' : 'left';
-    return { ori: ori, count: count, dir: dir };
+    var delay = (e && e.delay != null) ? +e.delay : (d.delay != null ? d.delay : 0);
+    if (!isFinite(delay) || delay < 0) delay = 0;
+    if (delay > 10) delay = 10;
+    return { ori: ori, count: count, dir: dir, delay: delay };
   }
 
   // 悬挂站台属性（元素实例缺省时取元素定义默认值）
@@ -286,7 +293,7 @@
       var pw = elDef.w || 5;
       return { c0: col, c1: col + pw - 1, r0: row, r1: row, tw: pw, th: 1 };
     }
-    if (elDef.id === 'block_fall') {
+    if (elDef.id === 'block_fall' || elDef.id === 'block_fall_d') {
       // 坠落砖组：横排 1×count，竖排 count×1（放置预览按定义默认属性）
       var fc = elDef.count || 3, fhoriz = elDef.ori !== 'v';
       return fhoriz
@@ -335,7 +342,7 @@
       var pi = platInfo(e);
       return { c0: e.col, c1: e.col + pi.w - 1, r0: e.row, r1: e.row, tw: pi.w, th: 1 };
     }
-    if (d.id === 'block_fall') {
+    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
       var fi = fallInfo(e);
       return fi.ori === 'h'
         ? { c0: e.col, c1: e.col + fi.count - 1, r0: e.row, r1: e.row, tw: fi.count, th: 1 }
@@ -417,7 +424,7 @@
     var len = d.len || tw;
     if (d.id.indexOf('lift_') === 0) { tw = len; }
     if (d.id === 'platform_hang') { tw = d.w || 5; th = 1; }
-    if (d.id === 'block_fall') {
+    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
       tw = d.ori === 'v' ? 1 : (d.count || 3);
       th = d.ori === 'v' ? (d.count || 3) : 1;
     }
@@ -464,7 +471,10 @@
     var ne = { id: d.id, col: col, row: row, uid: nextUid() };
     if (d.id.indexOf('lift_') === 0) ne.len = len;
     if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
-    if (d.id === 'block_fall') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down'; }
+    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
+      ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down';
+      ne.delay = (d.delay != null) ? d.delay : 0;
+    }
     if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; }
     if (d.id === 'block_question' || d.id === 'block_hidden') { ne.pop = d.pop || 'coin'; ne.mass = !!d.mass; }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
@@ -706,10 +716,11 @@
       return;
     }
 
-    if (d.id === 'block_fall') {
+    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
       // count 张砖块精灵按横/竖拼接，中心叠加红色方向箭头标识机关
+      // block_fall 用普通砖、block_fall_d 用地下砖（各取元素定义 img）
       var fi = fallInfo(e);
-      var bimg = getImg(CAT.byId('block_brick'));
+      var bimg = getImg(d);
       ctx.globalAlpha = a;
       for (var bi = 0; bi < fi.count; bi++) {
         var bx = fi.ori === 'h' ? x + bi * TILE : x;
@@ -1107,13 +1118,13 @@
         var _hLen = (d.id === 'pipe_mouth') ? Math.max(1, Math.min(20, d.length || 1))
           : (d.id.indexOf('lift_') === 0 ? (d.len || 4)
           : (d.id === 'platform_hang' ? (d.w || 5)
-          : (d.id === 'block_fall' ? (d.count || 3) : 1)));
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? (d.count || 3) : 1)));
         var _hTh = (d.id === 'pipe_mouth') ? (_hLen + 1)
           : (d.id.indexOf('lift_') === 0 ? 1
           : (d.id === 'platform_hang' ? 1
-          : (d.id === 'block_fall' ? ((d.ori === 'v') ? _hLen : 1) : (d.th || 1))));
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'v') ? _hLen : 1) : (d.th || 1))));
         var _hTw = (d.id === 'platform_hang') ? _hLen
-          : (d.id === 'block_fall' ? ((d.ori === 'h') ? _hLen : 1)
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'h') ? _hLen : 1)
           : (d.tw || 1));
         var col = Math.min(hover.col, Math.max(0, state.cols - _hTw));
         var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - _hTh);
@@ -1283,7 +1294,7 @@
     propBody.appendChild(posRow);
 
     var fTotal = null, fRot = null, fLen = null, fWarp = null;
-    var fFallOri = null, fFallCount = null, fFallDir = null;
+    var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
       fTotal = numInput(1, 21, (selected.xt || d.xt || 5) + 1);
@@ -1291,8 +1302,8 @@
       fRot = numInput(0, 359, ((selected.rot || 0) % 360 + 360) % 360);
       propBody.appendChild(propRow('初始角度', fRot, '度，顺时针，0=向右'));
     }
-    if (d.id === 'block_fall') {
-      // 坠落砖组：排列（横/竖）、砖块数（2-12）、移动方向（横排=上/下，竖排=左/右）
+    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
+      // 坠落砖组：排列（横/竖）、砖块数（2-12）、移动方向（横排=上/下，竖排=左/右）、延时（秒）
       var fi0 = fallInfo(selected);
       fFallOri = document.createElement('select');
       [['h', '横排（左右连排）'], ['v', '竖排（上下连排）']].forEach(function (op) {
@@ -1327,6 +1338,10 @@
           : (old === 'left' || old === 'right' ? old : 'left'));
       });
       propBody.appendChild(propRow('移动方向', fFallDir, '玩家完全进入后触发，运动中碰到即阵亡'));
+
+      fFallDelay = numInput(0, 10, fi0.delay);
+      fFallDelay.step = '0.5';
+      propBody.appendChild(propRow('延时(秒)', fFallDelay, '触发后等待再坠落，0=立即；延时期间砖组可踩'));
     }
     // 连接管：每端口长度编辑
     var fPortInputs = null, fPortIdxs = null, fCrot = null;
@@ -1517,6 +1532,12 @@
         // 超界钳制（横排不超右界，竖排不超底界）
         if (nOri === 'h') selected.col = Math.min(selected.col, state.cols - nCnt);
         else selected.row = Math.min(selected.row, ROWS - nCnt);
+        if (fFallDelay) {
+          var nDelay = parseFloat(fFallDelay.value);
+          if (!isFinite(nDelay) || nDelay < 0) nDelay = 0;
+          if (nDelay > 10) nDelay = 10;
+          selected.delay = Math.round(nDelay * 2) / 2;   // 0.5 秒步进
+        }
       }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
         ? { end: true, id: null } : { end: false, id: fWarp.value };
@@ -2496,7 +2517,7 @@
       var tw = (d.tw || 1), th = (d.th || 1);
       if (d.id.indexOf('lift_') === 0) tw = liftLen(selected);
       if (d.id === 'platform_hang') { tw = platInfo(selected).w; th = 1; }
-      if (d.id === 'block_fall') {
+      if (d.id === 'block_fall' || d.id === 'block_fall_d') {
         var fdi = fallInfo(selected);
         tw = fdi.ori === 'h' ? fdi.count : 1;
         th = fdi.ori === 'h' ? 1 : fdi.count;
@@ -2882,6 +2903,15 @@
         else if (p.mov) fdir = horiz ? 'down' : 'right';
         else fdir = 'down';
         add('block_fall', col, row, { ori: fori, count: fnum, dir: fdir }, puid);
+      } else if (p.stype === 51 && (p.sxtype === 1 || p.sxtype === 2) && p.sc >= p.sd) {
+        // 坠落砖组·延时（sxtype=1/2 地下砖横排，1-2-1 连锁崩塌桥）：
+        // 原版链式触发（前块坠落到阈值后连锁），通用化为 delay 延时
+        var fdnum = Math.round((p.sc + 1) / 3000);
+        fdnum = Math.max(2, Math.min(12, fdnum || 3));
+        add('block_fall_d', col, row, {
+          ori: 'h', count: fdnum, dir: 'down',
+          delay: p.delay != null ? +p.delay : (p.sxtype === 1 ? 0.5 : 1)
+        }, puid);
       } else if (p.stype >= 100 && p.stype <= 104) {
         // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
         // 以 _trapzone 元素保留原始世界坐标，画布以虚线框可视化，可编辑 stype/sxtype、可拖动，
@@ -3223,10 +3253,11 @@
         if (e.h != null) out.h = e.h | 0;
         out.drop = !!e.drop;
       }
-      if (e.id === 'block_fall') {
+      if (e.id === 'block_fall' || e.id === 'block_fall_d') {
         if (e.ori === 'h' || e.ori === 'v') out.ori = e.ori;
         if (e.count != null) out.count = e.count | 0;
         if (e.dir) out.dir = String(e.dir);
+        if (e.delay != null) out.delay = Math.max(0, +e.delay || 0);
       }
       // 连接管字段放行：rot + lengths 数组
       if (e.id === 'pipe_cross' || e.id === 'pipe_tee' || e.id === 'pipe_L_a' || e.id === 'pipe_L_b') {

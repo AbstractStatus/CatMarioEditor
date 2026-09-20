@@ -194,6 +194,10 @@
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
+      // stype=51 延时（秒）：convert 路径由元素 delay 提供；原版 sxtype=1/2（1-2-1 连锁桥）
+      // 无 delay 字段，注入近似值（原版链式触发 ≈ 前块坠落到位的耗时）
+      if (p.delay != null) pipe.delay = Math.max(0, +p.delay || 0);
+      else if (p.stype === 51 && (p.sxtype === 1 || p.sxtype === 2)) pipe.delay = p.sxtype === 1 ? 0.5 : 1;
       // 自定义元素管道：保留 _custom 用于渲染
       if (p._custom) pipe._custom = p._custom;
       // connector 统一边框 pipe（stype 76）：保留 lengths + dirs

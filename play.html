@@ -231,9 +231,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom4"></script>
 <script src="input.js?v=custom4"></script>
-<script src="elements.js?v=evlog13"></script>
+<script src="elements.js?v=evlog14"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd10"></script>
+<script src="engine.js?v=hd11"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js?v=shell12"></script>
 <script>
@@ -573,8 +573,9 @@ body.dragging #dropTip { display: flex; }
           lengths: _portLens.slice(),
           dirs: _dirs.slice()
         });
-      } else if (id === 'block_fall') {
+      } else if (id === 'block_fall' || id === 'block_fall_d') {
         // 坠落砖组 stype=51：横排沿 y / 竖排沿 x，玩家完全进入长轴区域并处于运动方向一侧时触发
+        // block_fall（sxtype=0 普通砖）/ block_fall_d（sxtype=1 地下砖·延时变体）
         var fOri = e.ori === 'v' ? 'v' : 'h';
         var fCnt = Math.max(2, Math.min(12, e.count | 0 || 3));
         var fDir = e.dir || 'down';
@@ -582,12 +583,14 @@ body.dragging #dropTip { display: flex; }
         if (fOri === 'v' && fDir !== 'left' && fDir !== 'right') fDir = 'left';
         var fAxis = fOri === 'h' ? 'y' : 'x';
         var fSign = (fDir === 'up' || fDir === 'left') ? -1 : 1;
+        var fDelay = (e.delay != null) ? Math.max(0, +e.delay || 0) : (id === 'block_fall_d' ? 0.5 : 0);
         pipes.push({
           sa: x * 100, sb: y * 100,
           sc: fOri === 'h' ? fCnt * 3000 - 1 : 3000,
           sd: fOri === 'h' ? 3000 : fCnt * 3000 - 1,
-          stype: 51, sxtype: 0,
+          stype: 51, sxtype: id === 'block_fall_d' ? 1 : 0,
           mov: { axis: fAxis, dir: fSign },
+          delay: fDelay,
           uid: e.uid || null
         });
       } else if (id === 'player_start') {

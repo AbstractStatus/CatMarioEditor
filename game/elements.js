@@ -218,9 +218,11 @@
   //   1) 经典关卡（无 mov）：sxtype=0 横排砖块，玩家完全进入水平区域且在下方时坠落，
   //      运动中无实体碰撞、碰到玩家即致死（main.cpp:2471-2501）；
   //      sxtype=10 触发余量更小（+1200）；sxtype=3/4 按玩家高度 mb 阈值触发（1-4 城堡）；
-  //      sxtype=1/2 与陷阱管道联动，维持现状（静态实体）。
-  //   2) 通用配置 mov={axis:'x'|'y', dir:-1|1}（编辑器“坠落砖组”）：横排沿 y、竖排沿 x，
-  //      长轴“完全进入”+ 位于运动方向一侧时触发，四方向均可。
+  //      sxtype=1/2 地下砖横排（1-2-1 连锁崩塌桥），原版为链式触发（引用其它对象索引），
+  //      通用化为玩家触发 + delay 延时（秒，loadStage 对原版数据注入近似值）。
+  //   2) 通用配置 mov={axis:'x'|'y', dir:-1|1}（编辑器"坠落砖组"）：横排沿 y、竖排沿 x，
+  //      长轴"完全进入"+ 位于运动方向一侧时触发，四方向均可。
+  // delay 属性（秒，默认0）：触发后等待指定秒数才开始坠落（延时期间保持实体可踩）。
   // physics 返回 true = 本帧运动中，引擎跳过该实体的常规碰撞。
   PipeTypes[51] = {
     solid: true,
@@ -243,8 +245,9 @@
               : (p.ma > s.sa + s.sc + 200);        // 向右：玩家在右侧
           }
           if (longIn && onSide) triggered = true;
-        } else if (s.sxtype === 0 || s.sxtype === 10) {
+        } else if (s.sxtype === 0 || s.sxtype === 1 || s.sxtype === 2 || s.sxtype === 10) {
           // 经典横排：右缘越过第一块砖（sxtype10 余量 1200）+ 脚底在砖组顶下方
+          // sxtype=1/2（1-2-1 连锁桥）沿用同款玩家触发条件，延时由 delay 提供
           var margin = s.sxtype === 10 ? 1200 : 3200;
           if (p.ma + p.mnobia > s.sa + margin && p.ma + p.mnobia < s.sa + s.sc - 200 &&
               p.mb + p.mnobib > s.sb + 3000) triggered = true;
@@ -257,10 +260,18 @@
             s.sr = s.sxtype === 4 ? 100 : 0;
           }
         }
-        if (triggered) { s.sgtype = 1; if (s.sr == null) s.sr = 0; }
+        if (triggered) {
+          s.sgtype = 1;
+          if (s.sr == null) s.sr = 0;
+          // 延时：触发后等待 delay 秒才开始运动（sdelay 单位=帧）
+          s.sdelay = Math.max(0, Math.round((s.delay || 0) * 60));
+        }
       }
 
       if (s.sgtype !== 1) return false;
+
+      // 延时倒计时：保持原位（实体可踩），归零后开始加速坠落
+      if (s.sdelay > 0) { s.sdelay--; return false; }
 
       // 加速运动（原版 30fps：每帧 +120，上限 1600）
       s.sr = Math.min((s.sr || 0) + 120, 1600);
@@ -312,9 +323,16 @@
             S && S.draw(ctx, 1 + offset, 1, x + 29 * c, y);
         }
       } else if (s.sxtype === 1 || s.sxtype === 2) {
-        var cols2 = Math.floor(s.sc / 3000);
-        for (var c2 = 0; c2 <= cols2; c2++)
-          S && S.draw(ctx, 31, 1, x + 29 * c2, y);
+        // 地下砖样式（固定 grap[31]，不随主题偏移）；竖排由编辑器 mov 配置
+        if (s.mov && s.mov.axis === 'x') {
+          var rowsD = Math.floor(s.sd / 3000);
+          for (var rd = 0; rd <= rowsD; rd++)
+            S && S.draw(ctx, 31, 1, x, y + 29 * rd);
+        } else {
+          var colsD = Math.floor(s.sc / 3000);
+          for (var cd = 0; cd <= colsD; cd++)
+            S && S.draw(ctx, 31, 1, x + 29 * cd, y);
+        }
       } else if (s.sxtype === 3 || s.sxtype === 4 || s.sxtype === 10) {
         drawTileGrid(ctx, s, x, y, w, h, 65, 1);
       }
