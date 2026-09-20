@@ -263,7 +263,8 @@
     var d = CAT.byId((e && e.id) || 'block_fall') || CAT.byId('block_fall');
     var ori = (e && e.ori === 'v') ? 'v' : 'h';
     var count = (e && e.count != null) ? (e.count | 0) : (d.count || 3);
-    if (!count || count < 2) count = 2;
+    var minCnt = (e && e.id === 'block_brick_m') ? 1 : 2;   // 可移动砖块允许单块（旧引擎 1-3 tyobi 砖）
+    if (!count || count < minCnt) count = minCnt;
     if (count > 12) count = 12;
     var dir = (e && e.dir) || d.dir || 'down';
     var valid = ori === 'h' ? { up: 1, down: 1 } : { left: 1, right: 1 };
@@ -310,8 +311,8 @@
       var pw = elDef.w || 5;
       return { c0: col, c1: col + pw - 1, r0: row, r1: row, tw: pw, th: 1 };
     }
-    if (elDef.id === 'block_fall' || elDef.id === 'block_fall_d') {
-      // 坠落砖组：横排 1×count，竖排 count×1（放置预览按定义默认属性）
+    if (elDef.id === 'block_fall' || elDef.id === 'block_fall_d' || elDef.id === 'block_brick_m') {
+      // 坠落砖组/可移动砖块：横排 1×count，竖排 count×1（放置预览按定义默认属性）
       var fc = elDef.count || 3, fhoriz = elDef.ori !== 'v';
       return fhoriz
         ? { c0: col, c1: col + fc - 1, r0: row, r1: row, tw: fc, th: 1 }
@@ -371,7 +372,7 @@
       var pi = platInfo(e);
       return { c0: e.col, c1: e.col + pi.w - 1, r0: e.row, r1: e.row, tw: pi.w, th: 1 };
     }
-    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
+    if (d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') {
       var fi = fallInfo(e);
       return fi.ori === 'h'
         ? { c0: e.col, c1: e.col + fi.count - 1, r0: e.row, r1: e.row, tw: fi.count, th: 1 }
@@ -460,7 +461,7 @@
     var len = d.len || tw;
     if (d.id.indexOf('lift_') === 0) { tw = len; }
     if (d.id === 'platform_hang') { tw = d.w || 5; th = 1; }
-    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
+    if (d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') {
       tw = d.ori === 'v' ? 1 : (d.count || 3);
       th = d.ori === 'v' ? (d.count || 3) : 1;
     }
@@ -512,6 +513,7 @@
       ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down';
       ne.delay = (d.delay != null) ? d.delay : 0;
     }
+    if (d.id === 'block_brick_m') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; }
     if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; }
     if (d.id === 'block_question' || d.id === 'block_hidden') { ne.pop = d.pop || 'coin'; ne.mass = !!d.mass; }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
@@ -823,8 +825,8 @@
       return;
     }
 
-    if (d.id === 'block_fall' || d.id === 'block_fall_d') {
-      // count 张砖块精灵按横/竖拼接，中心叠加红色方向箭头标识机关
+    if (d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') {
+      // count 张砖块精灵按横/竖拼接；block_fall 系中心叠加红色方向箭头，可移动砖块无箭头
       // block_fall 用普通砖、block_fall_d 用地下砖（各取元素定义 img）
       var fi = fallInfo(e);
       var bimg = getImg(d);
@@ -839,15 +841,17 @@
           ctx.fillRect(bx + 1, by + 1, TILE - 2, TILE - 2);
         }
       }
-      var arw = { down: '↓', up: '↑', left: '←', right: '→' }[fi.dir] || '↓';
-      var acx = x + (fi.ori === 'h' ? fi.count * TILE / 2 : TILE / 2);
-      var acy = y + (fi.ori === 'h' ? TILE / 2 : fi.count * TILE / 2);
-      ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.strokeText(arw, acx, acy + 1);
-      ctx.fillStyle = 'rgba(220,40,40,0.95)';
-      ctx.fillText(arw, acx, acy + 1);
+      if (d.id !== 'block_brick_m') {
+        var arw = { down: '↓', up: '↑', left: '←', right: '→' }[fi.dir] || '↓';
+        var acx = x + (fi.ori === 'h' ? fi.count * TILE / 2 : TILE / 2);
+        var acy = y + (fi.ori === 'h' ? TILE / 2 : fi.count * TILE / 2);
+        ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeText(arw, acx, acy + 1);
+        ctx.fillStyle = 'rgba(220,40,40,0.95)';
+        ctx.fillText(arw, acx, acy + 1);
+      }
       ctx.globalAlpha = 1;
       return;
     }
@@ -1227,15 +1231,15 @@
         var _hLen = (d.id === 'pipe_mouth') ? Math.max(1, Math.min(20, d.length || 1))
           : (d.id.indexOf('lift_') === 0 ? (d.len || 4)
           : (d.id === 'platform_hang' ? (d.w || 5)
-          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? (d.count || 3)
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') ? (d.count || 3)
           : (d.id === 'block_fall_g' ? (d.count || 3) : 1))));
         var _hTh = (d.id === 'pipe_mouth') ? (_hLen + 1)
           : (d.id.indexOf('lift_') === 0 ? 1
           : (d.id === 'platform_hang' ? 1
-          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'v') ? _hLen : 1)
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') ? ((d.ori === 'v') ? _hLen : 1)
           : (d.id === 'block_fall_g' ? ((d.variant === 0) ? 2 : (d.rows || 1)) : (d.th || 1)))));
         var _hTw = (d.id === 'platform_hang') ? _hLen
-          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'h') ? _hLen : 1)
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') ? ((d.ori === 'h') ? _hLen : 1)
           : (d.id === 'block_fall_g' ? _hLen : (d.tw || 1)));
         var col = Math.min(hover.col, Math.max(0, state.cols - _hTw));
         var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - _hTh);
@@ -1547,6 +1551,7 @@
 
     var fTotal = null, fRot = null, fLen = null, fWarp = null;
     var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
+    var fBmOri = null, fBmCount = null;
     var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
@@ -1626,6 +1631,20 @@
       propBody.appendChild(propRow('链式触发', fFallChain, d.id === 'block_fall_d'
         ? '监视目标砖组（旧引擎1-2-1连锁）：目标坠落到位(高度25000/48000)且玩家位置满足时本组崩塌，延时无效；未选=靠近触发'
         : '本组被触发（含被链式触发）时，联动触发所选砖组；多级链条依次传播'));
+    }
+    if (d.id === 'block_brick_m') {
+      // 可移动砖块（stype=51/noauto）：排列（横/竖）、块数（1-12）；静态不坠落，仅事件 move 平移
+      var bmi = fallInfo(selected);
+      fBmOri = document.createElement('select');
+      [['h', '横排（左右连排）'], ['v', '竖排（上下连排）']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fBmOri.appendChild(o);
+      });
+      fBmOri.value = bmi.ori;
+      propBody.appendChild(propRow('排列', fBmOri, '横排沿行连排，竖排沿列连排'));
+      fBmCount = numInput(1, 12, bmi.count);
+      propBody.appendChild(propRow('块数', fBmCount, '1-12 格'));
     }
     if (d.id === 'block_fall_g') {
       // 坠落地面块 stype=52：变体(0横排地面/1砖块矩阵/2地面矩阵)、列数(1-12)、行数(矩阵变体1/2)
@@ -1864,6 +1883,13 @@
           if (nChain) selected.chain = nChain;
           else delete selected.chain;   // 空引用不落盘
         }
+      }
+      if (fBmOri) {
+        var bmOri = fBmOri.value === 'v' ? 'v' : 'h';
+        var bmCnt = Math.max(1, Math.min(12, parseInt(fBmCount.value, 10) || 3));
+        selected.ori = bmOri; selected.count = bmCnt;
+        if (bmOri === 'h') selected.col = Math.min(selected.col, state.cols - bmCnt);
+        else selected.row = Math.min(selected.row, ROWS - bmCnt);
       }
       if (fFallVariant) {
         var nVar = (fFallVariant.value === '1' || fFallVariant.value === '2') ? parseInt(fFallVariant.value, 10) : 0;
@@ -2871,6 +2897,11 @@
         tw = fdi.ori === 'h' ? fdi.count : 1;
         th = fdi.ori === 'h' ? 1 : fdi.count;
       }
+      if (d.id === 'block_brick_m') {
+        var bmd = fallInfo(selected);
+        tw = bmd.ori === 'h' ? bmd.count : 1;
+        th = bmd.ori === 'h' ? 1 : bmd.count;
+      }
       if (d.id === 'block_fall_g') {
         var ggi = fallGInfo(selected);
         tw = ggi.count;
@@ -3082,6 +3113,9 @@
     'bg_cloud_angry', 'bg_tree_round', 'bg_lava'];
   function wBlockId(type, xt) {
     xt = xt || 0;
+    // ttype=1 普通砖块（tyobi 实体，可顶碎）；1-3 的 22列3行那块是整蛊事件移动对象，
+    // 由 worldToElements 特判为 block_brick_m，不走此映射
+    if (type === 1) return { id: 'block_brick' };
     if (type === 100) return { id: 'block_brick' };
     // ttype=101 txtype：0=白猫怪 1=皇冠怪 3/10=火焰花 4=机器人（皇冠怪/机器人按敌人近似）
     if (type === 101) return (xt === 3 || xt === 10)
@@ -3202,6 +3236,13 @@
     (def.blocks || []).forEach(function (b, bi) {
       var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
       note(col);
+      // 1-3 的 tyobi 普通砖(22列3行, main.cpp:4480)：旧引擎整蛊事件的移动对象，
+      // 还原为可移动砖块 block_brick_m（静态不自动坠落，问号球事件 move 平移），
+      // 固定 uid 便于事件动作直接引用
+      if (def.id === '1-3' && b.type === 1 && col === 22 && row === 3) {
+        add('block_brick_m', col, row, { ori: 'h', count: 1 }, 'bm_1_3');
+        return;
+      }
       var wb = wBlockId(b.type, b.xt);
       // 问号块/隐藏块带 pop/mass 属性时不套主题外观变体（变体是纯金币外观的字节块）
       var plainQ = wb && (wb.id === 'block_question' || wb.id === 'block_hidden') && wb.extra;
@@ -3629,6 +3670,10 @@
         if (e.dir) out.dir = String(e.dir);
         if (e.delay != null) out.delay = Math.max(0, +e.delay || 0);
         if (e.chain) out.chain = String(e.chain);   // 链式触发目标 uid（悬空引用运行时自动忽略）
+      }
+      if (e.id === 'block_brick_m') {
+        if (e.ori === 'h' || e.ori === 'v') out.ori = e.ori;
+        if (e.count != null) out.count = e.count | 0;
       }
       if (e.id === 'block_fall_g') {
         if (e.variant === 1 || e.variant === 2) out.variant = e.variant;

@@ -211,6 +211,8 @@
       else if (p.stype === 51 && (p.sxtype === 1 || p.sxtype === 2)) pipe.delay = p.sxtype === 1 ? 0.5 : 1;
       // stype=51 链式触发：目标砖组 uid（触发本组时联动触发目标，目标按自身 delay 倒计时）
       if (p.chain) pipe.chain = String(p.chain);
+      // stype=51 静态砖（block_brick_m）：关闭自动坠落，仅事件 move 平移 sa/sb
+      if (p.noauto) pipe.noauto = true;
       // 自定义元素管道：保留 _custom 用于渲染
       if (p._custom) pipe._custom = p._custom;
       // connector 统一边框 pipe（stype 76）：保留 lengths + dirs

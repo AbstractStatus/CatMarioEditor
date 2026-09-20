@@ -231,9 +231,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom4"></script>
 <script src="input.js?v=custom4"></script>
-<script src="elements.js?v=evlog18"></script>
+<script src="elements.js?v=evlog19"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd17"></script>
+<script src="engine.js?v=hd18"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js?v=shell12"></script>
 <script>
@@ -599,6 +599,19 @@ body.dragging #dropTip { display: flex; }
           sc: gCnt * 3000 - 1,
           sd: (gVar === 0) ? 3000 : gRws * 3000 - 1,
           stype: 52, sxtype: gVar,
+          uid: e.uid || null
+        });
+      } else if (id === 'block_brick_m') {
+        // 静态可移动砖块：stype=51 外观+碰撞，noauto 关闭自动坠落，仅事件 move 平移（sa/sb）
+        // 竖排 mov:{axis:'x'} 仅供渲染分支判定（physics 已被 noauto 短路）
+        var bmOri = (e.ori === 'v') ? 'v' : 'h';
+        var bmCnt = Math.max(1, Math.min(12, e.count | 0 || 3));
+        pipes.push({
+          sa: x * 100, sb: y * 100,
+          sc: (bmOri === 'h') ? bmCnt * 3000 - 1 : 2999,
+          sd: (bmOri === 'h') ? 2999 : bmCnt * 3000 - 1,
+          stype: 51, sxtype: 0, noauto: true,
+          mov: (bmOri === 'v') ? { axis: 'x', dir: 1 } : null,
           uid: e.uid || null
         });
       } else if (id === 'block_fall' || id === 'block_fall_d') {

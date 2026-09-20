@@ -245,6 +245,7 @@
   PipeTypes[51] = {
     solid: true,
     physics: function (p, s, xx, state) {
+      if (s.noauto) return false;   // 静态砖（block_brick_m）：永不自动触发，仅事件 move 平移 sa/sb
       var C = getC();
       var chainTrig = false;   // sxtype=1/2 连锁触发（旧引擎语义：立即坠落、不外传链）
       if (s.sgtype === 0) {

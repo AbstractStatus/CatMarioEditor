@@ -60,6 +60,10 @@
     { id: 'block_fall_g', cat: 'struct', name: '坠落地面块', kind: 'vector', img: 'block/block_ground_top.png',
       tw: 3, th: 2, count: 3, variant: 0, rows: 1,
       hint: 'stype=52：地面样式的坠落砖组。玩家深入水平区域且脚底接近砖顶时整组加速向下坠落（不致死，可踩；与坠落砖组 stype=51 不同，碰到不阵亡）。variant=0 横排地面(顶+填充两层)、1 砖块矩阵(横×竖)、2 地面矩阵(横×竖)。选中后在⚙属性里改变体、列数(1-12)、行数(矩阵变体1/2)' },
+    { id: 'block_brick_m', cat: 'struct', name: '可移动砖块', kind: 'vector', img: 'block/block_brick.png',
+      tw: 3, th: 1, count: 3, ori: 'h',
+      hint: 'stype=51/noauto：普通砖块外观的静态砖组，永不自动坠落（复刻旧引擎 1-3 的 22列3行 tyobi 砖）。' +
+        '实体可踩可顶。选中后在⚙属性里改排列(横/竖)、块数(1-12)；配事件触发器的"移动元素"动作可在触发后平移位置' },
     { id: 'platform_hang', cat: 'struct', name: '悬挂站台', kind: 'vector', img: 'vector/lift_green.png',
       tw: 5, th: 1, w: 5, h: 16, drop: false,
       hint: 'srsp=10：1-3/2-3 的高空站台——30px 厚绿色站台顶 + 向下延伸的棕色吊柱（吊柱纯装饰，不参与碰撞，默认16格高≈原版480px）。w=站台宽度（格），h=吊柱高度（格，仅视觉），drop=可下降：开启后玩家一站上台面即加速下坠（sracttype=1），并带着玩家一起掉落。选中后在⚙属性里修改' },
