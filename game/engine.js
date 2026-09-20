@@ -1449,7 +1449,11 @@
           e.ab = xx[9] - e.anobib + 100; e.ad = 0; e.axzimen = 1;
         }
       }
-      if (b.ttype !== 117) {
+      // 左右侧面碰撞：原版 main.cpp:3950 — 隐藏块(ttype=7)对普通敌人(atype<100 且
+      // atype!==2)连侧面也不存在，敌人可横穿/坠落穿过；道具敌人(atype>=100)与滑动
+      // 龟壳(atype=2)除外。此前只排除117导致敌人坠落时被侧面解析反复向左瞬移
+      // （2-1 尖刺馒头怪离开 g10_11 时瞬移到 g10_7 的根因）
+      if ((e.atype >= 100 || b.ttype !== 7 || e.atype === 2) && b.ttype !== 117) {
         if (e.aa + e.anobia > xx[8] && e.aa < xx[8] + xx[2] &&
             e.ab + e.anobib > xx[9] + xx[1] / 2 - xx[0] && e.ab < xx[9] + xx[2]) {
           e.aa = xx[8] - e.anobia; e.ac = 0; e.amuki = 0;
@@ -1525,7 +1529,7 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
@@ -1549,6 +1553,12 @@
       }
     } else if (e.atype === 30) {
       S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 82) {
+      // 伪装成方块的敌人（原版 main.cpp:985-1001）：axtype=0 画地面顶、1 画硬块、2 画 grap[1][5]，
+      // 贴图随主题偏移（地下+30/城堡+60）；碰撞盒 30×30（ENEMY_SIZE[82]）
+      var off82 = state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0);
+      if (e.axtype === 2) S.draw(ctx, 1, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      else S.draw(ctx, (e.axtype === 1 ? 4 : 5) + off82, 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 79) {
       // 激光炮（stype103/104 隐形陷阱带生成的横向扁矩形，anobia×anobib≈120×15）：
       // 旧引擎 main.cpp:978-983 — 黄色填充矩形 + 黑色描边

@@ -103,14 +103,27 @@ def parse_grid(body):
 def parse_blocks(body):
     """tyobi(x,y,type) + txtype[tco]=N。
     C 语义：tyobi 写 ta[tco] 后 tco++，故 tyobi 之后的 txtype[tco]=N 作用于下一个 tyobi。
-    这里按出现顺序扫描，用 tco 指针 + txtype_map 精确还原。"""
+    这里按出现顺序扫描，用 tco 指针 + txtype_map 精确还原。
+    另支持 for 循环展开：`for(int i = -1; i > -7; i -= 1){ tyobi(X, i*29-12, T); tco += 1; }`
+    （2-1 col85 / 2-3 col55 的屏幕上方竖排硬块柱）。"""
     blocks = []
     txtype_map = {}
     tco = 0
-    # 交替匹配 tyobi(...) 与 txtype[tco] = N
+
+    def evv(expr, var=None, val=0):
+        """ev() 的带变量版本：先把循环变量替换为数值再求值。"""
+        if expr is None:
+            return 0
+        if var is not None:
+            expr = re.sub(r"\b%s\b" % re.escape(var), "(%d)" % val, expr)
+        return ev(expr)
+
+    # 交替匹配 tyobi(...) / txtype[tco] = N / for 循环 tyobi
     token_re = re.compile(
         r"tyobi\s*\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*;"
-        r"|txtype\s*\[\s*tco\s*\]\s*=\s*([^;]+?)\s*;")
+        r"|txtype\s*\[\s*tco\s*\]\s*=\s*([^;]+?)\s*;"
+        r"|for\s*\(\s*int\s+(\w+)\s*=\s*([^;]+?)\s*;\s*\5\s*([<>]=?)\s*([^;]+?)\s*;\s*\5\s*(\+=|-=)\s*([^)]+?)\s*\)\s*\{"
+        r"\s*tyobi\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*,\s*([^)]+?)\s*\)\s*;\s*(?:tco\s*\+\=\s*1\s*;?\s*)?\}")
     for m in token_re.finditer(body):
         if m.group(1) is not None:
             x = ev(m.group(1))
@@ -118,40 +131,57 @@ def parse_blocks(body):
             typ = ev(m.group(3))
             blocks.append({"x": x, "y": y, "type": typ, "xt": txtype_map.get(tco, 0)})
             tco += 1
-        else:
+        elif m.group(4) is not None:
             txtype_map[tco] = ev(m.group(4))
+        else:
+            # for 循环展开（从 -1 向上逐次减步长，与 C 循环一致）
+            var, start, op, end, step_op, step = m.group(5), ev(m.group(6)), m.group(7), ev(m.group(8)), m.group(9), ev(m.group(10))
+            i = start
+            guard = 0
+            while ((op == ">" and i > end) or (op == ">=" and i >= end) or
+                   (op == "<" and i < end) or (op == "<=" and i <= end)):
+                x = evv(m.group(11), var, i)
+                y = evv(m.group(12), var, i)
+                typ = evv(m.group(13), var, i)
+                blocks.append({"x": x, "y": y, "type": typ, "xt": txtype_map.get(tco, 0)})
+                tco += 1
+                i += -step if step_op == "-=" else step
+                guard += 1
+                if guard > 100:
+                    break
     return blocks
 
 
 def parse_pipes(body):
-    """sa[t]=..; sb[t]=..; sc[t]=..; sd[t]=..; stype[t]=..; [sxtype[t]=..;] [sgtype[t]=..;]"""
+    """sa[X]=..; sb[X]=..; sc[X]=..; sd[X]=..; stype[X]=..; [sxtype[X]=..;] [sgtype[X]=..;]
+    下标 X：1 系列用 t，2 系列用 sco（两种都必须匹配）。"""
     pipes = []
     pipe_re = re.compile(
-        r"sa\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*sb\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*sc\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*sd\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*stype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;")
+        r"sa\[\s*(\w+)\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*sb\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*sc\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*sd\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*stype\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;")
     for m in pipe_re.finditer(body):
         # sxtype 搜索范围：从 stype 匹配结束到下一个管道/敌人/升降台定义开始
-        # 断点：sa[t/sco/bco]、sra[t/srco]、sco++、bco++、t=bco/sco/srco
+        # 断点：sa[t/sco/bco]、sra[t/srco]、计数器自增（++ 与 += 1 两种写法）、
+        # t=bco/sco/srco
         seg_end = len(body)
-        for bp in [r"sa\[\s*(?:t|sco|bco)\s*\]",
-                   r"sra\[\s*(?:t|srco)\s*\]",
-                   r"sco\+\+",
-                   r"bco\+\+",
+        for bp in [r"sa\[\s*\w+\s*\]",
+                   r"sra\[\s*\w+\s*\]",
+                   r"\w+\s*(?:\+\+|\+=)",
                    r"t\s*=\s*(?:bco|sco|srco)"]:
             bp_m = re.search(bp, body[m.end():])
             if bp_m:
                 seg_end = min(seg_end, m.end() + bp_m.start())
                 break
         seg = body[m.end():seg_end]
-        sx = re.search(r"sxtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
-        sg = re.search(r"sgtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;", seg)
+        sx = re.search(r"sxtype\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;", seg)
+        sg = re.search(r"sgtype\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;", seg)
         pipes.append({
-            "sa": ev(m.group(1)), "sb": ev(m.group(2)),
-            "sc": ev(m.group(3)), "sd": ev(m.group(4)),
-            "stype": ev(m.group(5)),
+            "sa": ev(m.group(2)), "sb": ev(m.group(3)),
+            "sc": ev(m.group(4)), "sd": ev(m.group(5)),
+            "stype": ev(m.group(6)),
             "sxtype": ev(sx.group(1)) if sx else 0,
             "sgtype": ev(sg.group(1)) if sg else 0,
         })
@@ -159,13 +189,14 @@ def parse_pipes(body):
 
 
 def parse_enemies(body):
-    """ba[t]=..; bb[t]=..; btype[t]=..; bxtype[t]=..;"""
+    """ba[X]=..; bb[X]=..; btype[X]=..; bxtype[X]=..;
+    下标 X：1 系列用 t，2 系列用 bco（2-3 还混用 sco），统一按标识符匹配。"""
     enemies = []
     en_re = re.compile(
-        r"ba\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*bb\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*btype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;"
-        r"\s*bxtype\[\s*t\s*\]\s*=\s*([^;]+?)\s*;")
+        r"ba\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*bb\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*btype\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;"
+        r"\s*bxtype\[\s*\w+\s*\]\s*=\s*([^;]+?)\s*;")
     for m in en_re.finditer(body):
         enemies.append({
             "ba": ev(m.group(1)), "bb": ev(m.group(2)),
