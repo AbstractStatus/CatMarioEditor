@@ -1163,7 +1163,30 @@
           break;
         case 90: xx[10] = 160; break;
         case 100:
-          e.azimentype = 1; xx[10] = 100; break;
+          e.azimentype = 1; xx[10] = 100;
+          // 巨大化：红蘑菇(axtype=2)碰到馒头怪系(atype=0/1/4/7)→变巨型馒头怪(atype=90)
+          // 原版 main.cpp:3268-3283：原版仅 atype=0/4，按用户要求扩展到全部馒头怪系
+          // （巨型馒头怪 atype=90 本身已是目标态，不再处理）
+          if (e.axtype === 2) {
+            for (var gi = 0; gi < state.enemies.length; gi++) {
+              var ge = state.enemies[gi];
+              if (ge === e || ge.aa < -800000) continue;
+              if (ge.atype !== 0 && ge.atype !== 1 && ge.atype !== 4 && ge.atype !== 7) continue;
+              // AABB 重叠（沿用原版检测窗口：xx[0]*2=500、xx[5]=-800、xx[1]*3=4800）
+              if (e.aa + e.anobia > ge.aa + 500 &&
+                  e.aa < ge.aa + ge.anobia - 500 &&
+                  e.ab + e.anobib > ge.ab - 800 &&
+                  e.ab + e.anobib < ge.ab + 4800) {
+                ge.atype = 90;
+                ge.anobia = 6400; ge.anobib = 6300; ge.axtype = 0;
+                ge.aa -= 1050; ge.ab -= 1050;
+                A.playSE(C.SE.POWERUP);
+                e.aa = -80000000;  // 红蘑菇消失（与原版 aa[t]=-80000000 一致）
+                break;
+              }
+            }
+          }
+          break;
         case 102:
           e.azimentype = 1; xx[10] = e.axtype === 1 ? 200 : 100; break;
         case 110:
