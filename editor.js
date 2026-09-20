@@ -274,6 +274,20 @@
     return { ori: ori, count: count, dir: dir, delay: delay, chain: chain };
   }
 
+  // 坠落地面块属性（stype=52）：variant=0 横排地面(顶+填充两层)、1 砖块矩阵、2 地面矩阵
+  function fallGInfo(e) {
+    var d = CAT.byId((e && e.id) || 'block_fall_g') || CAT.byId('block_fall_g');
+    var variant = (e && (e.variant === 1 || e.variant === 2)) ? e.variant : (d.variant || 0);
+    var count = (e && e.count != null) ? (e.count | 0) : (d.count || 3);
+    if (!count || count < 1) count = 1;
+    if (count > 12) count = 12;
+    var rows = (e && e.rows != null) ? (e.rows | 0) : (d.rows || 1);
+    if (!rows || rows < 1) rows = 1;
+    if (rows > 12) rows = 12;
+    if (variant === 0) rows = 1;
+    return { variant: variant, count: count, rows: rows };
+  }
+
   // 悬挂站台属性（元素实例缺省时取元素定义默认值）
   function platInfo(e) {
     var d = CAT.byId('platform_hang');
@@ -301,6 +315,13 @@
       return fhoriz
         ? { c0: col, c1: col + fc - 1, r0: row, r1: row, tw: fc, th: 1 }
         : { c0: col, c1: col, r0: row, r1: row + fc - 1, tw: 1, th: fc };
+    }
+    if (elDef.id === 'block_fall_g') {
+      // 坠落地面块：variant=0 横排 count×2（顶+填充两层），variant=1/2 矩阵 count×rows
+      var gc = elDef.count || 3;
+      var gv = (elDef.variant === 1 || elDef.variant === 2) ? elDef.variant : 0;
+      var gr = (gv === 0) ? 2 : (elDef.rows || 1);
+      return { c0: col, c1: col + gc - 1, r0: row, r1: row + gr - 1, tw: gc, th: gr };
     }
     if (elDef.cat === 'struct' && elDef.id.indexOf('lift_') === 0) {
       // 升降台长度由 len 决定
@@ -349,6 +370,11 @@
       return fi.ori === 'h'
         ? { c0: e.col, c1: e.col + fi.count - 1, r0: e.row, r1: e.row, tw: fi.count, th: 1 }
         : { c0: e.col, c1: e.col, r0: e.row, r1: e.row + fi.count - 1, tw: 1, th: fi.count };
+    }
+    if (d.id === 'block_fall_g') {
+      var gi = fallGInfo(e);
+      var gTh = (gi.variant === 0) ? 2 : gi.rows;
+      return { c0: e.col, c1: e.col + gi.count - 1, r0: e.row, r1: e.row + gTh - 1, tw: gi.count, th: gTh };
     }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
       // connector：中心块 2×2 tile（col,row）~(col+1,row+1)，每方向臂从中心块边缘向外延伸 length 格
@@ -714,6 +740,47 @@
         ctx.fillStyle = 'rgba(200,30,30,0.95)';
         ctx.fillText('↓', pcx, pcy + 1);
       }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (d.id === 'block_fall_g') {
+      // stype=52 坠落地面块：variant=0 横排地面(顶+填充两层)、1 砖块矩阵、2 地面矩阵
+      var gi = fallGInfo(e);
+      var gTopImg = getImg(CAT.byId('block_ground_top'));
+      var gFillImg = getImg(CAT.byId('block_ground_fill'));
+      var gBrickImg = getImg(CAT.byId('block_brick'));
+      ctx.globalAlpha = a;
+      var gRows = (gi.variant === 0) ? 2 : gi.rows;
+      for (var gci = 0; gci < gi.count; gci++) {
+        for (var gri = 0; gri < gRows; gri++) {
+          var gx = x + gci * TILE;
+          var gy = y + gri * TILE;
+          var gUseImg = null;
+          if (gi.variant === 0) {
+            gUseImg = (gri === 0) ? gTopImg : gFillImg;
+          } else if (gi.variant === 1) {
+            gUseImg = gBrickImg;
+          } else {
+            gUseImg = gTopImg;
+          }
+          if (gUseImg && gUseImg.complete && gUseImg.naturalWidth) {
+            drawImg(gUseImg, gx, gy, TILE, TILE);
+          } else {
+            ctx.fillStyle = (gi.variant === 1) ? '#b5652a' : '#5aa64a';
+            ctx.fillRect(gx + 1, gy + 1, TILE - 2, TILE - 2);
+          }
+        }
+      }
+      // 中心叠加红色 ↓ 箭头（block_fall_g 仅向下坠落，无四向）
+      var acx2 = x + gi.count * TILE / 2;
+      var acy2 = y + gRows * TILE / 2;
+      ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.strokeText('↓', acx2, acy2 + 1);
+      ctx.fillStyle = 'rgba(220,40,40,0.95)';
+      ctx.fillText('↓', acx2, acy2 + 1);
       ctx.globalAlpha = 1;
       return;
     }
@@ -1122,19 +1189,21 @@
         var _hLen = (d.id === 'pipe_mouth') ? Math.max(1, Math.min(20, d.length || 1))
           : (d.id.indexOf('lift_') === 0 ? (d.len || 4)
           : (d.id === 'platform_hang' ? (d.w || 5)
-          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? (d.count || 3) : 1)));
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? (d.count || 3)
+          : (d.id === 'block_fall_g' ? (d.count || 3) : 1))));
         var _hTh = (d.id === 'pipe_mouth') ? (_hLen + 1)
           : (d.id.indexOf('lift_') === 0 ? 1
           : (d.id === 'platform_hang' ? 1
-          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'v') ? _hLen : 1) : (d.th || 1))));
+          : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'v') ? _hLen : 1)
+          : (d.id === 'block_fall_g' ? ((d.variant === 0) ? 2 : (d.rows || 1)) : (d.th || 1)))));
         var _hTw = (d.id === 'platform_hang') ? _hLen
           : ((d.id === 'block_fall' || d.id === 'block_fall_d') ? ((d.ori === 'h') ? _hLen : 1)
-          : (d.tw || 1));
+          : (d.id === 'block_fall_g' ? _hLen : (d.tw || 1)));
         var col = Math.min(hover.col, Math.max(0, state.cols - _hTw));
         var row = Math.min(Math.max(hover.row, -EXTRA_TOP_ROWS), ROWS - _hTh);
         col = Math.max(col, 0);
         // 构造临时元素用于 drawElement + footprintOf
-        var _pe = { id: d.id, col: col, row: row, len: d.len, length: d.length, dir: d.dir, rot: d.rot, ori: d.ori, count: d.count, w: d.w, h: d.h, drop: d.drop, warp: d.warp };
+        var _pe = { id: d.id, col: col, row: row, len: d.len, length: d.length, dir: d.dir, rot: d.rot, ori: d.ori, count: d.count, w: d.w, h: d.h, drop: d.drop, warp: d.warp, variant: d.variant, rows: d.rows };
         drawElement(_pe, 0.55);
         var fp = fpRect(footprintOf(_pe));
         ctx.strokeStyle = 'rgba(20,80,255,0.9)';
@@ -1299,6 +1368,7 @@
 
     var fTotal = null, fRot = null, fLen = null, fWarp = null;
     var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
+    var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
       fTotal = numInput(1, 21, (selected.xt || d.xt || 5) + 1);
@@ -1377,6 +1447,31 @@
       propBody.appendChild(propRow('链式触发', fFallChain, d.id === 'block_fall_d'
         ? '监视目标砖组（旧引擎1-2-1连锁）：目标坠落到位(高度25000/48000)且玩家位置满足时本组崩塌，延时无效；未选=靠近触发'
         : '本组被触发（含被链式触发）时，联动触发所选砖组；多级链条依次传播'));
+    }
+    if (d.id === 'block_fall_g') {
+      // 坠落地面块 stype=52：变体(0横排地面/1砖块矩阵/2地面矩阵)、列数(1-12)、行数(矩阵变体1/2)
+      var gi0 = fallGInfo(selected);
+      fFallVariant = document.createElement('select');
+      [[0, '横排地面(顶+填充)'], [1, '砖块矩阵'], [2, '地面矩阵']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fFallVariant.appendChild(o);
+      });
+      fFallVariant.value = String(gi0.variant);
+      propBody.appendChild(propRow('变体', fFallVariant, 'stype=52：玩家深入区域且脚底接近砖顶时整组加速向下坠落（不致死，可踩）'));
+
+      fFallGCount = numInput(1, 12, gi0.count);
+      propBody.appendChild(propRow('列数', fFallGCount, '1-12 格'));
+
+      fFallGRows = numInput(1, 12, gi0.rows);
+      fFallGRowsRow = propRow('行数', fFallGRows, '1-12 格（仅砖块/地面矩阵变体有效）');
+      if (gi0.variant === 0) fFallGRowsRow.style.display = 'none';
+      propBody.appendChild(fFallGRowsRow);
+
+      fFallVariant.addEventListener('change', function () {
+        var v = (fFallVariant.value === '1' || fFallVariant.value === '2') ? parseInt(fFallVariant.value, 10) : 0;
+        fFallGRowsRow.style.display = (v === 0) ? 'none' : '';
+      });
     }
     // 连接管：每端口长度编辑
     var fPortInputs = null, fPortIdxs = null, fCrot = null;
@@ -1578,6 +1673,16 @@
           if (nChain) selected.chain = nChain;
           else delete selected.chain;   // 空引用不落盘
         }
+      }
+      if (fFallVariant) {
+        var nVar = (fFallVariant.value === '1' || fFallVariant.value === '2') ? parseInt(fFallVariant.value, 10) : 0;
+        var nGCnt = Math.max(1, Math.min(12, parseInt(fFallGCount.value, 10) || 3));
+        var nGRws = Math.max(1, Math.min(12, parseInt(fFallGRows.value, 10) || 1));
+        selected.variant = nVar; selected.count = nGCnt; selected.rows = (nVar === 0) ? 1 : nGRws;
+        // 越界钳制（不超右界和底界）
+        var _visTh = (nVar === 0) ? 2 : nGRws;
+        selected.col = Math.min(selected.col, state.cols - nGCnt);
+        selected.row = Math.min(selected.row, ROWS - _visTh);
       }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
         ? { end: true, id: null } : { end: false, id: fWarp.value };
@@ -2562,6 +2667,11 @@
         tw = fdi.ori === 'h' ? fdi.count : 1;
         th = fdi.ori === 'h' ? 1 : fdi.count;
       }
+      if (d.id === 'block_fall_g') {
+        var ggi = fallGInfo(selected);
+        tw = ggi.count;
+        th = (ggi.variant === 0) ? 2 : ggi.rows;
+      }
       if (d.id === '_trapzone') { tw = 1; th = 2; }
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
@@ -2966,8 +3076,16 @@
         add('_trapzone', col, row, {
           trap: { stype: p.stype, sxtype: p.sxtype || 0, sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd }
         }, puid);
+      } else if (p.stype === 52) {
+        // stype=52 地面样式坠落砖组：sxtype=0 横排地面(顶+填充)、1 砖块矩阵、2 地面矩阵
+        var gVar = (p.sxtype === 1 || p.sxtype === 2) ? p.sxtype : 0;
+        var gCnt = Math.floor(p.sc / 3000) + 1;
+        gCnt = Math.max(1, Math.min(12, gCnt || 1));
+        var gRws = (gVar === 0) ? 1 : Math.floor(p.sd / 3000) + 1;
+        if (gVar !== 0) gRws = Math.max(1, Math.min(12, gRws || 1));
+        add('block_fall_g', col, row, { variant: gVar, count: gCnt, rows: gRws }, puid);
       } else {
-        skip++;   // 51 其他变体/52 下落块、火焰管/消息、40 进入管等暂不在编辑器暴露
+        skip++;   // 51 其他变体、火焰管/消息、40 进入管等暂不在编辑器暴露
       }
     });
     // 4) 敌人/道具触发器（ba/bb 世界单位）
@@ -3306,6 +3424,12 @@
         if (e.dir) out.dir = String(e.dir);
         if (e.delay != null) out.delay = Math.max(0, +e.delay || 0);
         if (e.chain) out.chain = String(e.chain);   // 链式触发目标 uid（悬空引用运行时自动忽略）
+      }
+      if (e.id === 'block_fall_g') {
+        if (e.variant === 1 || e.variant === 2) out.variant = e.variant;
+        // variant=0 是默认值，无需落盘
+        if (e.count != null) out.count = e.count | 0;
+        if (e.rows != null && (e.variant === 1 || e.variant === 2)) out.rows = e.rows | 0;
       }
       // 连接管字段放行：rot + lengths 数组
       if (e.id === 'pipe_cross' || e.id === 'pipe_tee' || e.id === 'pipe_L_a' || e.id === 'pipe_L_b') {

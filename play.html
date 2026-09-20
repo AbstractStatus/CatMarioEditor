@@ -231,9 +231,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom4"></script>
 <script src="input.js?v=custom4"></script>
-<script src="elements.js?v=evlog16"></script>
+<script src="elements.js?v=evlog17"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd15"></script>
+<script src="engine.js?v=hd16"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js?v=shell12"></script>
 <script>
@@ -572,6 +572,18 @@ body.dragging #dropTip { display: flex; }
           stype: 76, sxtype: 0, uid: e.uid || null,
           lengths: _portLens.slice(),
           dirs: _dirs.slice()
+        });
+      } else if (id === 'block_fall_g') {
+        // stype=52 地面样式坠落砖组：sxtype=0 横排地面(顶+填充)、1 砖块矩阵、2 地面矩阵
+        var gVar = (e.variant === 1 || e.variant === 2) ? e.variant : 0;
+        var gCnt = Math.max(1, Math.min(12, e.count | 0 || 3));
+        var gRws = (gVar === 0) ? 1 : Math.max(1, Math.min(12, e.rows | 0 || 1));
+        pipes.push({
+          sa: x * 100, sb: y * 100,
+          sc: gCnt * 3000 - 1,
+          sd: (gVar === 0) ? 3000 : gRws * 3000 - 1,
+          stype: 52, sxtype: gVar,
+          uid: e.uid || null
         });
       } else if (id === 'block_fall' || id === 'block_fall_d') {
         // 坠落砖组 stype=51：横排沿 y / 竖排沿 x，玩家完全进入长轴区域并处于运动方向一侧时触发
