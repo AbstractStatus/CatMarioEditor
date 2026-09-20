@@ -654,19 +654,19 @@
     }
 
     if (d.kind === 'vector' && d.id === 'firebar') {
-      // 与引擎渲染一致：第0颗火球（圆心）=格子中心，间距18px、半径6px，
-      // 链条从圆心按 e.rot 角度（顺时针，0=向右）伸出，共 xt+1 颗（含圆心）
+      // 与引擎渲染一致（参考旧引擎 main.cpp L1308-1334）：
+      // 间距18px(xx[26])、半径8px(xx[23])，颜色(230,120,0)+黑色描边
+      // 第0颗火球（圆心）=格子中心，链条从圆心按 e.rot 角度（顺时针，0=向右）伸出，共 xt+1 颗
       var n = e.xt || d.xt || 5;
       var ang = ((e.rot || 0) * Math.PI) / 180;
       var pcx = x + TILE / 2, pcy = y + TILE / 2;
       ctx.globalAlpha = a;
       for (var i = 0; i <= n; i++) {
-        // 球心距：原 18px，空隙缩小 5px → 13px
-        var fbx = pcx + Math.cos(ang) * i * tilePx(13);
-        var fby = pcy + Math.sin(ang) * i * tilePx(13);
-        ctx.fillStyle = '#ff6000';
-        ctx.beginPath(); ctx.arc(fbx, fby, tilePx(6), 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
+        var fbx = pcx + Math.cos(ang) * i * tilePx(18);
+        var fby = pcy + Math.sin(ang) * i * tilePx(18);
+        ctx.fillStyle = 'rgb(230,120,0)';
+        ctx.beginPath(); ctx.arc(fbx, fby, tilePx(8), 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
       }
       ctx.globalAlpha = 1;
       return;

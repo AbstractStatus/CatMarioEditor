@@ -339,7 +339,7 @@
     else e.amuki = 0;
     // 火焰棒：axtype>=10000 时高位编码初始角度（axtype = 火球数 + (角度+100)*100），
     // 旧数据 axtype=101..110 无角度语义（旧引擎仅 %100 取球数），仍走随机初相
-    if (xtype === 87) e.atm = xxtype >= 10000
+    if (xtype === 87 || xtype === 88) e.atm = xxtype >= 10000
       ? (((Math.floor(xxtype / 100) - 100) % 360 + 360) % 360) * 2
       : Math.floor(Math.random() * 179) - 90;
     // 生成音效（与原版 ayobi 一致）
@@ -1155,7 +1155,7 @@
           if (p.ma >= e.aa - p.mnobia - 18 && p.ma <= e.aa + e.anobia + 18) e.atm = 1;
           if (e.atm === 1) e.ab += 1200;
           break;
-        case 87:
+        case 87: case 88:
           e.azimentype = 0;
           if (e.aa % 10 !== 1) e.atm += 6; else e.atm -= 6;
           if (e.atm > 720) e.atm -= 720;
@@ -1227,13 +1227,16 @@
       xx[25] = 0;
 
       // 火焰棒特殊碰撞：检测每颗火球是否碰到玩家（而不仅仅是中心点）
-      if (e.atype === 87 && p.mmutekitm <= 0 && p.mtype !== C.MTYPE.DEAD) {
+      // 参考旧引擎 main.cpp case 87/88：间距 xx[26]=18px，球直径 xx[4]=1800 世界单位
+      if ((e.atype === 87 || e.atype === 88) && p.mmutekitm <= 0 && p.mtype !== C.MTYPE.DEAD) {
         var fbCnt = e.axtype % 100;
         var fbAng = e.atm * Math.PI / 180 / 2;
-        var fbR = 1600; // 火球碰撞半径（世界单位）
+        var fbR = 800; // 火球碰撞半径（世界单位=8px），匹配视觉球半径8px
         for (var fi = 0; fi <= fbCnt; fi++) {
-          var fbx = e.aa + fi * 1300 * Math.cos(fbAng);  // 1300 = 13px * 100 世界单位
-          var fby = e.ab + fi * 1300 * Math.sin(fbAng);
+          // atype 88 是水平镜像的火焰棒：cos 取反
+          var sign = e.atype === 88 ? -1 : 1;
+          var fbx = e.aa + sign * fi * 1800 * Math.cos(fbAng);  // 1800 = 18px * 100 世界单位（旧引擎 xx[26]=18）
+          var fby = e.ab + fi * 1800 * Math.sin(fbAng);
           if (p.ma + p.mnobia > fbx - fbR && p.ma < fbx + fbR &&
               p.mb + p.mnobib > fby - fbR && p.mb < fby + fbR) {
             markHurt('firebar', e.uid);
@@ -1446,7 +1449,7 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88) {
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
@@ -1495,17 +1498,20 @@
       ctx.fillRect(Math.floor(xx[0] / 100) + 10, Math.floor(xx[1] / 100), 10, Math.floor(e.anobib / 100));
       ctx.fillStyle = '#00fae0';
       ctx.beginPath(); ctx.arc(Math.floor(xx[0] / 100) + 14, Math.floor(xx[1] / 100), 10, 0, Math.PI * 2); ctx.fill();
-    } else if (e.atype === 87) {
-      // 火焰棒旋转
+    } else if (e.atype === 87 || e.atype === 88) {
+      // 火焰棒旋转 — 参考旧引擎 main.cpp L1308-1334：
+      // 间距 xx[26]=18px，球半径 xx[23]=8px，颜色(230,120,0)+黑色描边
+      // atype 88 是水平镜像版本（cos 取反）
       var cx = Math.floor(xx[0] / 100), cy = Math.floor(xx[1] / 100);
       var cnt = e.axtype % 100;
+      var sign = e.atype === 88 ? -1 : 1;
       for (var k = 0; k <= cnt; k++) {
         var ang = e.atm * Math.PI / 180 / 2;
-        // 球心距：原 18px，空隙缩小 5px → 13px
-        var dx = k * 13 * Math.cos(ang);
-        var dy = k * 13 * Math.sin(ang);
-        ctx.fillStyle = '#ff6000';
-        ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 6, 0, Math.PI * 2); ctx.fill();
+        var dx = sign * k * 18 * Math.cos(ang);
+        var dy = k * 18 * Math.sin(ang);
+        ctx.fillStyle = 'rgb(230,120,0)';
+        ctx.beginPath(); ctx.arc(cx + dx, cy + dy, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
       }
     } else if (e.atype === 200) {
       S.draw(ctx, 0, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
