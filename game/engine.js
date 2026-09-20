@@ -134,6 +134,13 @@
     state._stagecolor = def.stagecolor;
     state.scrollx = def.scrollx;
 
+    // 事件触发器已触发标记：与 checkpoint 同生命周期（死亡复活保留、换关清空）。
+    // 换关靠坐标键检测（进管 stc++/通关 stb++ 都在 startGame 前改坐标）；
+    // 同坐标的新游戏（标题重开/外部 startGame）由调用点显式清空
+    var _evKey = state.sta + ',' + state.stb + ',' + state.stc;
+    if (state._evStageKey !== _evKey || !state._evFired) state._evFired = {};
+    state._evStageKey = _evKey;
+
     // 清空
     state.blocks = [];
     state.pipes = [];
@@ -142,6 +149,7 @@
     state.particles = [];
     state.bg = [];
     state.lifts = [];
+    state.eventTriggers = [];
     // 重置提示块消息状态
     state.tmsgtype = 0; state.tmsgtm = 0; state.tmsg = 0; state.tmsgy = 0;
 
@@ -269,6 +277,17 @@
       var bgObj = { na: n.na, nb: n.nb, ntype: n.ntype, uid: n.uid || null };
       if (n._custom) bgObj._custom = n._custom;
       state.bg.push(bgObj);
+    });
+
+    // 事件触发器（编辑器 trap_event/block_qball 透传；原版 def 无此字段）
+    (def.eventTriggers || []).forEach(function (t) {
+      state.eventTriggers.push({
+        ax: t.ax, ay: t.ay, aw: t.aw, ah: t.ah,
+        uid: t.uid || null,
+        img: t.img || null,
+        events: Array.isArray(t.events) ? t.events : [],
+        fired: !!(t.uid && state._evFired[t.uid])
+      });
     });
 
     // 升降台（透传原版字段；srh=悬挂台吊柱高，世界单位，缺省48000=原版写死480px）
@@ -1022,6 +1041,61 @@
     }
   }
 
+  // ==================== 事件触发器（编辑器 trap_event / block_qball）====================
+  // 玩家 AABB 与触发区重叠即按顺序执行动作；每个触发器每关一次（fired，
+  // 检查点复活不重置，换关/新游戏随关卡重载清空）
+  function updateEventTriggers() {
+    var list = state.eventTriggers;
+    if (!list || !list.length) return;
+    var p = state.player;
+    for (var i = 0; i < list.length; i++) {
+      var tr = list[i];
+      if (tr.fired) continue;
+      // 镜头窗口门控（与管道连锁检查同款条件）：视野外不检测
+      if (tr.ax - state.fx + tr.aw < -12000 || tr.ax - state.fx > C.FXMAX) continue;
+      // 玩家 AABB 重叠
+      if (p.ma + p.mnobia <= tr.ax || p.ma >= tr.ax + tr.aw ||
+          p.mb + p.mnobib <= tr.ay || p.mb >= tr.ay + tr.ah) continue;
+      tr.fired = true;
+      if (tr.uid) state._evFired[tr.uid] = true;
+      runEvents(tr);
+    }
+  }
+
+  // 顺序执行动作列表（se=播音效 / spawn=按偏移生成对象 / setprop=改目标属性 /
+  // move=平移目标；target uid 找不到时跳过该动作）
+  function runEvents(tr) {
+    var evs = tr.events || [];
+    for (var i = 0; i < evs.length; i++) {
+      var ev = evs[i];
+      if (!ev || !ev.act) continue;
+      if (ev.act === 'se') {
+        if ((ev.id | 0) >= 1) A.playSE(ev.id | 0);
+      } else if (ev.act === 'spawn') {
+        var sp = spawnEnemy(tr.ax + (ev.dx | 0), tr.ay + (ev.dy | 0), 0, 0, 0, ev.atype | 0, ev.axtype | 0);
+        if (sp && tr.uid) sp.uid = tr.uid + '#ev' + i;
+      } else if (ev.act === 'setprop' || ev.act === 'move') {
+        var tgt = ev.target ? String(ev.target) : '';
+        if (!tgt) continue;
+        var obj = null, k;
+        for (k = 0; k < state.blocks.length; k++) if (state.blocks[k].uid === tgt) { obj = state.blocks[k]; break; }
+        if (!obj) for (k = 0; k < state.pipes.length; k++) if (state.pipes[k].uid === tgt) { obj = state.pipes[k]; break; }
+        if (!obj) for (k = 0; k < state.triggers.length; k++) if (state.triggers[k].uid === tgt) { obj = state.triggers[k]; break; }
+        if (!obj) for (k = 0; k < state.lifts.length; k++) if (state.lifts[k].uid === tgt) { obj = state.lifts[k]; break; }
+        if (!obj) continue;
+        if (ev.act === 'setprop') {
+          obj[ev.field || 'txtype'] = ev.value | 0;
+        } else {
+          var mdx = ev.dx | 0, mdy = ev.dy | 0;
+          if ('ta' in obj) { obj.ta += mdx; obj.tb += mdy; }
+          else if ('sa' in obj) { obj.sa += mdx; obj.sb += mdy; }
+          else if ('ba' in obj) { obj.ba += mdx; obj.bb += mdy; }
+          else if ('sra' in obj) { obj.sra += mdx; obj.srb += mdy; }
+        }
+      }
+    }
+  }
+
   function updateEnemies() {
     var p = state.player;
     for (var i = 0; i < state.enemies.length; i++) {
@@ -1720,6 +1794,16 @@
       S.draw(ctx, 3, 0, Math.floor(pmx / 100), Math.floor(pmy / 100));
     }
 
+    // 事件触发器可见形态（block_qball 绿问号球：未触发时显示，触发后消失）
+    (state.eventTriggers || []).forEach(function (tr) {
+      if (tr.fired || !tr.img) return;
+      xx[0] = tr.ax - state.fx; xx[1] = tr.ay - state.fy;
+      if (xx[0] + tr.aw < -10 || xx[0] > C.FXMAX) return;
+      if (tr.img.indexOf('item_green_question') >= 0) {
+        S.draw(ctx, 105, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      }
+    });
+
     // 敌人（顶出中的 abrocktm>0 已在方块之前绘制，此处跳过，避免透视）
     state.enemies.forEach(function (e) {
       if (e.abrocktm > 0) return;
@@ -1834,6 +1918,7 @@
           _debugLog.push({ f: _debugFrame, key: key, ma: p2.ma, mb: p2.mb, mc: p2.mc, md: p2.md, mz: p2.mzimen, mt: p2.mtype, before: false });
         }
         updateTriggers();
+        updateEventTriggers();
         updateEnemies();
         updateParticles();
         updateCamera();
@@ -1857,6 +1942,7 @@
       if (key) {
         state.life = 0;   // 新游戏，重置死亡计数
         state.checkpoint = null;   // 新游戏，清空中间旗检查点
+        state._evFired = {};       // 新游戏，事件触发器重新待命
         state.proc = C.PROC.STAGE_START;
         state.maintm = 0;
         startGame();
@@ -2164,6 +2250,7 @@
     state.proc = C.PROC.STAGE_START;
     state.maintm = 0;
     state.checkpoint = null;   // 从外部启动新游戏，清空中间旗检查点
+    state._evFired = {};       // 事件触发器重新待命
     _debugFrame = 0;
     startGame();
   };

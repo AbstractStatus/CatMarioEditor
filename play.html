@@ -231,9 +231,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd2"></script>
 <script src="audio.js?v=custom4"></script>
 <script src="input.js?v=custom4"></script>
-<script src="elements.js?v=evlog17"></script>
+<script src="elements.js?v=evlog18"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd16"></script>
+<script src="engine.js?v=hd17"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用） -->
 <script src="../stages_data.js?v=shell12"></script>
 <script>
@@ -328,6 +328,7 @@ body.dragging #dropTip { display: flex; }
     var gridUid = [];
     for (var i = 0; i < ROWS; i++) { grid.push(new Uint8Array(COLS)); gridUid.push(new Array(COLS).fill(null)); }
     var blocks = [], enemies = [], pipes = [], lifts = [], bgms = [], bg = [];
+    var eventTriggers = [];
     var spawn = null, skip = {}, used = 0, maxCol = 0;
     var hintTexts = {};
 
@@ -446,6 +447,21 @@ body.dragging #dropTip { display: flex; }
         pipes.push({
           sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0,
           stype: tz.stype | 0, sxtype: tz.sxtype | 0, uid: e.uid || null
+        });
+        used++;
+      } else if (id === 'trap_event' || id === 'block_qball') {
+        // 事件触发器（数据驱动）：trap_event = w×h 格隐形 AABB；block_qball = 1×1 可见触碰球。
+        // 坐标与方块/敌人一致（y 取 r*29-12 与 loadStage 网格对齐）；events 动作列表原样透传
+        var teW = (id === 'trap_event') ? Math.max(1, Math.min(50, e.w | 0 || 3)) : 1;
+        var teH = (id === 'trap_event') ? Math.max(1, Math.min(50, e.h | 0 || 3)) : 1;
+        eventTriggers.push({
+          ax: c * 2900,
+          ay: (r * 29 - 12) * 100,
+          aw: teW * 2900,
+          ah: teH * 2900,
+          uid: e.uid || null,
+          img: (id === 'block_qball') ? 'item/item_green_question.png' : null,
+          events: Array.isArray(e.events) ? JSON.parse(JSON.stringify(e.events)) : []
         });
         used++;
       } else if (id === 'pipe_mouth') {
@@ -673,6 +689,7 @@ body.dragging #dropTip { display: flex; }
       enemies: enemies,
       lifts: lifts,
       bg: bg,
+      eventTriggers: eventTriggers,
       spawn: spawn,
       // 统计信息（引擎不读，仅弹窗展示用）
       _skip: skip, _used: used, _cols: cols,

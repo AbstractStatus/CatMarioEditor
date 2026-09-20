@@ -203,6 +203,7 @@
         if (e.delay != null) o.delay = e.delay;
         if (e.chain) o.chain = e.chain;   // 坠落砖组链式触发目标 uid
         if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
+        if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
         return o;
       })
     };
@@ -352,6 +353,11 @@
       // 陷阱触发区：仅显示起始区域（1×2 格标记），实际 AABB（trap.sc/sd）保留给试玩，不在画布展开
       return { c0: e.col, c1: e.col, r0: e.row, r1: e.row + 1, tw: 1, th: 2 };
     }
+    if (d.id === 'trap_event') {
+      // 事件触发区：宽(格)×高(格) 由实例 w/h 决定
+      var _tew = Math.max(1, e.w || d.w || 3), _teh = Math.max(1, e.h || d.h || 3);
+      return { c0: e.col, c1: e.col + _tew - 1, r0: e.row, r1: e.row + _teh - 1, tw: _tew, th: _teh };
+    }
     if (d.id === 'bg_midflag') {
       // 中间旗：格子对齐——旗子占放置行顶 ~ 下一行行底（高 2 格整）、左贴 col 格线，
       // 宽保持原版 40px 比例；选中框 = pixel 精确矩形，与视觉完全重合且上下左三边贴格线
@@ -437,9 +443,11 @@
 
   // 实体类：占格互斥（方块/管道/旗杆/升降台/机关块）
   // player_start / bg_midflag 不参与互斥（中间旗是背景装饰，可与方块同格）
+  // _trapzone / trap_event / block_qball 为非实体触发器，不参与互斥（可与方块重叠）
   function isSolid(d) {
     return d.cat === 'block' ||
-      (d.cat === 'struct' && d.id !== 'player_start' && d.id !== 'bg_midflag' && d.id !== '_trapzone');
+      (d.cat === 'struct' && d.id !== 'player_start' && d.id !== 'bg_midflag' &&
+        d.id !== '_trapzone' && d.id !== 'trap_event' && d.id !== 'block_qball');
   }
 
   function placeAt(col, row) {
@@ -463,6 +471,7 @@
       else { tw = 2; th = _pmLen0 + 1; }
     }
     if (d.id === '_trapzone') { tw = 1; th = 2; }
+    if (d.id === 'trap_event') { tw = d.w || 3; th = d.h || 3; }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
     row = Math.max(row, -EXTRA_TOP_ROWS);
@@ -519,6 +528,10 @@
         sc: d.trapW || 7000,
         sd: d.trapH || 70000
       };
+    }
+    if (d.id === 'trap_event' || d.id === 'block_qball') {
+      ne.events = [];
+      if (d.id === 'trap_event') { ne.w = d.w || 3; ne.h = d.h || 3; }
     }
     if (d.warpable) ne.warp = { end: false, id: (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1' };
     state.elements.push(ne);
@@ -657,6 +670,31 @@
       ctx.fillRect(tx, ty, tw, 15);
       ctx.fillStyle = '#0b0e14';
       ctx.fillText(label, tx + 3, ty + 12);
+      ctx.restore();
+      return;
+    }
+    if (d.id === 'trap_event') {
+      // 事件触发区：w×h 格绿色虚线框 + “事件”标签（玩家不可见，仅编辑器显示）
+      var a = alpha == null ? 1 : alpha;
+      var tew = Math.max(1, e.w || d.w || 3), teh = Math.max(1, e.h || d.h || 3);
+      var tx = e.col * TILE, ty = (e.row + EXTRA_TOP_ROWS) * TILE;
+      var tw2 = tew * TILE, th2 = teh * TILE;
+      ctx.save();
+      ctx.globalAlpha = a * 0.9;
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(tx + 1, ty + 1, tw2 - 2, th2 - 2);
+      ctx.setLineDash([]);
+      // 标签：事件 + 尺寸（有动作时附动作数）
+      var nev = (e.events && e.events.length) ? e.events.length : 0;
+      var label = nev ? '事件(' + nev + ')' : '事件';
+      ctx.font = 'bold 11px monospace';
+      var lw = ctx.measureText(label).width + 8;
+      ctx.fillStyle = '#34d399';
+      ctx.fillRect(tx, ty, lw, 15);
+      ctx.fillStyle = '#0b0e14';
+      ctx.fillText(label, tx + 4, ty + 12);
       ctx.restore();
       return;
     }
@@ -1347,6 +1385,147 @@
     inp.type = 'number'; inp.min = min; inp.max = max; inp.value = val;
     return inp;
   }
+  // ---------- 事件触发器动作列表编辑器（trap_event / block_qball 共用） ----------
+  var EV_ACTS = [
+    ['se', '播音效'],
+    ['spawn', '生成敌人'],
+    ['setprop', '改属性'],
+    ['move', '移动元素']
+  ];
+  function evTargetSelect(cur, self) {
+    var sel = document.createElement('select');
+    var none = document.createElement('option');
+    none.value = ''; none.textContent = '(未选目标)';
+    sel.appendChild(none);
+    var found = false;
+    state.elements.forEach(function (el) {
+      if (el === self) return;
+      if (el.id === 'trap_event' || el.id === 'block_qball') return;   // 触发器不作动作目标
+      var eld = CAT.byId(el.id);
+      if (!eld) return;
+      var o = document.createElement('option');
+      o.value = el.uid || '';
+      o.textContent = '#' + (el.uid || '?') + ' ' + (eld.name || el.id) + ' (' + el.col + ',' + el.row + ')';
+      sel.appendChild(o);
+      if (el.uid && el.uid === cur) found = true;
+    });
+    if (cur && !found) {
+      var od = document.createElement('option');
+      od.value = cur; od.textContent = '(悬空) #' + cur;
+      sel.appendChild(od);
+    }
+    if (cur) sel.value = cur;
+    return sel;
+  }
+  function buildEventsEditor(evWork, self) {
+    var box = document.createElement('div');
+    box.style.cssText = 'border:1px solid #454d61;border-radius:4px;padding:6px;margin:4px 0';
+    var title = document.createElement('div');
+    title.textContent = '事件动作（触发时按顺序执行，每关一次）';
+    title.style.cssText = 'font-size:12px;color:#9aa4b5;margin-bottom:4px';
+    box.appendChild(title);
+    var rowsBox = document.createElement('div');
+    box.appendChild(rowsBox);
+    function renderRows() {
+      rowsBox.innerHTML = '';
+      if (!evWork.length) {
+        var empty = document.createElement('div');
+        empty.textContent = '尚无动作（触发后无效果）';
+        empty.style.cssText = 'font-size:12px;color:#6b7484;padding:2px 0';
+        rowsBox.appendChild(empty);
+      }
+      evWork.forEach(function (a, ai) {
+        var line = document.createElement('div');
+        line.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:2px 0';
+        var actSel = document.createElement('select');
+        EV_ACTS.forEach(function (op) {
+          var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+          actSel.appendChild(o);
+        });
+        actSel.value = a.act;
+        actSel.addEventListener('change', function () {
+          a.act = actSel.value;
+          delete a.id; delete a.atype; delete a.axtype; delete a.dx; delete a.dy; delete a.target; delete a.field; delete a.value;
+          if (a.act === 'se') a.id = 4;
+          if (a.act === 'spawn') { a.atype = 110; a.axtype = 0; a.dx = 0; a.dy = 0; }
+          if (a.act === 'setprop') { a.target = ''; a.field = 'txtype'; a.value = 0; }
+          if (a.act === 'move') { a.target = ''; a.dx = 0; a.dy = 0; }
+          renderRows();
+        });
+        line.appendChild(actSel);
+        function mkNum(key, min, max, step, tip, w) {
+          var inp = numInput(min, max, a[key] != null ? a[key] : 0);
+          if (step) inp.step = step;
+          inp.title = tip;
+          inp.style.width = (w || 64) + 'px';
+          inp.addEventListener('change', function () {
+            var v = parseFloat(inp.value);
+            a[key] = isFinite(v) ? v : 0;
+          });
+          line.appendChild(inp);
+        }
+        if (a.act === 'se') {
+          mkNum('id', 0, 30, 1, '音效编号（4=金币）');
+        } else if (a.act === 'spawn') {
+          mkNum('atype', 0, 199, 1, '对象 atype（110=恶星）', 56);
+          mkNum('axtype', 0, 999, 1, '子类型 axtype', 52);
+          mkNum('dx', -200000, 200000, 100, 'X偏移（世界单位，2900=1格）', 70);
+          mkNum('dy', -200000, 200000, 100, 'Y偏移（负=上方，生成后向下落）', 70);
+        } else if (a.act === 'setprop') {
+          var ts = evTargetSelect(a.target, self);
+          ts.addEventListener('change', function () { a.target = ts.value; });
+          line.appendChild(ts);
+          var fs = document.createElement('select');
+          [['txtype', 'txtype（提示/子类型）'], ['ttype', 'ttype（方块类型）'], ['sxtype', 'sxtype（管道子类型）']].forEach(function (op) {
+            var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+            fs.appendChild(o);
+          });
+          fs.value = a.field || 'txtype';
+          fs.addEventListener('change', function () { a.field = fs.value; });
+          line.appendChild(fs);
+          mkNum('value', -99999, 99999, 1, '新值');
+        } else if (a.act === 'move') {
+          var tm = evTargetSelect(a.target, self);
+          tm.addEventListener('change', function () { a.target = tm.value; });
+          line.appendChild(tm);
+          mkNum('dx', -200000, 200000, 100, 'X偏移（世界单位）', 70);
+          mkNum('dy', -200000, 200000, 100, 'Y偏移（正=向下）', 70);
+        }
+        var del = document.createElement('button');
+        del.textContent = '✕';
+        del.title = '删除此动作';
+        del.style.cssText = 'margin-left:auto;background:#3a2430;color:#e8a0a0;border:1px solid #6b3040;border-radius:4px;cursor:pointer;padding:1px 6px';
+        del.addEventListener('click', function () { evWork.splice(ai, 1); renderRows(); });
+        line.appendChild(del);
+        rowsBox.appendChild(line);
+      });
+    }
+    renderRows();
+    var btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:6px;margin-top:4px';
+    var addBtn = document.createElement('button');
+    addBtn.textContent = '+ 添加动作';
+    addBtn.style.cssText = 'background:#24304a;color:#a8c0ee;border:1px solid #455070;border-radius:4px;cursor:pointer;padding:2px 8px;font-size:12px';
+    addBtn.addEventListener('click', function () { evWork.push({ act: 'se', id: 4 }); renderRows(); });
+    var tplBtn = document.createElement('button');
+    tplBtn.textContent = '填入1-3整蛊模板';
+    tplBtn.title = '金币音效+提示块变空白框(txtype=80)+天降7颗恶星(atype=110)+脆弱砖下移3格；setprop/move 的目标需手动选择';
+    tplBtn.style.cssText = 'background:#3a3040;color:#e0b0e0;border:1px solid #6b5070;border-radius:4px;cursor:pointer;padding:2px 8px;font-size:12px';
+    tplBtn.addEventListener('click', function () {
+      evWork.length = 0;
+      evWork.push({ act: 'se', id: 4 });
+      evWork.push({ act: 'setprop', target: '', field: 'txtype', value: 80 });
+      [-29000, -25000, 13000, 14000, 19000, 20000, 25000].forEach(function (dx) {
+        evWork.push({ act: 'spawn', atype: 110, axtype: 0, dx: dx, dy: -42000 });
+      });
+      evWork.push({ act: 'move', target: '', dx: 0, dy: 9000 });
+      renderRows();
+    });
+    btns.appendChild(addBtn);
+    btns.appendChild(tplBtn);
+    box.appendChild(btns);
+    return box;
+  }
   function openPropModal() {
     if (!selected) return;
     var d = CAT.byId(selected.id);
@@ -1551,6 +1730,18 @@
       fTzSxtype = numInput(0, 999, tz0.sxtype != null ? tz0.sxtype : (d.trapSxtype || 0));
       propBody.appendChild(propRow('子类型 sxtype', fTzSxtype, '102 用：0=4白猫/9=3幽灵天降/10=转101 等'));
     }
+    // 事件触发器：trap_event 宽高 + 两者共用 events 动作列表编辑器
+    var fTeW = null, fTeH = null, evWork = null;
+    if (d.id === 'trap_event' || d.id === 'block_qball') {
+      if (d.id === 'trap_event') {
+        fTeW = numInput(1, 50, selected.w || d.w || 3);
+        propBody.appendChild(propRow('宽(格)', fTeW, '隐形触发区宽度（1格=29px）'));
+        fTeH = numInput(1, 20, selected.h || d.h || 3);
+        propBody.appendChild(propRow('高(格)', fTeH, '隐形触发区高度'));
+      }
+      evWork = Array.isArray(selected.events) ? JSON.parse(JSON.stringify(selected.events)) : [];
+      propBody.appendChild(buildEventsEditor(evWork, selected));
+    }
     if (d.id.indexOf('lift_') === 0) {
       fLen = numInput(1, 50, liftLen(selected));
       propBody.appendChild(propRow('平台长度', fLen, '格'));
@@ -1743,6 +1934,19 @@
         selected.trap.sxtype = Math.max(0, parseInt(fTzSxtype.value, 10) || 0);
         selected.trap.sa = selected.col * 2900;
         selected.trap.sb = (selected.row * 29 - 12) * 100;
+      }
+      // 事件触发器保存：trap_event 宽高（越界钳制）+ events 动作列表写回
+      if (fTeW) {
+        var nTeW = Math.max(1, Math.min(50, parseInt(fTeW.value, 10) || 3));
+        var nTeH = Math.max(1, Math.min(20, parseInt(fTeH.value, 10) || 3));
+        selected.w = nTeW; selected.h = nTeH;
+        selected.col = Math.min(selected.col, state.cols - nTeW);
+        selected.row = Math.min(selected.row, ROWS - nTeH);
+      }
+      if (evWork) {
+        var evClean = evWork.filter(function (a) { return a && typeof a.act === 'string'; });
+        if (evClean.length) selected.events = evClean;
+        else delete selected.events;   // 空列表不落盘
       }
       persist();
       requestRender();
@@ -2673,6 +2877,7 @@
         th = (ggi.variant === 0) ? 2 : ggi.rows;
       }
       if (d.id === '_trapzone') { tw = 1; th = 2; }
+      if (d.id === 'trap_event') { tw = d.w || 3; th = d.h || 3; }
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
       nc = Math.max(0, Math.min(state.cols - tw, nc));
@@ -3448,6 +3653,14 @@
           sxtype: tz.sxtype | 0,
           sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0
         };
+      }
+      // 事件触发器：trap_event 宽高(格) + 两者共用 events 动作列表
+      if (e.id === 'trap_event') {
+        if (e.w != null) out.w = Math.max(1, e.w | 0);
+        if (e.h != null) out.h = Math.max(1, e.h | 0);
+      }
+      if ((e.id === 'trap_event' || e.id === 'block_qball') && Array.isArray(e.events)) {
+        out.events = e.events;
       }
       // 管道口字段放行：length + dir + entry
       if (e.id === 'pipe_mouth') {
