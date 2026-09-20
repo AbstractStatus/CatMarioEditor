@@ -1418,9 +1418,14 @@
     } else if (e.atype === 30) {
       S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 79) {
-      // 大脸怪（stype103/104 隐形陷阱带生成，12000×1500 横向飞行体）：
-      // 贴图在 omake.png（sheet 5）id 0，不在 teki.png(sheet3)，早期移植遗漏导致它完全隐形
-      S.draw(ctx, 0, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
+      // 激光炮（stype103/104 隐形陷阱带生成的横向扁矩形，anobia×anobib≈120×15）：
+      // 旧引擎 main.cpp:978-983 — 黄色填充矩形 + 黑色描边
+      var dx79 = Math.floor(xx[0] / 100), dy79 = Math.floor(xx[1] / 100);
+      var w79 = Math.floor(e.anobia / 100), h79 = Math.floor(e.anobib / 100);
+      ctx.fillStyle = 'rgb(250, 250, 0)';
+      ctx.fillRect(dx79, dy79, w79, h79);
+      ctx.strokeStyle = '#000';
+      ctx.strokeRect(dx79, dy79, w79, h79);
     } else if (e.atype === 6) {
       if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
         S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
