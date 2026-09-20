@@ -1017,9 +1017,11 @@
         // 管道/旗杆/假旗杆/大敌人：按 tw/th 格数等比缩放
         dx2 = x; dy2 = y;
         if (d.id === 'enemy_turtle') {
-          // 绿龟在地图上只占 1 格：按 30x43 原始比例绘制，格底对齐（脚踩地面，向上溢出）
-          dw2 = Math.round(im2.naturalWidth / 29 * TILE);
-          dh2 = Math.round(im2.naturalHeight / 29 * TILE);
+          // 绿龟在地图上只占 1 格：按 manifest 逻辑尺寸（30x43）绘制，格底对齐（脚踩地面，向上溢出）
+          // 必须读 designSize 而非 naturalWidth，否则替换高清图后会按物理分辨率放大
+          var td = designSize[d.img] || { w: im2.naturalWidth, h: im2.naturalHeight };
+          dw2 = Math.round(td.w / 29 * TILE);
+          dh2 = Math.round(td.h / 29 * TILE);
           dy2 = y + TILE - dh2;
         } else if (d.id === 'enemy_robot') {
           // 方块机器人占 2 格高但精灵为 36x50：按 manifest 逻辑比例绘制（不拉伸），
