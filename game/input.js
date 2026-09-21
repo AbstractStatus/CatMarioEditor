@@ -10,6 +10,8 @@
 
   var keyState = 0;
   var prevKeyState = 0;
+  // O 键自杀请求（按一次后引擎在帧内消费）
+  var suicideRequested = false;
 
   Input.init = function (canvas) {
     var map = function (code) {
@@ -35,6 +37,12 @@
 
     var onKeyDown = function (e) {
       if (fromControl(e)) return;
+      // O 键（keyCode 79）：请求自杀，引擎在帧内消费
+      if (e.keyCode === 79) {
+        suicideRequested = true;
+        e.preventDefault();
+        return;
+      }
       var b = map(e.keyCode);
       if (b) {
         keyState |= b;
@@ -125,6 +133,15 @@
   };
   Input.clear = function () {
     keyState = 0;
+  };
+
+  // 引擎每帧调用：返回是否请求自杀并清零标志
+  Input.consumeSuicide = function () {
+    if (suicideRequested) {
+      suicideRequested = false;
+      return true;
+    }
+    return false;
   };
 
   global.Input = Input;

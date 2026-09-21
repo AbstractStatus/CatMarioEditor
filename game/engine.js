@@ -1940,6 +1940,11 @@
         }
       }
       if (state.proc === C.PROC.GAME && state.tmsgtype === 0) {
+        // O 键自杀：仅在玩家存活时触发，复用死亡流程（含死亡动画/生命计数/事件日志）
+        if (IN.consumeSuicide() && state.player.mtype !== C.MTYPE.DEAD && state.player.mhp > 0) {
+          markHurt('suicide');
+          state.player.mhp = 0;
+        }
         updatePlayer(key);
         var p = state.player;
         if (key & 2 || p.mb > 40000 || _debugFrame <= 10) {
@@ -2202,6 +2207,7 @@
     'poison-mushroom': '毒蘑菇：吃下紫毒蘑菇',
     'bad-star': '坏星：碰到恶魔星',
     'fall-brick': '坠落砖组：被运动中的砖组砸中',
+    'suicide': '自杀：按 O 键主动结束生命',
     'unknown': '未知原因'
   };
   // 敌人 atype → 中文名（atype 即触发器 btype，见 spawnEnemy）
