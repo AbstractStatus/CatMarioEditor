@@ -37,11 +37,17 @@ canvas#canvas {
   cursor: pointer;
 }
 #loading {
-  position: absolute; inset: 0;
-  background: #000; color: #fff;
+  position: absolute; inset: 0; z-index: 30;
+  background: #0d1117; color: #e8ecf4;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px;
+  flex-direction: column; gap: 14px;
+  font-size: 14px; user-select: none;
 }
+#loading .ld-title { font-size: 16px; color: #ffd75e; }
+#loading .ld-bar { width: 320px; max-width: 70vw; height: 10px;
+  background: #2a2f3c; border-radius: 5px; overflow: hidden; }
+#loading .ld-fill { width: 0; height: 100%; background: #48b048; transition: width .2s ease-out; }
+#loading .ld-text { color: #98a2b6; font-size: 12px; }
 
 /* 镜头宽度调节条（固定在底部剩余区域，#wrap=80vh+顶40px） */
 #viewbar {
@@ -168,7 +174,11 @@ body.dragging #dropTip { display: flex; }
 <body>
 <div id="wrap">
   <canvas id="canvas" width="480" height="420" tabindex="0"></canvas>
-  <div id="loading">加载中...</div>
+  <div id="loading">
+    <div class="ld-title">🐱 猫里奥 · 资源加载中</div>
+    <div class="ld-bar"><div id="ldFill" class="ld-fill"></div></div>
+    <div id="ldText" class="ld-text">0%</div>
+  </div>
 </div>
 
 <!-- 镜头宽度调节条 -->
@@ -228,8 +238,8 @@ body.dragging #dropTip { display: flex; }
 <script src="../assets/sprites/manifest.js"></script>
 <!-- 新引擎模块（base 指向 game/） -->
 <script src="constants.js?v=custom2"></script>
-<script src="sprites.js?v=hd2"></script>
-<script src="audio.js?v=custom4"></script>
+<script src="sprites.js?v=hd3"></script>
+<script src="audio.js?v=custom5"></script>
 <script src="input.js?v=custom4"></script>
 <script src="elements.js?v=evlog22"></script>
 <script src="levels.js?v=custom2"></script>
@@ -937,7 +947,44 @@ body.dragging #dropTip { display: flex; }
   /* ---------- 引擎初始化 ---------- */
   GameEngine.init(canvas);
   setStatus('引擎已就绪', 'ok');
-  setTimeout(function () { loadingEl.style.display = 'none'; }, 500);
+
+  /* ---------- 加载进度条：等 Sprites + Audio 全部就绪再隐藏 ---------- */
+  (function () {
+    var fillEl = document.getElementById('ldFill');
+    var textEl = document.getElementById('ldText');
+    var lastP = -1;
+    function tick() {
+      var sp = window.Sprites && Sprites.getProgress ? Sprites.getProgress() : { loaded: 0, total: 0 };
+      var au = window.AudioSys && AudioSys.getProgress ? AudioSys.getProgress() : { loaded: 0, total: 0, disabled: true };
+      var total = (sp.total || 0) + (au.disabled ? 0 : (au.total || 0));
+      var loaded = (sp.loaded || 0) + (au.disabled ? 0 : (au.loaded || 0));
+      // 任何一方尚未启动（total=0）视为待加载；防除零
+      if (total === 0) total = 1;
+      var p = Math.min(100, Math.round(loaded * 100 / total));
+      // 引擎初始就绪也算 1% 以避免页面空白期间显示 0%
+      if (p === 0) p = 1;
+      if (p !== lastP) {
+        lastP = p;
+        if (fillEl) fillEl.style.width = p + '%';
+        if (textEl) textEl.textContent = p + '%';
+      }
+      // 就绪条件：Sprites 已全数加载 AND (Audio 已全数解码 OR Audio 不可用)
+      var spReady = sp.total > 0 && sp.loaded >= sp.total;
+      var auReady = au.disabled || (au.total > 0 && au.loaded >= au.total);
+      if (spReady && auReady) {
+        clearInterval(timer);
+        if (fillEl) fillEl.style.width = '100%';
+        if (textEl) textEl.textContent = '100%';
+        setTimeout(function () {
+          loadingEl.style.transition = 'opacity .3s';
+          loadingEl.style.opacity = '0';
+          setTimeout(function () { loadingEl.style.display = 'none'; }, 300);
+        }, 100);
+      }
+    }
+    var timer = setInterval(tick, 100);
+    tick();
+  })();
 
   /* ---------- 镜头宽度调节 ----------
    * factor: 0 = 宽=高（正方形，虚拟宽 420）；1 = 占满页面宽度

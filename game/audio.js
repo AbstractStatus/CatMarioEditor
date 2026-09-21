@@ -51,14 +51,14 @@
     customBgmMap = map || {};
     // 被自定义覆盖的 id 需重新解码；随后整体预取
     Object.keys(customBgmMap).forEach(function (k) {
-      delete bgmBufs[k]; delete bgmTried[k];
+      delete bgmBufs[k]; delete bgmTried[k]; delete bgmFailed[k];
     });
     preloadAll();
   };
   Audio.setCustomSfx = function (map) {
     customSfxMap = map || {};
     Object.keys(customSfxMap).forEach(function (k) {
-      delete seBufs[k]; delete seTried[k];
+      delete seBufs[k]; delete seTried[k]; delete seFailed[k];
     });
     preloadAll();
   };
@@ -88,6 +88,8 @@
   var bgmBufs = {};   // id -> AudioBuffer
   var seTried = {};   // id -> 已发起解码（失败会移除以便重试）
   var bgmTried = {};
+  var seFailed = {};  // id -> 解码失败（用于进度统计；不影响运行时重试）
+  var bgmFailed = {};
   var activeSe = {};  // id -> [BufferSource]，stopSe 切断用
   var bgmEl = null;   // 兜底路径的 BGM 元素
   var bgmSrc = null;
@@ -144,7 +146,7 @@
     if (!url) return null;
     seTried[id] = true;
     decodeBuf(url, function (err, buf) {
-      if (err) { delete seTried[id]; return; }
+      if (err) { delete seTried[id]; seFailed[id] = true; return; }
       seBufs[id] = buf;
     });
     return null;
@@ -157,7 +159,7 @@
     if (!url) { if (cb) cb(new Error('no url')); return null; }
     bgmTried[id] = true;
     decodeBuf(url, function (err, buf) {
-      if (err) { delete bgmTried[id]; if (cb) cb(err); return; }
+      if (err) { delete bgmTried[id]; bgmFailed[id] = true; if (cb) cb(err); return; }
       bgmBufs[id] = buf;
       if (cb) cb(null, buf);
     });
@@ -239,6 +241,22 @@
 
   Audio.init = function () {
     preloadAll();
+  };
+
+  // 加载进度查询：返回 {loaded, total, disabled}
+  // - disabled=true 表示 Web Audio 不可用（file:// 协议），无预解码任务
+  // - 用于加载画面在 Audio.init 启动后轮询音效/BGM 解码进度
+  // - 失败（seFailed/bgmFailed）的 id 计入 loaded，确保进度条能到 100%
+  Audio.getProgress = function () {
+    if (!webAudioOk) return { loaded: 0, total: 0, disabled: true };
+    var seTotal = Object.keys(SE_FILES).length + Object.keys(customSfxMap).length;
+    var bgmTotal = Object.keys(BGM_FILES).length + Object.keys(customBgmMap).length;
+    var seLoaded = 0, bgmLoaded = 0, k;
+    for (k in SE_FILES) { if (seBufs[+k] || seFailed[+k]) seLoaded++; }
+    for (k in customSfxMap) { if (seBufs[+k] || seFailed[+k]) seLoaded++; }
+    for (k in BGM_FILES) { if (bgmBufs[+k] || bgmFailed[+k]) bgmLoaded++; }
+    for (k in customBgmMap) { if (bgmBufs[+k] || bgmFailed[+k]) bgmLoaded++; }
+    return { loaded: seLoaded + bgmLoaded, total: seTotal + bgmTotal, disabled: false };
   };
 
   Audio.unlock = function () {

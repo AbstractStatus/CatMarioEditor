@@ -85,6 +85,12 @@
     }
   };
 
+  // 加载进度查询：返回 {loaded, total}
+  // 用于加载画面在 Sprites.init 启动后轮询图片加载进度
+  Sprites.getProgress = function () {
+    return { loaded: loadedCount, total: totalCount };
+  };
+
   // 获取精灵图像对象
   Sprites.get = function (id, sheet) {
     if (images[sheet] && images[sheet][id]) {
