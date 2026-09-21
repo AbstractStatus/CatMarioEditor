@@ -34,6 +34,62 @@
     return 0;
   }
 
+  // ==================== 管道进入检测（方向感知） ====================
+  // 按管道开口方向选择对应的进入按键，并校验玩家位于开口一侧：
+  //   dir='up'    → 按下键，玩家在管口上方
+  //   dir='down'  → 按上键(JUMP)，玩家在管口下方
+  //   dir='left'  → 按右键，玩家在管口左侧
+  //   dir='right' → 按左键，玩家在管口右侧
+  // 通过后写入 p._pipeDir 供引擎播放沉入动画时确定方向。
+  function pipeEnterCheck(p, s, xx) {
+    var dir = s.dir;
+    if (!dir) {
+      // stype 40 原版左进入管道：无 dir 属性时默认 'left'
+      if (s.stype === 40) dir = 'left';
+      else dir = 'up';
+    }
+    // 1. 按键校验
+    // 注意：水平移动处理后 actaon[0] 会被改写为哨兵值 3（同原版 main.cpp），
+    // 所以横管进入必须判定 actaon[4]（本帧按键写入的方向记忆，-1左/1右）。
+    var keyOk;
+    if (dir === 'up')         keyOk = (p.actaon[3] === 1);        // DOWN
+    else if (dir === 'down')  keyOk = (p.actaon[2] === 1);        // UP/JUMP
+    else if (dir === 'left')  keyOk = (p.actaon[4] === 1);        // RIGHT
+    else                       keyOk = (p.actaon[4] === -1);       // LEFT (dir='right')
+    if (!keyOk || p.mtype !== 0) return false;
+
+    // 2. AABB 校验：玩家必须位于开口一侧并与管口重叠
+    var pl = p.ma, pr = p.ma + p.mnobia;
+    var pt = p.mb, pb = p.mb + p.mnobib;
+    var L = xx[8], R = xx[8] + s.sc;
+    var T = xx[9], B = xx[9] + s.sd;
+
+    if (dir === 'up') {
+      // 玩家在管顶：水平重叠 + 脚踩管口 + 着地（原版 stype 50 同条件）
+      if (!(pr > L + 2800 && pl < R - 3000)) return false;
+      if (!(pb > T - 1000 && pb < T + 5400)) return false;
+      if (p.mzimen !== 1) return false;
+    } else if (dir === 'down') {
+      // 玩家在管底下方：水平重叠 + 头顶贴管底
+      if (!(pr > L + 2800 && pl < R - 3000)) return false;
+      if (!(pt > B - 3000 && pt < B + 1000)) return false;
+    } else if (dir === 'left') {
+      // 玩家在管口左侧按→走入（原版 stype 40「入る土管(左から)」同条件）：
+      //   pr > L-300、pl < L+sc-1000、pt > T+1000、pb < T+6400、着地
+      if (!(pr > L - 300 && pl < L + s.sc - 1000)) return false;
+      if (!(pt > T + 1000 && pb < T + 6400)) return false;
+      if (p.mzimen !== 1) return false;
+    } else { // right
+      // 玩家在管口右侧按←走入（左开口条件的水平镜像）
+      if (!(pl < R + 300 && pr > R - s.sc + 1000)) return false;
+      if (!(pt > T + 1000 && pb < T + 6400)) return false;
+      if (p.mzimen !== 1) return false;
+    }
+
+    p._pipeDir = dir;
+    return true;
+  }
+
   // ==================== 已注册的管道类型 ====================
 
   // stype 0: 地面（深绿实心矩形 + 黑边）
@@ -89,11 +145,22 @@
   };
 
   // stype 40: 左进入管道（与竖管口相同，y偏移1px）
+  // 原版左进入管道：玩家在左侧按→进入，进入下一子关（stc++）
   PipeTypes[40] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
       ctx.fillStyle = '#00e600'; ctx.fillRect(x, y + 1, w, h);
       ctx.strokeStyle = '#000'; ctx.strokeRect(x, y + 1, w, h);
+    },
+    onEnter: function (p, s, xx, state) {
+      var C = getC();
+      if (pipeEnterCheck(p, s, xx)) {
+        p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
+        p._warp = null;
+        p._trapPipe = null;
+        return true;
+      }
+      return false;
     }
   };
 
@@ -138,9 +205,7 @@
     },
     onEnter: function (p, s, xx, state) {
       var C = getC();
-      if (p.ma + p.mnobia > xx[8] + 2800 && p.ma < xx[8] + s.sc - 3000 &&
-          p.mb + p.mnobib > xx[9] - 1000 && p.mb + p.mnobib < xx[9] + xx[1] + 3000 &&
-          p.mzimen === 1 && p.actaon[3] === 1 && p.mtype === 0) {
+      if (pipeEnterCheck(p, s, xx)) {
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = s.sxtype;
         // sxtype===0 为陷阱管道：记录管道对象，动画期间驱动管道本体抖动/上升
         p._trapPipe = (s.sxtype === 0) ? s : null;
@@ -200,9 +265,7 @@
     },
     onEnter: function (p, s, xx, state) {
       var C = getC();
-      if (p.ma + p.mnobia > xx[8] + 2800 && p.ma < xx[8] + s.sc - 3000 &&
-          p.mb + p.mnobib > xx[9] - 1000 && p.mb + p.mnobib < xx[9] + xx[1] + 3000 &&
-          p.mzimen === 1 && p.actaon[3] === 1 && p.mtype === 0) {
+      if (pipeEnterCheck(p, s, xx)) {
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
         // 带上管道实例 uid，供直接通关(warp.end)事件溯源
         p._warp = s.warp ? { end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null } : null;

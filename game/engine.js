@@ -523,11 +523,18 @@
     if (p.mtype >= 100) {
       p.mtm++;
       if (p.mtype === C.MTYPE.PIPE) {
+        // 沉入方向由进管时记录的开口方向决定
+        var pdir = p._pipeDir || 'up';
+        var sinkDx = 0, sinkDy = 0;
+        if (pdir === 'up')         sinkDy = 240;
+        else if (pdir === 'down')  sinkDy = -240;
+        else if (pdir === 'left')  sinkDx = 240;
+        else if (pdir === 'right') sinkDx = -240;
         if (p.mxtype === 0) {
           p.mc = 0; p.md = 0;
           var tp = p._trapPipe;
           // 玩家沉入管道（mtm<=16）后移出屏幕（17）
-          if (p.mtm <= 16) { p.mb += 240; p.mzz = 100; }
+          if (p.mtm <= 16) { p.ma += sinkDx; p.mb += sinkDy; p.mzz = 100; }
           if (p.mtm === 17) p.mb = -80000000;
           // 陷阱管道动画：玩家已离屏，此时驱动管道本体（对应原版 main.cpp 的 sa/sb[28]）
           if (tp) {
@@ -548,7 +555,7 @@
           }
         } else {
           p.mc = 0; p.md = 0;
-          if (p.mtm <= 16) p.mb += 240;
+          if (p.mtm <= 16) { p.ma += sinkDx; p.mb += sinkDy; }
           if (p.mtm === 20) {
             // 玩家已完全沉入管道并离屏：进行关卡切换
             p.mb = -80000000; p.mtype = 0; A.bgmStop();
