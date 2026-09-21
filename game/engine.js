@@ -1386,6 +1386,24 @@
               }
             }
             if (e.atype === 6) e.atm = 10;
+
+            // こうら踢效果（原版 main.cpp:3665-3677）：
+            // 玩家水平触碰静止龟壳(atype=2,axtype=0) → 启动滑动并把壳瞬移到玩家旁，
+            // 给玩家5帧无敌防止本帧/下帧重复触发；滑动中壳(axtype>=1)撞玩家已由上面 markHurt 扣血分支处理
+            if (e.atype === 2 && e.axtype === 0) {
+              if (p.ma + p.mnobia > xx[8] + xx[0] * 2 &&
+                  p.ma < xx[8] + e.anobia / 2 - xx[0] * 4) {
+                // 玩家从壳左侧触碰 → 壳向右滑
+                e.amuki = 1; e.aa = p.ma + p.mnobia + p.mc;
+              } else {
+                // 玩家从壳右侧触碰 → 壳向左滑
+                e.amuki = 0; e.aa = p.ma - e.anobia - p.mc;
+              }
+              e.axtype = 1;
+              p.mmutekitm = 5;
+              A.playSE(C.SE.SHELL);
+              console.log('[KICK] shell kicked:', { fromAa: xx[8], toAa: e.aa, amuki: e.amuki, pMa: p.ma, pMc: p.mc });
+            }
           }
         }
         // 道具拾取
