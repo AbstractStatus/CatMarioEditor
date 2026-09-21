@@ -24,6 +24,9 @@
   transition: width .2s ease-out;
 }
 #bootMask .bm-text { color: #98a2b6; font-size: 12px; }
+#bootMask .bm-file { color: #b8c2d6; font-size: 11px; max-width: 360px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: Consolas, "Courier New", monospace; }
 </style>
 </head>
 <body>
@@ -31,7 +34,8 @@
 <div id="bootMask">
   <div class="bm-title">🐱 猫里奥关卡编辑器 · 资源加载中</div>
   <div class="bm-bar"><div id="bmFill" class="bm-fill"></div></div>
-  <div id="bmText" class="bm-text">0%</div>
+  <div id="bmText" class="bm-text">0% (0/0)</div>
+  <div id="bmFile" class="bm-file">准备加载…</div>
 </div>
 <div id="app">
   <!-- 顶部工具栏 -->
@@ -135,45 +139,78 @@
 <script src="stages_data.js?v=shell13"></script>
 <script src="editor.js?v=hd25"></script>
 <script>
-/* 加载画面：预加载 manifest 中所有切片 PNG，跟踪进度，完成后淡出遮罩 */
+/* 加载画面：预加载 manifest 中所有切片 PNG，跟踪进度，完成后淡出遮罩。
+ * 加载期间屏蔽所有键盘事件（capture 阶段拦截），防止编辑器接收按键放置/删除元素。 */
 (function () {
   var mask = document.getElementById('bootMask');
   if (!mask) return;
   var fillEl = document.getElementById('bmFill');
   var textEl = document.getElementById('bmText');
+  var fileEl = document.getElementById('bmFile');
   var lastP = -1;
-  function setP(p) {
-    if (p === lastP) return;
+  var total = 0, loaded = 0;
+  // 提取 URL 中的文件名
+  function basename(url) {
+    if (!url) return '';
+    var s = String(url).split('?')[0];
+    var i = s.lastIndexOf('/');
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+  function setP(p, file) {
+    if (p === lastP && file == null) return;
     lastP = p;
     if (fillEl) fillEl.style.width = p + '%';
-    if (textEl) textEl.textContent = p + '%';
+    if (textEl) textEl.textContent = p + '% (' + loaded + '/' + total + ')';
+    if (fileEl && file != null) {
+      fileEl.textContent = file ? ('当前加载：' + basename(file)) : (loaded >= total ? '完成 ✓' : '');
+    }
+  }
+  // 加载期间屏蔽所有键盘事件（capture 阶段拦截）
+  function keyBlocker(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return false;
+  }
+  window.addEventListener('keydown', keyBlocker, true);
+  window.addEventListener('keyup', keyBlocker, true);
+  window.addEventListener('keypress', keyBlocker, true);
+  function releaseBlocker() {
+    window.removeEventListener('keydown', keyBlocker, true);
+    window.removeEventListener('keyup', keyBlocker, true);
+    window.removeEventListener('keypress', keyBlocker, true);
   }
   function finish() {
-    setP(100);
+    setP(100, null);
+    if (fileEl) fileEl.textContent = '完成 ✓';
     setTimeout(function () {
       mask.style.transition = 'opacity .3s';
       mask.style.opacity = '0';
-      setTimeout(function () { mask.style.display = 'none'; }, 300);
+      setTimeout(function () {
+        mask.style.display = 'none';
+        releaseBlocker();
+      }, 300);
     }, 100);
   }
-  // 无 manifest 兜底：500ms 后直接淡出
-  if (!window.SPRITE_MANIFEST || !window.SPRITE_MANIFEST.sprites) {
-    setTimeout(finish, 500); return;
-  }
-  // 收集所有切片 PNG 的路径，去重
+  // 收集 manifest 中所有切片 PNG 路径，去重
   var seen = {}, urls = [];
-  window.SPRITE_MANIFEST.sprites.forEach(function (s) {
-    if (!s.file) return;
-    var u = 'assets/sprites/' + s.file;
-    if (seen[u]) return;
-    seen[u] = true; urls.push(u);
-  });
-  // 兜底：无有效 URL 时直接结束
-  if (urls.length === 0) { finish(); return; }
-  var total = urls.length, loaded = 0;
+  if (window.SPRITE_MANIFEST && window.SPRITE_MANIFEST.sprites) {
+    window.SPRITE_MANIFEST.sprites.forEach(function (s) {
+      if (!s.file) return;
+      var u = 'assets/sprites/' + s.file;
+      if (seen[u]) return;
+      seen[u] = true; urls.push(u);
+    });
+  }
+  total = urls.length;
+  // 兜底：无有效 URL 时 500ms 后直接淡出
+  if (total === 0) { setTimeout(finish, 500); return; }
+  // 启动加载
+  setP(0, urls[0]);
   function done() {
     loaded++;
-    setP(Math.min(99, Math.round(loaded * 100 / total)));
+    // 估算当前正在加载的文件（最后一个未完成的）
+    var cur = loaded < total ? urls[Math.min(loaded, total - 1)] : null;
+    setP(Math.min(99, Math.round(loaded * 100 / total)), cur);
     if (loaded >= total) finish();
   }
   urls.forEach(function (u) {

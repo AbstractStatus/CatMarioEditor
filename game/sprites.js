@@ -13,6 +13,12 @@
   var loadedCount = 0;
   var totalCount = 0;
   var onReadyCb = null;
+  var pendingFiles = [];   // 正在加载的文件名（按发起顺序，完成后移除）
+
+  function removePending(file) {
+    var i = pendingFiles.indexOf(file);
+    if (i >= 0) pendingFiles.splice(i, 1);
+  }
 
   // 从 manifest 构建索引
   function buildIndex(manifest) {
@@ -27,16 +33,19 @@
       var sheet = parseInt(m[2], 10);
       if (!images[sheet]) images[sheet] = {};
       var img = new Image();
-      img.src = dir + s.file;
       totalCount++;
+      pendingFiles.push(s.file);
       img.onload = function () {
         loadedCount++;
+        removePending(s.file);
         checkReady();
       };
       img.onerror = function () {
         loadedCount++;
+        removePending(s.file);
         checkReady();
       };
+      img.src = dir + s.file;
       images[sheet][id] = { img: img, w: s.w, h: s.h };
     });
   }
@@ -85,10 +94,14 @@
     }
   };
 
-  // 加载进度查询：返回 {loaded, total}
-  // 用于加载画面在 Sprites.init 启动后轮询图片加载进度
+  // 加载进度查询：返回 {loaded, total, current}
+  // current = 最后一个发起但未完成的文件名（用于加载画面展示）
   Sprites.getProgress = function () {
-    return { loaded: loadedCount, total: totalCount };
+    return {
+      loaded: loadedCount,
+      total: totalCount,
+      current: pendingFiles.length ? pendingFiles[pendingFiles.length - 1] : null
+    };
   };
 
   // 获取精灵图像对象

@@ -51,14 +51,14 @@
     customBgmMap = map || {};
     // 被自定义覆盖的 id 需重新解码；随后整体预取
     Object.keys(customBgmMap).forEach(function (k) {
-      delete bgmBufs[k]; delete bgmTried[k]; delete bgmFailed[k];
+      delete bgmBufs[k]; delete bgmTried[k]; delete bgmFailed[k]; delete pendingBgm[k];
     });
     preloadAll();
   };
   Audio.setCustomSfx = function (map) {
     customSfxMap = map || {};
     Object.keys(customSfxMap).forEach(function (k) {
-      delete seBufs[k]; delete seTried[k]; delete seFailed[k];
+      delete seBufs[k]; delete seTried[k]; delete seFailed[k]; delete pendingSe[k];
     });
     preloadAll();
   };
@@ -90,6 +90,8 @@
   var bgmTried = {};
   var seFailed = {};  // id -> 解码失败（用于进度统计；不影响运行时重试）
   var bgmFailed = {};
+  var pendingSe = {};   // id -> url，正在加载的音效
+  var pendingBgm = {};  // id -> url，正在加载的 BGM
   var activeSe = {};  // id -> [BufferSource]，stopSe 切断用
   var bgmEl = null;   // 兜底路径的 BGM 元素
   var bgmSrc = null;
@@ -145,7 +147,9 @@
     var url = getSfxUrl(id);
     if (!url) return null;
     seTried[id] = true;
+    pendingSe[id] = url;
     decodeBuf(url, function (err, buf) {
+      delete pendingSe[id];
       if (err) { delete seTried[id]; seFailed[id] = true; return; }
       seBufs[id] = buf;
     });
@@ -158,7 +162,9 @@
     var url = getBgmUrl(id);
     if (!url) { if (cb) cb(new Error('no url')); return null; }
     bgmTried[id] = true;
+    pendingBgm[id] = url;
     decodeBuf(url, function (err, buf) {
+      delete pendingBgm[id];
       if (err) { delete bgmTried[id]; bgmFailed[id] = true; if (cb) cb(err); return; }
       bgmBufs[id] = buf;
       if (cb) cb(null, buf);
@@ -243,12 +249,12 @@
     preloadAll();
   };
 
-  // 加载进度查询：返回 {loaded, total, disabled}
+  // 加载进度查询：返回 {loaded, total, disabled, current}
   // - disabled=true 表示 Web Audio 不可用（file:// 协议），无预解码任务
-  // - 用于加载画面在 Audio.init 启动后轮询音效/BGM 解码进度
+  // - current = 最后一个发起但未完成的文件 URL（优先 BGM，因为文件较大更耗时）
   // - 失败（seFailed/bgmFailed）的 id 计入 loaded，确保进度条能到 100%
   Audio.getProgress = function () {
-    if (!webAudioOk) return { loaded: 0, total: 0, disabled: true };
+    if (!webAudioOk) return { loaded: 0, total: 0, disabled: true, current: null };
     var seTotal = Object.keys(SE_FILES).length + Object.keys(customSfxMap).length;
     var bgmTotal = Object.keys(BGM_FILES).length + Object.keys(customBgmMap).length;
     var seLoaded = 0, bgmLoaded = 0, k;
@@ -256,7 +262,15 @@
     for (k in customSfxMap) { if (seBufs[+k] || seFailed[+k]) seLoaded++; }
     for (k in BGM_FILES) { if (bgmBufs[+k] || bgmFailed[+k]) bgmLoaded++; }
     for (k in customBgmMap) { if (bgmBufs[+k] || bgmFailed[+k]) bgmLoaded++; }
-    return { loaded: seLoaded + bgmLoaded, total: seTotal + bgmTotal, disabled: false };
+    // 优先返回 BGM 中正在加载的文件（文件大、耗时更明显）
+    var current = null;
+    var bgmKeys = Object.keys(pendingBgm);
+    if (bgmKeys.length) current = pendingBgm[bgmKeys[bgmKeys.length - 1]];
+    else {
+      var seKeys = Object.keys(pendingSe);
+      if (seKeys.length) current = pendingSe[seKeys[seKeys.length - 1]];
+    }
+    return { loaded: seLoaded + bgmLoaded, total: seTotal + bgmTotal, disabled: false, current: current };
   };
 
   Audio.unlock = function () {

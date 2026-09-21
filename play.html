@@ -37,7 +37,7 @@ canvas#canvas {
   cursor: pointer;
 }
 #loading {
-  position: absolute; inset: 0; z-index: 30;
+  position: fixed; inset: 0; z-index: 30;
   background: #0d1117; color: #e8ecf4;
   display: flex; align-items: center; justify-content: center;
   flex-direction: column; gap: 14px;
@@ -48,6 +48,9 @@ canvas#canvas {
   background: #2a2f3c; border-radius: 5px; overflow: hidden; }
 #loading .ld-fill { width: 0; height: 100%; background: #48b048; transition: width .2s ease-out; }
 #loading .ld-text { color: #98a2b6; font-size: 12px; }
+#loading .ld-file { color: #b8c2d6; font-size: 11px; max-width: 360px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: Consolas, "Courier New", monospace; }
 
 /* 镜头宽度调节条（固定在底部剩余区域，#wrap=80vh+顶40px） */
 #viewbar {
@@ -177,7 +180,8 @@ body.dragging #dropTip { display: flex; }
   <div id="loading">
     <div class="ld-title">🐱 猫里奥 · 资源加载中</div>
     <div class="ld-bar"><div id="ldFill" class="ld-fill"></div></div>
-    <div id="ldText" class="ld-text">0%</div>
+    <div id="ldText" class="ld-text">0% (0/0)</div>
+    <div id="ldFile" class="ld-file">准备加载…</div>
   </div>
 </div>
 
@@ -952,10 +956,27 @@ body.dragging #dropTip { display: flex; }
   (function () {
     var fillEl = document.getElementById('ldFill');
     var textEl = document.getElementById('ldText');
-    var lastP = -1;
+    var fileEl = document.getElementById('ldFile');
+    var lastP = -1, lastFile = '';
+    // 提取 URL 中的文件名（去掉目录与 query）
+    function basename(url) {
+      if (!url) return '';
+      var s = String(url).split('?')[0];
+      var i = s.lastIndexOf('/');
+      return i >= 0 ? s.slice(i + 1) : s;
+    }
+    // 加载期间屏蔽所有键盘事件（capture 阶段拦截，防止引擎接收方向键/空格等）
+    function keyBlocker(e) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return false;
+    }
+    window.addEventListener('keydown', keyBlocker, true);
+    window.addEventListener('keyup', keyBlocker, true);
+    window.addEventListener('keypress', keyBlocker, true);
     function tick() {
-      var sp = window.Sprites && Sprites.getProgress ? Sprites.getProgress() : { loaded: 0, total: 0 };
-      var au = window.AudioSys && AudioSys.getProgress ? AudioSys.getProgress() : { loaded: 0, total: 0, disabled: true };
+      var sp = window.Sprites && Sprites.getProgress ? Sprites.getProgress() : { loaded: 0, total: 0, current: null };
+      var au = window.AudioSys && AudioSys.getProgress ? AudioSys.getProgress() : { loaded: 0, total: 0, disabled: true, current: null };
       var total = (sp.total || 0) + (au.disabled ? 0 : (au.total || 0));
       var loaded = (sp.loaded || 0) + (au.disabled ? 0 : (au.loaded || 0));
       // 任何一方尚未启动（total=0）视为待加载；防除零
@@ -966,7 +987,16 @@ body.dragging #dropTip { display: flex; }
       if (p !== lastP) {
         lastP = p;
         if (fillEl) fillEl.style.width = p + '%';
-        if (textEl) textEl.textContent = p + '%';
+        if (textEl) textEl.textContent = p + '% (' + loaded + '/' + total + ')';
+      }
+      // 当前加载的文件：优先 Audio（耗时更长），其次 Sprites
+      var cur = au.current || sp.current;
+      if (cur && cur !== lastFile) {
+        lastFile = cur;
+        if (fileEl) fileEl.textContent = '当前加载：' + basename(cur);
+      } else if (!cur && lastFile) {
+        lastFile = '';
+        if (fileEl) fileEl.textContent = '完成 ✓';
       }
       // 就绪条件：Sprites 已全数加载 AND (Audio 已全数解码 OR Audio 不可用)
       var spReady = sp.total > 0 && sp.loaded >= sp.total;
@@ -974,12 +1004,17 @@ body.dragging #dropTip { display: flex; }
       if (spReady && auReady) {
         clearInterval(timer);
         if (fillEl) fillEl.style.width = '100%';
-        if (textEl) textEl.textContent = '100%';
+        if (textEl) textEl.textContent = '100% (' + total + '/' + total + ')';
+        if (fileEl) fileEl.textContent = '完成 ✓';
         setTimeout(function () {
           loadingEl.style.transition = 'opacity .3s';
           loadingEl.style.opacity = '0';
           setTimeout(function () { loadingEl.style.display = 'none'; }, 300);
-        }, 100);
+          // 解除键盘屏蔽
+          window.removeEventListener('keydown', keyBlocker, true);
+          window.removeEventListener('keyup', keyBlocker, true);
+          window.removeEventListener('keypress', keyBlocker, true);
+        }, 300);
       }
     }
     var timer = setInterval(tick, 100);
