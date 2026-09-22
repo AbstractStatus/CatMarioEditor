@@ -1672,16 +1672,81 @@
   // 插值仅临时替换绘制期坐标，使世界滚动在任意刷新率屏幕上都连续平滑
   // （fixed-timestep render interpolation）。
   var _lastCamAlpha = 0, _lastRenderFx = 0;   // 最近一次渲染的插值相位/绘制相机（调试观测）
+  var _playerPrev = { ref: null, ma: 0, mb: 0 };  // 上一物理帧玩家对象引用+坐标
+  var _enemyPrev = [];                         // 上一物理帧敌人坐标快照 [{aa,ab}]
+  var _liftPrev = [];                          // 上一物理帧升降台坐标快照 [{sra,srb}]
+  var _particlePrev = [];                      // 上一物理帧粒子坐标快照 [{ea,eb}]
+  var _blockPrev = [];                         // 上一物理帧方块坐标快照 [{ta,tb}]（坠落砖/顶起/事件移动）
+  var _pipePrev = [];                          // 上一物理帧管道坐标快照 [{sa,sb}]（坠落砖组/陷阱管/事件移动）
+
+  // 通用插值：在 prev→curr 之间按 alpha 混合，跳变超过阈值则吸附
+  function _lerp(prev, curr, alpha) {
+    var d = curr - prev;
+    if (Math.abs(d) >= _CAM_SNAP_DIST) return curr;   // 大跳变不插值
+    return prev + d * alpha;
+  }
+
   function render(ctx, alpha) {
-    var logicFx = state.fx;
-    var renderFx = logicFx;
-    if (state.proc === C.PROC.GAME && alpha > 0 && alpha < 1 && !_camSnap) {
-      var dFx = logicFx - _fxPrev;
-      // 正常跟镜每帧仅数像素~数十像素；跨关/进管/复活已用 _camSnap 显式标记，
-      // 位移阈值再兜底外部直接写 fx 的情况
+    var needInterp = state.proc === C.PROC.GAME && alpha > 0 && alpha < 1 && !_camSnap;
+    // 保存逻辑值 → 应用插值 → 渲染 → 恢复
+    var saveFx = state.fx;
+    var renderFx = saveFx;
+    var savePma = state.player ? state.player.ma : 0;
+    var savePmb = state.player ? state.player.mb : 0;
+    // 敌人/升降台/粒子可能在本帧增减，按索引配对（新增项无前帧→吸附）
+    var nE = state.enemies.length, nL = state.lifts.length, nP = state.particles.length;
+    var nB = state.blocks.length, nS = state.pipes.length;
+    var saveEA = new Array(nE), saveEB = new Array(nE);
+    var saveLS = new Array(nL), saveLB = new Array(nL);
+    var savePA = new Array(nP), savePB = new Array(nP);
+    var saveTA = new Array(nB), saveTB = new Array(nB);
+    var saveSA = new Array(nS), saveSB = new Array(nS);
+    for (var i = 0; i < nE; i++) { saveEA[i] = state.enemies[i].aa; saveEB[i] = state.enemies[i].ab; }
+    for (var i = 0; i < nL; i++) { saveLS[i] = state.lifts[i].sra; saveLB[i] = state.lifts[i].srb; }
+    for (var i = 0; i < nP; i++) { savePA[i] = state.particles[i].ea; savePB[i] = state.particles[i].eb; }
+    for (var i = 0; i < nB; i++) { saveTA[i] = state.blocks[i].ta; saveTB[i] = state.blocks[i].tb; }
+    for (var i = 0; i < nS; i++) { saveSA[i] = state.pipes[i].sa; saveSB[i] = state.pipes[i].sb; }
+
+    if (needInterp) {
+      var dFx = saveFx - _fxPrev;
       if (Math.abs(dFx) < _CAM_SNAP_DIST) {
         renderFx = _fxPrev + dFx * alpha;
         state.fx = renderFx;
+        // 玩家：引用必须一致（换关/复活时 _camSnap 已跳过，此处是安全兜底）
+        if (state.player && state.player === _playerPrev.ref) {
+          state.player.ma = _lerp(_playerPrev.ma, savePma, alpha);
+          state.player.mb = _lerp(_playerPrev.mb, savePmb, alpha);
+        }
+        // 敌人：引用校验同一对象才插值，否则吸附（帧内数组增删导致索引偏移）
+        for (var i = 0; i < nE && i < _enemyPrev.length; i++) {
+          if (state.enemies[i] !== _enemyPrev[i].ref) continue;
+          state.enemies[i].aa = _lerp(_enemyPrev[i].aa, saveEA[i], alpha);
+          state.enemies[i].ab = _lerp(_enemyPrev[i].ab, saveEB[i], alpha);
+        }
+        // 升降台
+        for (var i = 0; i < nL && i < _liftPrev.length; i++) {
+          if (state.lifts[i] !== _liftPrev[i].ref) continue;
+          state.lifts[i].sra = _lerp(_liftPrev[i].sra, saveLS[i], alpha);
+          state.lifts[i].srb = _lerp(_liftPrev[i].srb, saveLB[i], alpha);
+        }
+        // 粒子
+        for (var i = 0; i < nP && i < _particlePrev.length; i++) {
+          if (state.particles[i] !== _particlePrev[i].ref) continue;
+          state.particles[i].ea = _lerp(_particlePrev[i].ea, savePA[i], alpha);
+          state.particles[i].eb = _lerp(_particlePrev[i].eb, savePB[i], alpha);
+        }
+        // 方块（顶起弹跳/事件移动/坠落砖组用 ttype 落地时 ta/tb 变化）
+        for (var i = 0; i < nB && i < _blockPrev.length; i++) {
+          if (state.blocks[i] !== _blockPrev[i].ref) continue;
+          state.blocks[i].ta = _lerp(_blockPrev[i].ta, saveTA[i], alpha);
+          state.blocks[i].tb = _lerp(_blockPrev[i].tb, saveTB[i], alpha);
+        }
+        // 管道（坠落砖组 sb 加速下落/陷阱管进管 sa 动画/事件移动）
+        for (var i = 0; i < nS && i < _pipePrev.length; i++) {
+          if (state.pipes[i] !== _pipePrev[i].ref) continue;
+          state.pipes[i].sa = _lerp(_pipePrev[i].sa, saveSA[i], alpha);
+          state.pipes[i].sb = _lerp(_pipePrev[i].sb, saveSB[i], alpha);
+        }
       }
     }
     _lastCamAlpha = alpha;
@@ -1689,7 +1754,23 @@
     try {
       renderScene(ctx);
     } finally {
-      state.fx = logicFx;   // 恢复逻辑镜头，保证物理帧永不读到插值
+      state.fx = saveFx;
+      if (state.player) { state.player.ma = savePma; state.player.mb = savePmb; }
+      for (var i = 0; i < state.enemies.length && i < saveEA.length; i++) {
+        state.enemies[i].aa = saveEA[i]; state.enemies[i].ab = saveEB[i];
+      }
+      for (var i = 0; i < state.lifts.length && i < saveLS.length; i++) {
+        state.lifts[i].sra = saveLS[i]; state.lifts[i].srb = saveLB[i];
+      }
+      for (var i = 0; i < state.particles.length && i < savePA.length; i++) {
+        state.particles[i].ea = savePA[i]; state.particles[i].eb = savePB[i];
+      }
+      for (var i = 0; i < state.blocks.length && i < saveTA.length; i++) {
+        state.blocks[i].ta = saveTA[i]; state.blocks[i].tb = saveTB[i];
+      }
+      for (var i = 0; i < state.pipes.length && i < saveSA.length; i++) {
+        state.pipes[i].sa = saveSA[i]; state.pipes[i].sb = saveSB[i];
+      }
     }
   }
 
@@ -1969,10 +2050,29 @@
 
   // ==================== 主循环 ====================
   function frame() {
-    // 记录本物理帧开始前的镜头位置，供渲染期在前后两帧间插值；
+    // 记录本物理帧开始前的所有动态实体坐标，供渲染期在前后两帧间插值；
     // 同时清除上一帧的跳变标记（帧内/帧外的换关、进管、复活会重新置位）
     _camSnap = false;
     _fxPrev = state.fx;
+    if (state.player) {
+      _playerPrev.ref = state.player;
+      _playerPrev.ma = state.player.ma;
+      _playerPrev.mb = state.player.mb;
+    }
+    // 敌人/升降台/粒子/方块/管道按索引快照，保存对象引用供渲染期校验同一实体
+    // （帧内数组增删会导致索引偏移，引用不匹配时跳过插值避免跨实体混合闪现）
+    var nE = state.enemies.length, nL = state.lifts.length, nP = state.particles.length;
+    var nB = state.blocks.length, nS = state.pipes.length;
+    _enemyPrev = new Array(nE);
+    for (var i = 0; i < nE; i++) _enemyPrev[i] = { ref: state.enemies[i], aa: state.enemies[i].aa, ab: state.enemies[i].ab };
+    _liftPrev = new Array(nL);
+    for (var i = 0; i < nL; i++) _liftPrev[i] = { ref: state.lifts[i], sra: state.lifts[i].sra, srb: state.lifts[i].srb };
+    _particlePrev = new Array(nP);
+    for (var i = 0; i < nP; i++) _particlePrev[i] = { ref: state.particles[i], ea: state.particles[i].ea, eb: state.particles[i].eb };
+    _blockPrev = new Array(nB);
+    for (var i = 0; i < nB; i++) _blockPrev[i] = { ref: state.blocks[i], ta: state.blocks[i].ta, tb: state.blocks[i].tb };
+    _pipePrev = new Array(nS);
+    for (var i = 0; i < nS; i++) _pipePrev[i] = { ref: state.pipes[i], sa: state.pipes[i].sa, sb: state.pipes[i].sb };
     var key = IN.get();
     _debugKey = key;
     _debugFrame++;
