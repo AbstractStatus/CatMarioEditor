@@ -179,8 +179,8 @@ const SCENARIOS = [
   },
   {
     name: 'player.fall.terminal',
-    desc: '空中坠落终端速度（main.cpp:2025 md+=100、2033 上限1600）',
-    checks: [{ key: 'v', ref: 1600 * 30, tol: 0.002 }],
+    desc: '空中坠落终端速度（main.cpp:2025 md+=100、2033 上限1600）；位移差分含重力补偿偏移 -g·30·(1-DT)/2（hd39 轨迹对齐 30Hz）',
+    checks: [{ key: 'v', ref: function (fps) { return 1600 * 30 - C.GRAVITY * 30 * (1 - 30 / fps) / 2; }, tol: 0.002 }],
     run(fps) {
       boot(makeDef({ noGround: true, spawn: { ma: 5600, mb: 0 } }), fps);
       step30(18);                       // 16帧后到达终端 md=1600
@@ -218,8 +218,8 @@ const SCENARIOS = [
   },
   {
     name: 'player.jump.boost_stand',
-    desc: '原地跳 boost 重置 md=-1300（main.cpp:1736-1737）：逐帧 mb 位移增量峰值（boost帧1300 vs 普通帧1200，md重置发生在重力积分前）',
-    checks: [{ key: 'v', ref: 1300 * 30, tol: 0.001 }],
+    desc: '原地跳 boost 重置 md=-1300（main.cpp:1736-1737）：逐帧 mb 位移增量峰值（boost帧1300 vs 普通帧1200）；含重力补偿偏移 +g·30·(1-DT)/2',
+    checks: [{ key: 'v', ref: function (fps) { return 1300 * 30 + C.GRAVITY * 30 * (1 - 30 / fps) / 2; }, tol: 0.001 }],
     run(fps) {
       boot(makeDef(), fps);
       step30(30);
@@ -231,8 +231,8 @@ const SCENARIOS = [
   },
   {
     name: 'player.jump.boost_run',
-    desc: '奔跑跳(|mc|>=600) boost 重置 md=-1500（main.cpp:1739-1740）：同上，峰值应为 1500/帧',
-    checks: [{ key: 'v', ref: 1500 * 30, tol: 0.001 }],
+    desc: '奔跑跳(|mc|>=600) boost 重置 md=-1500（main.cpp:1739-1740）：同上，峰值应为 1500/帧；含重力补偿偏移 +g·30·(1-DT)/2',
+    checks: [{ key: 'v', ref: function (fps) { return 1500 * 30 + C.GRAVITY * 30 * (1 - 30 / fps) / 2; }, tol: 0.001 }],
     run(fps) {
       boot(makeDef(), fps);
       step30(30);
@@ -498,14 +498,15 @@ for (const sc of SCENARIOS) {
         if (ck.atLeast != null && !(Math.abs(v) >= ck.atLeast)) { ok = false; bad = '未达到下限 ' + ck.atLeast; }
         if (ck.atMost != null && !(Math.abs(v) <= ck.atMost)) { ok = false; bad = '超过上限 ' + ck.atMost; }
       } else {
-        const limit = ck.tolAbs != null ? ck.tolAbs : Math.abs(ck.ref) * ck.tol;
-        if (Math.abs(v - ck.ref) > limit) { ok = false; bad = '偏差 ' + fmt(v - ck.ref) + ' 超容差 ±' + fmt(limit); }
+        const refV = typeof ck.ref === 'function' ? ck.ref(fps) : ck.ref;  // 函数 ref：按帧率给期望（如重力补偿偏移）
+        const limit = ck.tolAbs != null ? ck.tolAbs : Math.abs(refV) * ck.tol;
+        if (Math.abs(v - refV) > limit) { ok = false; bad = '偏差 ' + fmt(v - refV) + ' 超容差 ±' + fmt(limit); }
       }
     }
     totalChecks++;
     if (!ok) failed++;
     else rowFail = false;
-    return { ck: ck, vals: vals, ok: ok, bad: bad };
+    return { ck: ck, vals: vals, refV: (typeof ck.ref === 'function' ? ck.ref(FPS_LIST[0]) : ck.ref), ok: ok, bad: bad };
   });
   row.fail = row.verdicts.some(function (v) { return !v.ok; }) || Object.keys(row.errs).length > 0;
   rows.push(row);
@@ -522,8 +523,8 @@ for (const row of rows) {
   console.log((row.fail ? '[FAIL] ' : '[PASS] ') + row.name + ' —— ' + row.desc);
   for (const v of row.verdicts) {
     const refStr = v.ck.atLeast != null
-      ? ('>=' + fmt(v.ck.atLeast) + (v.ck.atMost != null ? ' 且 <=' + fmt(v.ck.atMost) : ''))
-      : fmt(v.ck.ref) + (v.ck.tolAbs != null ? ' ±' + fmt(v.ck.tolAbs) : ' ±' + (v.ck.tol * 100).toFixed(1) + '%');
+      ? ('>=' + fmt(v.ck.atLeast) + (v.ck.atMost != null ? ' 且 <=' + v.ck.atMost : ''))
+      : fmt(v.refV) + (v.ck.tolAbs != null ? ' ±' + fmt(v.ck.tolAbs) : ' ±' + (v.ck.tol * 100).toFixed(1) + '%');
     const ms = FPS_LIST.map(function (fps) {
       const x = v.vals[fps];
       return fps + 'Hz:' + (isFinite(x) ? fmt(x) : (row.errs[fps] || 'NaN'));

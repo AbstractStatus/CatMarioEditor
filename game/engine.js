@@ -413,10 +413,15 @@
     }
 
     if (key & C.KEY.JUMP) {
-      if (p.mjumptm === 8 && p.md >= -1000) {
+      // boost 触发偏移对齐：原 mjumptm===8 的命中偏移=2+DT 物理帧（30Hz=3.0/60Hz=2.5/
+      // 120Hz=2.25，随帧率漂移导致 60/120Hz 提前 boost、跳得更高滞空更短）。阈值改
+      // 7+DT 使三帧率都在偏移 3.0（原版 30Hz 基准）触发，此时 md 一律=-900>=-1000；
+      // 触发后闭锁 mjumptm 防止 <= 比较重复命中（起跳时重设 10 自动解锁）
+      if (p.mjumptm > 0 && p.mjumptm <= 7 + C._DT && p.md >= -1000) {
         p.md = -1300;
         if (p.mc >= 200 || p.mc <= -200) p.md = -1400;
         if (p.mc >= 600 || p.mc <= -600) p.md = -1500;
+        p.mjumptm = -1000;
       }
       if (xx[0] === 0) p.actaon[1] = 10;
     }
@@ -602,7 +607,13 @@
     p.ma += p.mc * C._DT; p.mb += p.md * C._DT;
     if (p.mc < 0) p.mactp += -p.mc * C._DT;
     else p.mactp += p.mc * C._DT;
-    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE) p.md += C.GRAVITY * C._DT;
+    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE) {
+      // 帧率一致性补偿：匀加速下显式欧拉（先位移后加重力）的位移误差 = -g·T·DT/2，
+      // 30Hz(DT=1) 为原版手感基准（误差率最大），非 30Hz 补回 g·DT·(1-DT)/2，
+      // 使跳跃/坠落轨迹与 30Hz 逐帧一致（DT=1 时补偿=0，30Hz 行为分毫不变）
+      p.mb -= C.GRAVITY * C._DT * (1 - C._DT) / 2;
+      p.md += C.GRAVITY * C._DT;
+    }
 
     // 速度上限
     if (p.mtype === 0) {
@@ -2348,8 +2359,8 @@
   Engine._stepFrame = function () { frame(); };
 
   // 切换物理刷新率（30/60/120，默认 60）
-  // 注意：120Hz 在 60Hz 屏上可能出现步进感（渲染插值已移除），且跳跃 boost 阈值
-  // (engine.js mjumptm===8 比较时刻 md 累积不同) 未针对 120Hz 重校，作为实验选项
+  // 注意：120Hz 在 60Hz 屏上可能出现步进感（渲染插值已移除）。
+  // 跳跃/坠落轨迹跨帧率一致（hd39：重力补偿 + boost 阈值 7+DT 对齐偏移 3.0）
   Engine.setFps = function (fps) {
     if (fps !== 30 && fps !== 60 && fps !== 120) return;
     C.FPS = fps;
