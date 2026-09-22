@@ -334,7 +334,6 @@
       if (fxp > 700 && fxp < state.scrollx) {
         state.fx = fxp;
         state.fzx = fxp;
-        _camSnap = true;   // 换关/复活镜头定位为非连续跳变，渲染吸附
       }
     }
   }
@@ -561,7 +560,6 @@
             // 玩家已完全沉入管道并离屏：进行关卡切换
             p.mb = -80000000; p.mtype = 0; A.bgmStop();
             state.fx = 0;
-            _camSnap = true;   // 进管传送：镜头归零，渲染吸附不做插值
             var warp = p._warp; p._warp = null;
             var proceed = true;
             if (warp) {
@@ -1298,7 +1296,7 @@
 
       if (e.ad > 1200 && e.azimentype !== 5) e.ad = 1200;
 
-      e.aa += e.aacta * C._DT;
+      e.aa += e.aacta;
       if (e.azimentype >= 1 && e.abrocktm <= 0) {
         e.aa += e.ac * C._DT;
         if (e.azimentype >= 1 && e.azimentype <= 3) { e.ab += e.ad * C._DT; e.ad += 120 * C._DT; }
@@ -1666,112 +1664,8 @@
   }
 
   // ==================== 渲染 ====================
-  // 渲染包装：alpha 为累加器相位（距上一物理帧的时间比例 0~1），
-  // 在前后两物理帧的镜头位置之间线性插值后再绘制。
-  // 物理/碰撞/触发永远只使用整数物理帧的 state.fx（30Hz 确定性不变），
-  // 插值仅临时替换绘制期坐标，使世界滚动在任意刷新率屏幕上都连续平滑
-  // （fixed-timestep render interpolation）。
-  var _lastCamAlpha = 0, _lastRenderFx = 0;   // 最近一次渲染的插值相位/绘制相机（调试观测）
-  var _playerPrev = { ref: null, ma: 0, mb: 0 };  // 上一物理帧玩家对象引用+坐标
-  var _enemyPrev = [];                         // 上一物理帧敌人坐标快照 [{aa,ab}]
-  var _liftPrev = [];                          // 上一物理帧升降台坐标快照 [{sra,srb}]
-  var _particlePrev = [];                      // 上一物理帧粒子坐标快照 [{ea,eb}]
-  var _blockPrev = [];                         // 上一物理帧方块坐标快照 [{ta,tb}]（坠落砖/顶起/事件移动）
-  var _pipePrev = [];                          // 上一物理帧管道坐标快照 [{sa,sb}]（坠落砖组/陷阱管/事件移动）
-
-  // 通用插值：在 prev→curr 之间按 alpha 混合，跳变超过阈值则吸附
-  function _lerp(prev, curr, alpha) {
-    var d = curr - prev;
-    if (Math.abs(d) >= _CAM_SNAP_DIST) return curr;   // 大跳变不插值
-    return prev + d * alpha;
-  }
-
-  function render(ctx, alpha) {
-    var needInterp = state.proc === C.PROC.GAME && alpha > 0 && alpha < 1 && !_camSnap;
-    // 保存逻辑值 → 应用插值 → 渲染 → 恢复
-    var saveFx = state.fx;
-    var renderFx = saveFx;
-    var savePma = state.player ? state.player.ma : 0;
-    var savePmb = state.player ? state.player.mb : 0;
-    // 敌人/升降台/粒子可能在本帧增减，按索引配对（新增项无前帧→吸附）
-    var nE = state.enemies.length, nL = state.lifts.length, nP = state.particles.length;
-    var nB = state.blocks.length, nS = state.pipes.length;
-    var saveEA = new Array(nE), saveEB = new Array(nE);
-    var saveLS = new Array(nL), saveLB = new Array(nL);
-    var savePA = new Array(nP), savePB = new Array(nP);
-    var saveTA = new Array(nB), saveTB = new Array(nB);
-    var saveSA = new Array(nS), saveSB = new Array(nS);
-    for (var i = 0; i < nE; i++) { saveEA[i] = state.enemies[i].aa; saveEB[i] = state.enemies[i].ab; }
-    for (var i = 0; i < nL; i++) { saveLS[i] = state.lifts[i].sra; saveLB[i] = state.lifts[i].srb; }
-    for (var i = 0; i < nP; i++) { savePA[i] = state.particles[i].ea; savePB[i] = state.particles[i].eb; }
-    for (var i = 0; i < nB; i++) { saveTA[i] = state.blocks[i].ta; saveTB[i] = state.blocks[i].tb; }
-    for (var i = 0; i < nS; i++) { saveSA[i] = state.pipes[i].sa; saveSB[i] = state.pipes[i].sb; }
-
-    if (needInterp) {
-      var dFx = saveFx - _fxPrev;
-      if (Math.abs(dFx) < _CAM_SNAP_DIST) {
-        renderFx = _fxPrev + dFx * alpha;
-        state.fx = renderFx;
-        // 玩家：引用必须一致（换关/复活时 _camSnap 已跳过，此处是安全兜底）
-        if (state.player && state.player === _playerPrev.ref) {
-          state.player.ma = _lerp(_playerPrev.ma, savePma, alpha);
-          state.player.mb = _lerp(_playerPrev.mb, savePmb, alpha);
-        }
-        // 敌人：引用校验同一对象才插值，否则吸附（帧内数组增删导致索引偏移）
-        for (var i = 0; i < nE && i < _enemyPrev.length; i++) {
-          if (state.enemies[i] !== _enemyPrev[i].ref) continue;
-          state.enemies[i].aa = _lerp(_enemyPrev[i].aa, saveEA[i], alpha);
-          state.enemies[i].ab = _lerp(_enemyPrev[i].ab, saveEB[i], alpha);
-        }
-        // 升降台
-        for (var i = 0; i < nL && i < _liftPrev.length; i++) {
-          if (state.lifts[i] !== _liftPrev[i].ref) continue;
-          state.lifts[i].sra = _lerp(_liftPrev[i].sra, saveLS[i], alpha);
-          state.lifts[i].srb = _lerp(_liftPrev[i].srb, saveLB[i], alpha);
-        }
-        // 粒子
-        for (var i = 0; i < nP && i < _particlePrev.length; i++) {
-          if (state.particles[i] !== _particlePrev[i].ref) continue;
-          state.particles[i].ea = _lerp(_particlePrev[i].ea, savePA[i], alpha);
-          state.particles[i].eb = _lerp(_particlePrev[i].eb, savePB[i], alpha);
-        }
-        // 方块（顶起弹跳/事件移动/坠落砖组用 ttype 落地时 ta/tb 变化）
-        for (var i = 0; i < nB && i < _blockPrev.length; i++) {
-          if (state.blocks[i] !== _blockPrev[i].ref) continue;
-          state.blocks[i].ta = _lerp(_blockPrev[i].ta, saveTA[i], alpha);
-          state.blocks[i].tb = _lerp(_blockPrev[i].tb, saveTB[i], alpha);
-        }
-        // 管道（坠落砖组 sb 加速下落/陷阱管进管 sa 动画/事件移动）
-        for (var i = 0; i < nS && i < _pipePrev.length; i++) {
-          if (state.pipes[i] !== _pipePrev[i].ref) continue;
-          state.pipes[i].sa = _lerp(_pipePrev[i].sa, saveSA[i], alpha);
-          state.pipes[i].sb = _lerp(_pipePrev[i].sb, saveSB[i], alpha);
-        }
-      }
-    }
-    _lastCamAlpha = alpha;
-    _lastRenderFx = renderFx;
-    try {
-      renderScene(ctx);
-    } finally {
-      state.fx = saveFx;
-      if (state.player) { state.player.ma = savePma; state.player.mb = savePmb; }
-      for (var i = 0; i < state.enemies.length && i < saveEA.length; i++) {
-        state.enemies[i].aa = saveEA[i]; state.enemies[i].ab = saveEB[i];
-      }
-      for (var i = 0; i < state.lifts.length && i < saveLS.length; i++) {
-        state.lifts[i].sra = saveLS[i]; state.lifts[i].srb = saveLB[i];
-      }
-      for (var i = 0; i < state.particles.length && i < savePA.length; i++) {
-        state.particles[i].ea = savePA[i]; state.particles[i].eb = savePB[i];
-      }
-      for (var i = 0; i < state.blocks.length && i < saveTA.length; i++) {
-        state.blocks[i].ta = saveTA[i]; state.blocks[i].tb = saveTB[i];
-      }
-      for (var i = 0; i < state.pipes.length && i < saveSA.length; i++) {
-        state.pipes[i].sa = saveSA[i]; state.pipes[i].sb = saveSB[i];
-      }
-    }
+  function render(ctx) {
+    renderScene(ctx);
   }
 
   function renderScene(ctx) {
@@ -2050,29 +1944,6 @@
 
   // ==================== 主循环 ====================
   function frame() {
-    // 记录本物理帧开始前的所有动态实体坐标，供渲染期在前后两帧间插值；
-    // 同时清除上一帧的跳变标记（帧内/帧外的换关、进管、复活会重新置位）
-    _camSnap = false;
-    _fxPrev = state.fx;
-    if (state.player) {
-      _playerPrev.ref = state.player;
-      _playerPrev.ma = state.player.ma;
-      _playerPrev.mb = state.player.mb;
-    }
-    // 敌人/升降台/粒子/方块/管道按索引快照，保存对象引用供渲染期校验同一实体
-    // （帧内数组增删会导致索引偏移，引用不匹配时跳过插值避免跨实体混合闪现）
-    var nE = state.enemies.length, nL = state.lifts.length, nP = state.particles.length;
-    var nB = state.blocks.length, nS = state.pipes.length;
-    _enemyPrev = new Array(nE);
-    for (var i = 0; i < nE; i++) _enemyPrev[i] = { ref: state.enemies[i], aa: state.enemies[i].aa, ab: state.enemies[i].ab };
-    _liftPrev = new Array(nL);
-    for (var i = 0; i < nL; i++) _liftPrev[i] = { ref: state.lifts[i], sra: state.lifts[i].sra, srb: state.lifts[i].srb };
-    _particlePrev = new Array(nP);
-    for (var i = 0; i < nP; i++) _particlePrev[i] = { ref: state.particles[i], ea: state.particles[i].ea, eb: state.particles[i].eb };
-    _blockPrev = new Array(nB);
-    for (var i = 0; i < nB; i++) _blockPrev[i] = { ref: state.blocks[i], ta: state.blocks[i].ta, tb: state.blocks[i].tb };
-    _pipePrev = new Array(nS);
-    for (var i = 0; i < nS; i++) _pipePrev[i] = { ref: state.pipes[i], sa: state.pipes[i].sa, sb: state.pipes[i].sb };
     var key = IN.get();
     _debugKey = key;
     _debugFrame++;
@@ -2151,7 +2022,6 @@
   function startGame() {
     state.player = createPlayer();
     state.fx = 0; state.fy = 0; state.fzx = 0;
-    _camSnap = true;   // 标题开局/宿主换关：镜头重置，渲染吸附
     state.scorepos = 0; state.score = 0;
     loadStage();
     // BGM 延后到 STAGE_START 倒计时结束、真正进入 GAME 状态时才播放，
@@ -2165,10 +2035,6 @@
   var _lastFrameTime = 0;
   var _accumulator = 0;
   var _PHYS_STEP = 1000 / C.FPS;     // 物理固定 timestep = 16.67ms（60Hz，C._DT=0.5 缩放原版30Hz常量）
-  // ---- 镜头渲染插值：60Hz 物理 / 60+Hz 渲染之间消除残余步进 ----
-  var _fxPrev = 0;                   // 上一物理帧开始时的镜头位置
-  var _camSnap = false;              // 本物理帧发生过关卡级镜头跳变（换关/进管/复活），渲染直接吸附
-  var _CAM_SNAP_DIST = 100000;       // 兜底：帧间位移 >1000px 也视为非连续跳变（外部直接写 fx 时）
 
   // 按住 F 连续单步：由引擎 rAF 驱动，不依赖系统 keyrepeat
   // （系统 repeat 会切换到最后按下的键，按住 F 再按方向键时 F repeat 停止，导致暂停下物理帧停摆、方向键"失灵"）
@@ -2310,7 +2176,7 @@
         _stepAcc = 0;
       }
       resizeCanvas();
-      render(ctx2d, 0);
+      render(ctx2d);
       return;
     }
 
@@ -2328,13 +2194,8 @@
     // 每帧重新同步画布虚拟尺寸（窗口 / DPR 变化即时生效）
     resizeCanvas();
 
-    // 每个 rAF 都渲染：alpha = 累加器相位（距上一物理帧的时间比例 0~1），
-    // 镜头在前后两物理帧之间插值。60Hz 屏呈现“物理帧→中点→物理帧”的均匀步进；
-    // 120/144Hz 高分屏同样均匀（旧的固定 60Hz 节流在高刷屏上反而间隔不均）。
-    var camAlpha = _accumulator / _PHYS_STEP;
-    if (camAlpha > 1) camAlpha = 1;
-    if (camAlpha < 0) camAlpha = 0;
-    render(ctx2d, camAlpha);
+    // 物理 60Hz 已与常见 60Hz 屏对齐，直接渲染当前 state
+    render(ctx2d);
   }
 
   var _debugKey = 0, _debugFrame = 0;
@@ -2383,9 +2244,9 @@
   };
   // 调试用：暴露内部 state（含 pipes/player 完整字段），供自动化验证使用
   Engine._rawState = function () { return state; };
-  // 调试用：镜头插值观测（逻辑 fx / 上一物理帧 fx / 跳变标记 / 本次渲染相位 alpha / 实际绘制 fx）
+  // 调试用：镜头观测
   Engine._camDebug = function () {
-    return { fx: state.fx, prev: _fxPrev, snap: _camSnap, alpha: _lastCamAlpha, renderFx: _lastRenderFx };
+    return { fx: state.fx };
   };
 
   Engine.debugBlocks = function (xMin, xMax) {
