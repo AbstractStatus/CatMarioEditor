@@ -1199,6 +1199,18 @@
           if (e.axtype === 2) e.ab -= xx[11];
           if (e.axtype === 3) e.ab += xx[11];
           break;
+        case 8:
+          // スーパーブーン / 奔跑怪（空中上下浮动）：原版 main.cpp:3103-3114
+          // azimentype=0 关闭重力，af 相位累加器驱动 ad 速度做正弦式上下漂浮
+          e.azimentype = 0;
+          if (e.atm === 0) { e.af += 20; e.ad += 20; }
+          if (e.atm === 1) { e.af -= 20; e.ad -= 20; }
+          if (e.ad > 300) e.ad = 300;
+          if (e.ad < -300) e.ad = -300;
+          if (e.af >= 1200) e.atm = 1;
+          if (e.af < 0) e.atm = 0;
+          e.ab += e.ad;
+          break;
         case 9:
           e.azimentype = 5;
           e.ab += e.ad; e.ad += 100;
