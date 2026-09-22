@@ -69,6 +69,21 @@
     }
     #viewbar .vw-end { color: #888; font-size: 12px; }
     #viewbar .vw-label { color: #ddd; }
+    /* 刷新率切换按钮组 */
+    #fpsbar { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+    #fpsbar .fps-label { color: #ddd; margin-right: 4px; font-size: 13px; }
+    #fpsbar button {
+      background: #333; color: #ccc;
+      border: 1px solid #555;
+      padding: 3px 9px;
+      font-size: 12px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-family: inherit;
+    }
+    #fpsbar button.active {
+      background: #48b048; color: #fff; border-color: #48b048;
+    }
   </style>
 </head>
 <body>
@@ -83,6 +98,12 @@
     <input type="range" id="vieww" min="0" max="100" step="1" value="100"
            title="向左拖动收窄镜头（最小与高度相等），向右占满页面宽度">
     <span class="vw-end">满宽</span>
+    <div id="fpsbar">
+      <span class="fps-label">刷新率</span>
+      <button data-fps="30">30</button>
+      <button data-fps="60" class="active">60</button>
+      <button data-fps="120" title="实验性：60Hz 屏可能步进感，跳跃手感未校准">120</button>
+    </div>
   </div>
 
   <!-- 关卡数据 -->
@@ -96,7 +117,7 @@
   <script src="input.js?v=6"></script>
   <script src="elements.js?v=11"></script>
 <script src="levels.js?v=1"></script>
-<script src="engine.js?v=hd35"></script>
+<script src="engine.js?v=hd38"></script>
 
   <script>
     (function () {
@@ -131,6 +152,33 @@
       });
       window.addEventListener('resize', applyViewWidth);
       applyViewWidth();
+
+      // ---- 刷新率切换 ----
+      // 默认 60Hz；30Hz 稳定（原版基准）；120Hz 实验性（见 engine.js setFps 注释）
+      var FPS_KEY = 'catmario_fps';
+      var savedFps = parseInt(localStorage.getItem(FPS_KEY), 10);
+      if (savedFps !== 30 && savedFps !== 60 && savedFps !== 120) savedFps = 60;
+      var fpsbar = document.getElementById('fpsbar');
+      var fpsButtons = fpsbar.querySelectorAll('button[data-fps]');
+      function syncFpsButtons(fps) {
+        for (var i = 0; i < fpsButtons.length; i++) {
+          fpsButtons[i].classList.toggle('active',
+            String(fps) === fpsButtons[i].getAttribute('data-fps'));
+        }
+      }
+      // 应用保存的设置
+      if (savedFps !== 60) {
+        GameEngine.setFps(savedFps);
+        syncFpsButtons(savedFps);
+      }
+      fpsbar.addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-fps]');
+        if (!btn) return;
+        var fps = parseInt(btn.getAttribute('data-fps'), 10);
+        GameEngine.setFps(fps);
+        localStorage.setItem(FPS_KEY, String(fps));
+        syncFpsButtons(fps);
+      });
 
       // 首次用户交互解锁音频
       var audioUnlocked = false;

@@ -84,6 +84,16 @@ canvas#canvas {
   padding: 4px 9px; font-size: 12px; cursor: pointer;
 }
 #topbar button:hover { background: #3d4458; }
+/* 刷新率切换按钮组（高亮态优先级覆盖普通 button） */
+#fpsbar { display: inline-flex; align-items: center; gap: 3px; pointer-events: auto; }
+#fpsbar .fps-label { color: #ccc; font-size: 12px; margin-right: 3px; }
+#fpsbar button {
+  padding: 3px 7px; font-size: 11px;
+  background: rgba(49, 55, 71, .92); color: #b8c2d6;
+  border: 1px solid #454d61; border-radius: 4px;
+}
+#fpsbar button:hover { background: #3d4458; }
+#fpsbar button.active { background: #48b048 !important; border-color: #48b048 !important; color: #fff !important; }
 #startBtn { background: rgba(45, 108, 223, .95) !important; border-color: #4a86f0 !important; color: #fff !important; font-weight: bold; }
 #infoBtn { background: rgba(80, 80, 60, .92) !important; }
 #status { font-size: 12px; color: #b8c2d6; text-shadow: 1px 1px 2px #000; pointer-events: none; }
@@ -204,6 +214,12 @@ body.dragging #dropTip { display: flex; }
   <button id="retryBtn">↺ 回到标题</button>
   <button id="infoBtn">ℹ️ 详情</button>
   <button id="logBtn">📜 日志<span id="logBadge" class="hide">0</span></button>
+  <div id="fpsbar">
+    <span class="fps-label">FPS</span>
+    <button data-fps="30">30</button>
+    <button data-fps="60" class="active">60</button>
+    <button data-fps="120" title="实验性：60Hz 屏可能步进感，跳跃手感未校准">120</button>
+  </div>
   <span id="status">正在加载游戏引擎…</span>
 </div>
 
@@ -247,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog22"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd35"></script>
+<script src="engine.js?v=hd38"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell13"></script>
 <script>
@@ -1048,6 +1064,35 @@ body.dragging #dropTip { display: flex; }
     });
     window.addEventListener('resize', applyViewWidth);
     applyViewWidth();
+  })();
+
+  /* ---------- 刷新率切换 ----------
+   * 默认 60Hz；30Hz 稳定（原版基准）；120Hz 实验性（见 engine.js setFps 注释）
+   * 与 game/index.html 共用 localStorage 键，两处设置互通 */
+  (function () {
+    var FPS_KEY = 'catmario_fps';
+    var savedFps = parseInt(localStorage.getItem(FPS_KEY), 10);
+    if (savedFps !== 30 && savedFps !== 60 && savedFps !== 120) savedFps = 60;
+    var fpsbar = document.getElementById('fpsbar');
+    var fpsButtons = fpsbar.querySelectorAll('button[data-fps]');
+    function syncFpsButtons(fps) {
+      for (var i = 0; i < fpsButtons.length; i++) {
+        fpsButtons[i].classList.toggle('active',
+          String(fps) === fpsButtons[i].getAttribute('data-fps'));
+      }
+    }
+    if (savedFps !== 60) {
+      GameEngine.setFps(savedFps);
+      syncFpsButtons(savedFps);
+    }
+    fpsbar.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-fps]');
+      if (!btn) return;
+      var fps = parseInt(btn.getAttribute('data-fps'), 10);
+      GameEngine.setFps(fps);
+      localStorage.setItem(FPS_KEY, String(fps));
+      syncFpsButtons(fps);
+    });
   })();
 
   // 传送管道口（stype=60）：进入后按目标切换世界或游戏结束

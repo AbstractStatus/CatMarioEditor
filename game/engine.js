@@ -966,9 +966,9 @@
 
           // 踩上触发下坠
           if (l.sracttype === 1 && l.sron === 0) l.sron = 1;
-          // 下坠/循环台带着玩家一起动（oldSre 是台本帧实际位移，脚=新台底+100）
+          // 下坠/循环台带着玩家一起动（oldSre×DT 是台本帧实际位移，脚=新台底+100）
           if ((l.sracttype === 1 && l.sron === 1) || l.sracttype === 3 || l.sracttype === 5) {
-            p.mb += oldSre;
+            p.mb += oldSre * C._DT;
           }
 
           if (l.srsp === 1) {
@@ -1145,8 +1145,9 @@
           break;
         case 3:
           e.azimentype = 0;
-          if (e.axtype === 0) e.ab -= 800;
-          else e.ab += 1200;
+          // 原版 30Hz 每帧 ±800/1200，按 hd35 转换规则乘 C._DT 保证各帧率速度一致
+          if (e.axtype === 0) e.ab -= 800 * C._DT;
+          else e.ab += 1200 * C._DT;
           break;
         case 4:
           xx[10] = 120;
@@ -1521,9 +1522,9 @@
       if (e.aa + e.anobia > lf.sra + 500 && e.aa < lf.sra + lf.src - 500 &&
           e.ab + e.anobib > lOld && e.ab + e.anobib < lOld + 1200 && e.ad >= -100) {
         e.ab = lOld - e.anobib + 100;
-        // 随台移动（用旧 sre，与玩家一致；需存到 lift 上）
+        // 随台移动（用旧 sre×DT=台本帧实际位移，与玩家一致；需存到 lift 上）
         if ((lf.sracttype === 1 && lf.sron === 1) || lf.sracttype === 3 || lf.sracttype === 5) {
-          e.ab += (lf._oldSre != null ? lf._oldSre : lf.sre);
+          e.ab += (lf._oldSre != null ? lf._oldSre : lf.sre) * C._DT;
         }
         e.ad = 0; e.axzimen = 1;
       }
@@ -2345,6 +2346,18 @@
   // 自动化浏览器在后台标签会冻结 requestAnimationFrame，可用定时器按 33ms 调用本接口
   // 获得确定性物理；正常游戏由内部 rAF accumulator 驱动，勿在外部重复调用。
   Engine._stepFrame = function () { frame(); };
+
+  // 切换物理刷新率（30/60/120，默认 60）
+  // 注意：120Hz 在 60Hz 屏上可能出现步进感（渲染插值已移除），且跳跃 boost 阈值
+  // (engine.js mjumptm===8 比较时刻 md 累积不同) 未针对 120Hz 重校，作为实验选项
+  Engine.setFps = function (fps) {
+    if (fps !== 30 && fps !== 60 && fps !== 120) return;
+    C.FPS = fps;
+    C._DT = 30 / fps;
+    _PHYS_STEP = 1000 / fps;
+    _accumulator = 0;       // 切换时丢弃残余 delta，避免立刻补帧导致跳变
+  };
+  Engine.getFps = function () { return C.FPS; };
 
   global.GameEngine = Engine;
 })(window);
