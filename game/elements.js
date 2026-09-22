@@ -383,15 +383,15 @@
       if (s.sgtype !== 1) return false;
 
       // 延时倒计时：保持原位（实体可踩），归零后开始加速坠落
-      if (s.sdelay > 0) { s.sdelay--; return false; }
+      if (s.sdelay > 0) { s.sdelay -= C._DT; return false; }
 
       // 加速运动（原版 30fps：每帧 +120，上限 1600）
-      s.sr = Math.min((s.sr || 0) + 120, 1600);
+      s.sr = Math.min((s.sr || 0) + 120 * C._DT, 1600);
       if (s.mov) {
-        if (s.mov.axis === 'x') s.sa += s.sr * s.mov.dir;
-        else s.sb += s.sr * s.mov.dir;
+        if (s.mov.axis === 'x') s.sa += s.sr * s.mov.dir * C._DT;
+        else s.sb += s.sr * s.mov.dir * C._DT;
       } else {
-        s.sb += s.sr;
+        s.sb += s.sr * C._DT;
       }
 
       // 飞出镜头范围：经典向下超过 FYMAX+18000 后冻结（与原版一致，永不复位）；
@@ -466,8 +466,8 @@
       }
       if (s.sgtype === 1) {
         if (s.sb > C.FYMAX + 18000) { s.sgtype = 2; return false; }
-        s.sr = Math.min((s.sr || 0) + 120, 1600);
-        s.sb += s.sr;
+        s.sr = Math.min((s.sr || 0) + 120 * C._DT, 1600);
+        s.sb += s.sr * C._DT;
       }
       return false;
     },

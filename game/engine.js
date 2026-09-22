@@ -388,10 +388,10 @@
     if (state.cheat) {
       var spd = 400;
       p.mc = 0; p.md = 0;
-      if (key & C.KEY.LEFT) { p.ma -= spd; p.mmuki = 0; }
-      if (key & C.KEY.RIGHT) { p.ma += spd; p.mmuki = 1; }
-      if (key & C.KEY.JUMP) p.mb -= spd;   // 上/空格 = 向上
-      if (key & C.KEY.DOWN) p.mb += spd;    // 下 = 向下
+      if (key & C.KEY.LEFT) { p.ma -= spd * C._DT; p.mmuki = 0; }
+      if (key & C.KEY.RIGHT) { p.ma += spd * C._DT; p.mmuki = 1; }
+      if (key & C.KEY.JUMP) p.mb -= spd * C._DT;   // 上/空格 = 向上
+      if (key & C.KEY.DOWN) p.mb += spd * C._DT;    // 下 = 向下
       p.mhp = 1;
       p.mzimen = 0;
       p.mtype = 0;
@@ -414,7 +414,7 @@
     }
 
     if (key & C.KEY.JUMP) {
-      if (p.mjumptm === 8 && p.md >= -900) {
+      if (p.mjumptm === 8 && p.md >= -1000) {
         p.md = -1300;
         if (p.mc >= 200 || p.mc <= -200) p.md = -1400;
         if (p.mc >= 600 || p.mc <= -600) p.md = -1500;
@@ -429,30 +429,30 @@
 
     if (p.actaon[0] === -1) {
       if (!(p.mzimen === 0 && p.mc < -xx[8])) {
-        if (p.mc >= -xx[9]) { p.mc -= xx[0]; if (p.mc < -xx[9]) p.mc = -xx[9] - 1; }
+        if (p.mc >= -xx[9]) { p.mc -= xx[0] * C._DT; if (p.mc < -xx[9]) p.mc = -xx[9] - 1; }
       }
       if (p.mrzimen !== 1) {
-        if (p.mc > 100 && p.mzimen === 0) p.mc -= xx[0] * 2 / 3;
-        if (p.mc > 100 && p.mzimen === 1) { p.mc -= xx[0]; p.mc -= xx[0] / 2; }
-        p.actaon[0] = 3; p.mkasok += 1;
+        if (p.mc > 100 && p.mzimen === 0) p.mc -= xx[0] * 2 / 3 * C._DT;
+        if (p.mc > 100 && p.mzimen === 1) { p.mc -= xx[0] * C._DT; p.mc -= xx[0] / 2 * C._DT; }
+        p.actaon[0] = 3; p.mkasok += C._DT;
       }
     }
     if (p.actaon[0] === 1) {
       if (!(p.mzimen === 0 && p.mc > xx[8])) {
-        if (p.mc <= xx[9]) { p.mc += xx[0]; if (p.mc > xx[9]) p.mc = xx[9] + 1; }
+        if (p.mc <= xx[9]) { p.mc += xx[0] * C._DT; if (p.mc > xx[9]) p.mc = xx[9] + 1; }
       }
       if (p.mrzimen !== 1) {
-        if (p.mc < -100 && p.mzimen === 0) p.mc += xx[0] * 2 / 3;
-        if (p.mc < -100 && p.mzimen === 1) { p.mc += xx[0]; p.mc += xx[0] / 2; }
-        p.actaon[0] = 3; p.mkasok += 1;
+        if (p.mc < -100 && p.mzimen === 0) p.mc += xx[0] * 2 / 3 * C._DT;
+        if (p.mc < -100 && p.mzimen === 1) { p.mc += xx[0] * C._DT; p.mc += xx[0] / 2 * C._DT; }
+        p.actaon[0] = 3; p.mkasok += C._DT;
       }
     }
-    if (p.actaon[0] === 0 && p.mkasok > 0) p.mkasok -= 2;
+    if (p.actaon[0] === 0 && p.mkasok > 0) p.mkasok -= 2 * C._DT;
     if (p.mkasok > 8) p.mkasok = 8;
     if (p.mzimen !== 1) p.mrzimen = 0;
 
     // 跳跃
-    if (p.mjumptm >= 0) p.mjumptm--;
+    if (p.mjumptm >= 0) p.mjumptm -= C._DT;
     if (p.actaon[1] === 1 && p.mzimen === 1) {
       p.mb -= 400; p.md = -1200; p.mjumptm = 10;
       A.playSE(C.SE.JUMP);
@@ -460,7 +460,7 @@
     }
     if (p.actaon[1] <= 9) p.actaon[1] = 0;
 
-    if (p.mmutekitm >= -1) p.mmutekitm--;
+    if (p.mmutekitm >= -1) p.mmutekitm -= C._DT;
 
     // MHP 变化追踪（在死亡检查之前）
     if (p._prevMhp !== p.mhp) {
@@ -522,7 +522,7 @@
 
     // 进管道
     if (p.mtype >= 100) {
-      p.mtm++;
+      p.mtm += C._DT;
       if (p.mtype === C.MTYPE.PIPE) {
         // 沉入方向由进管时记录的开口方向决定
         var pdir = p._pipeDir || 'up';
@@ -535,7 +535,7 @@
           p.mc = 0; p.md = 0;
           var tp = p._trapPipe;
           // 玩家沉入管道（mtm<=16）后移出屏幕（17）
-          if (p.mtm <= 16) { p.ma += sinkDx; p.mb += sinkDy; p.mzz = 100; }
+          if (p.mtm <= 16) { p.ma += sinkDx * C._DT; p.mb += sinkDy * C._DT; p.mzz = 100; }
           if (p.mtm === 17) p.mb = -80000000;
           // 陷阱管道动画：玩家已离屏，此时驱动管道本体（对应原版 main.cpp 的 sa/sb[28]）
           if (tp) {
@@ -544,8 +544,8 @@
             if (p.mtm >= 61 && p.mtm <= 77) tp.sa += (p.mtm % 2 === 0) ? 400 : -400;
             if (p.mtm >= 78 && p.mtm <= 94) tp.sa += (p.mtm % 2 === 0) ? 600 : -600;
             if (p.mtm >= 110) {
-              tp.sb -= p.mzz;
-              p.mzz += 80;
+              tp.sb -= p.mzz * C._DT;
+              p.mzz += 80 * C._DT;
               if (p.mzz > 1600) p.mzz = 1600;
             }
           }
@@ -600,19 +600,19 @@
     }
 
     // 移动
-    if (p.mkeytm >= 1) p.mkeytm--;
-    p.ma += p.mc; p.mb += p.md;
-    if (p.mc < 0) p.mactp += -p.mc;
-    else p.mactp += p.mc;
-    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE) p.md += C.GRAVITY;
+    if (p.mkeytm >= 1) p.mkeytm -= C._DT;
+    p.ma += p.mc * C._DT; p.mb += p.md * C._DT;
+    if (p.mc < 0) p.mactp += -p.mc * C._DT;
+    else p.mactp += p.mc * C._DT;
+    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE) p.md += C.GRAVITY * C._DT;
 
     // 速度上限
     if (p.mtype === 0) {
       xx[0] = 800; xx[1] = 1600;
       if (p.mc > xx[0] && p.mc < xx[0] + 200) p.mc = xx[0];
-      if (p.mc > xx[0] + 200) p.mc -= 200;
+      if (p.mc > xx[0] + 200) p.mc -= 200 * C._DT;
       if (p.mc < -xx[0] && p.mc > -xx[0] - 200) p.mc = -xx[0];
-      if (p.mc < -xx[0] - 200) p.mc += 200;
+      if (p.mc < -xx[0] - 200) p.mc += 200 * C._DT;
       if (p.md > xx[1]) p.md = xx[1];
     }
 
@@ -622,8 +622,8 @@
         if (p.mrzimen === 0) {
           xx[2] = 30; xx[1] = 60; xx[3] = 30;
           if (p.mc >= -xx[3] && p.mc <= xx[3]) p.mc = 0;
-          if (p.mc >= xx[2]) p.mc -= xx[1];
-          if (p.mc <= -xx[2]) p.mc += xx[1];
+          if (p.mc >= xx[2]) p.mc -= xx[1] * C._DT;
+          if (p.mc <= -xx[2]) p.mc += xx[1] * C._DT;
         }
       }
     }
@@ -843,8 +843,8 @@
           }
           // 提示块自动消失（txtype>=500 时逐帧上移直到出屏）
           if (b.ttype === 300 && b.txtype >= 500 && b.ta >= -6000) {
-            if (b.txtype <= 539) b.txtype++;
-            if (b.txtype >= 540) b.ta -= 500;
+            if (b.txtype <= 539) b.txtype += C._DT;
+            if (b.txtype >= 540) b.ta -= 500 * C._DT;
           }
         }
 
@@ -938,8 +938,8 @@
       // 随动用「旧 sre」（台本帧实际位移）→ 脚=新台底+100，始终紧贴台面不嵌入。
       var oldSrb = l.srb;
       var oldSre = l.sre;
-      l.srb += l.sre;
-      l.sre += l.srf;
+      l.srb += l.sre * C._DT;
+      l.sre += l.srf * C._DT;
       l._oldSrb = oldSrb;   // 供敌人 enemyGroundCollide 随动使用
       l._oldSre = oldSre;
 
@@ -984,18 +984,18 @@
           if (l.srsp === 2) {
             // 绿色疲劳台：弹飞玩家，连续站立 100 帧阵亡
             p.mc = -2400;
-            l.srmove += 1;
+            l.srmove += C._DT;
             if (l.srmove >= 100) { markHurt('fatigue-lift', l.uid); p.mhp = 0; l.srmove = -5000; }
           }
         }
 
         // 疲劳计时：未被弹飞且不在台上时逐帧回退
-        if (l.srsp === 2 && p.mc !== -2400 && l.srmove > 0) l.srmove--;
+        if (l.srsp === 2 && p.mc !== -2400 && l.srmove > 0) l.srmove -= C._DT;
 
         // srsp=11：靠近即自动下坠（无原版数据，编辑器也不产生，保留行为一致）
         if (l.srsp === 11) {
           if (p.ma + p.mnobia > l.sra - 1500 && p.ma < l.sra + l.src - 500) l.sron = 1;
-          if (l.sron === 1) { l.srf = 60; l.srb += l.sre; }
+          if (l.sron === 1) { l.srf = 60; l.srb += l.sre * C._DT; }
         }
         // sracttype=6：横向经过即触发下坠
         if (l.sracttype === 6) {
@@ -1005,8 +1005,8 @@
 
       // 纵向定速运动（srsok；现有数据均为 0，保留原版结构）
       if (l.sracttype === 3 || l.sracttype === 5) {
-        if (l.srmuki === 0) l.srb -= l.srsok;
-        if (l.srmuki === 1) l.srb += l.srsok;
+        if (l.srmuki === 0) l.srb -= l.srsok * C._DT;
+        if (l.srmuki === 1) l.srb += l.srsok * C._DT;
       }
     }
   }
@@ -1017,7 +1017,7 @@
     for (var i = 0; i < state.triggers.length; i++) {
       var tr = state.triggers[i];
       if (tr.ba < -80000) continue;
-      if (tr.btm >= 0) tr.btm--;
+      if (tr.btm >= 0) tr.btm -= C._DT;
 
       // 敌人重生：当玩家离开触发区域足够远时重置
       var dist = tr.ba - state.fx;
@@ -1114,7 +1114,7 @@
       if (e.aa < -800000) continue;
       xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
       xx[2] = e.anobia; xx[3] = e.anobib;
-      if (e.anotm >= 0) e.anotm--;
+      if (e.anotm >= 0) e.anotm -= C._DT;
       if (xx[0] + xx[2] < -12000 || xx[0] > C.FXMAX + 12000 ||
           xx[1] + xx[3] < -9000 || xx[1] > C.FYMAX + 20000) {
         e.aa = -900000; continue;
@@ -1152,7 +1152,7 @@
           break;
         case 4:
           xx[10] = 120;
-          if (e.atm >= 0) e.atm--;
+          if (e.atm >= 0) e.atm -= C._DT;
           if (Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
             if (e.axtype === 1 && p.mzimen === 0 && e.axzimen === 1) {
               e.ad = -1600; e.atm = 40; e.ab -= 1000;
@@ -1164,7 +1164,7 @@
           // デフラグさん（方块机器人）：原版 main.cpp:3035-3085
           xx[10] = 120;   // 平时贴地行走速度
           if (e.atm >= 10) {
-            e.atm++;
+            e.atm += C._DT;
             if (p.mhp >= 1) {
               // 抓住玩家期间（atm 11~19）：把玩家锁在头顶（ab 上方 30px），机器人停步
               if (e.atm <= 19) { p.ma = e.aa; p.mb = e.ab - 3000; p.mtype = C.MTYPE.NORMAL; }
@@ -1198,24 +1198,24 @@
           xx[11] = 400;
           if (e.axtype === 0) xx[10] = xx[11];
           if (e.axtype === 1) xx[10] = -xx[11];
-          if (e.axtype === 2) e.ab -= xx[11];
-          if (e.axtype === 3) e.ab += xx[11];
+          if (e.axtype === 2) e.ab -= xx[11] * C._DT;
+          if (e.axtype === 3) e.ab += xx[11] * C._DT;
           break;
         case 8:
           // スーパーブーン / 奔跑怪（空中上下浮动）：原版 main.cpp:3103-3114
           // azimentype=0 关闭重力，af 相位累加器驱动 ad 速度做正弦式上下漂浮
           e.azimentype = 0;
-          if (e.atm === 0) { e.af += 20; e.ad += 20; }
-          if (e.atm === 1) { e.af -= 20; e.ad -= 20; }
+          if (e.atm === 0) { e.af += 20 * C._DT; e.ad += 20 * C._DT; }
+          if (e.atm === 1) { e.af -= 20 * C._DT; e.ad -= 20 * C._DT; }
           if (e.ad > 300) e.ad = 300;
           if (e.ad < -300) e.ad = -300;
           if (e.af >= 1200) e.atm = 1;
           if (e.af < 0) e.atm = 0;
-          e.ab += e.ad;
+          e.ab += e.ad * C._DT;
           break;
         case 9:
           e.azimentype = 5;
-          e.ab += e.ad; e.ad += 100;
+          e.ab += e.ad * C._DT; e.ad += 100 * C._DT;
           if (e.ab >= C.FYMAX + 1000) e.ad = 900;
           // 原版 main.cpp case 9：落出屏幕底部后瞬移回底部并向上抛出，形成上下弹跳
           if (e.ab >= C.FYMAX + 12000) { e.ab = C.FYMAX; e.ad = -2600; }
@@ -1227,11 +1227,11 @@
           if (e.axtype === 1) xx[10] = -xx[11];
           break;
         case 30:
-          e.atm++;
+          e.atm += C._DT;
           if (e.axtype === 0) {
             if (e.atm === 50 && p.mb >= 6000) { e.ac = 300; e.ad -= 1600; e.ab -= 1000; }
           } else {
-            e.azimentype = 0; e.ab += e.ad; e.ad += 120;
+            e.azimentype = 0; e.ab += e.ad * C._DT; e.ad += 120 * C._DT;
           }
           break;
         case 79:
@@ -1250,11 +1250,11 @@
           e.azimentype = 4;
           // 原版 main.cpp case 86：玩家水平范围与猫身重叠才触发下落（xx[26] 运行时≈18，几乎无余量）
           if (p.ma >= e.aa - p.mnobia - 18 && p.ma <= e.aa + e.anobia + 18) e.atm = 1;
-          if (e.atm === 1) e.ab += 1200;
+          if (e.atm === 1) e.ab += 1200 * C._DT;
           break;
         case 87: case 88:
           e.azimentype = 0;
-          if (e.aa % 10 !== 1) e.atm += 6; else e.atm -= 6;
+          if (e.aa % 10 !== 1) e.atm += 6 * C._DT; else e.atm -= 6 * C._DT;
           if (e.atm > 720) e.atm -= 720;
           if (e.atm < 0) e.atm += 720;
           break;
@@ -1293,18 +1293,18 @@
       }
 
       if (e.abrocktm >= 1) xx[10] = 0;
-      if (e.amuki === 0) e.aacta -= xx[10];
-      else e.aacta += xx[10];
+      if (e.amuki === 0) e.aacta -= xx[10] * C._DT;
+      else e.aacta += xx[10] * C._DT;
 
       if (e.ad > 1200 && e.azimentype !== 5) e.ad = 1200;
 
-      e.aa += e.aacta;
+      e.aa += e.aacta * C._DT;
       if (e.azimentype >= 1 && e.abrocktm <= 0) {
-        e.aa += e.ac;
-        if (e.azimentype >= 1 && e.azimentype <= 3) { e.ab += e.ad; e.ad += 120; }
+        e.aa += e.ac * C._DT;
+        if (e.azimentype >= 1 && e.azimentype <= 3) { e.ab += e.ad * C._DT; e.ad += 120 * C._DT; }
         if (e.axzimen === 1) {
-          if (e.ac >= 200) e.ac -= 100;
-          else if (e.ac <= -200) e.ac += 100;
+          if (e.ac >= 200) e.ac -= 100 * C._DT;
+          else if (e.ac <= -200) e.ac += 100 * C._DT;
           else e.ac = 0;
         }
         e.axzimen = 0;
@@ -1312,8 +1312,8 @@
       }
 
       if (e.abrocktm > 0) {
-        e.abrocktm--;
-        if (e.abrocktm < 100) e.ab -= 180;
+        e.abrocktm -= C._DT;
+        if (e.abrocktm < 100) e.ab -= 180 * C._DT;
         if (e.abrocktm === 100) { e.ab -= 800; e.ad = -1200; e.ac = 700; e.abrocktm = 0; }
       }
 
@@ -1536,11 +1536,11 @@
   function updateParticles() {
     for (var i = 0; i < state.particles.length; i++) {
       var p = state.particles[i];
-      if (p.etm >= 0) p.etm--;
+      if (p.etm >= 0) p.etm -= C._DT;
       xx[0] = p.ea - state.fx; xx[1] = p.eb - state.fy;
       if (p.etm >= 0 && xx[0] > -100 && xx[0] < C.FXMAX && xx[1] > -10000 && xx[1] < C.FYMAX) {
-        p.ea += p.ec; p.eb += p.ed;
-        p.ec += p.ee; p.ed += p.ef;
+        p.ea += p.ec * C._DT; p.eb += p.ed * C._DT;
+        p.ec += p.ee * C._DT; p.ed += p.ef * C._DT;
       } else {
         p.ea = -9000000;
       }
@@ -1559,14 +1559,14 @@
       // 右滚：玩家超过 2/3 屏幕宽时才推镜头（保留右边 1/3 缓冲）
       if (screenX > rightTrigger && state.fzx < state.scrollx) {
         var push = screenX - rightTrigger;
-        state.fx  += push;
-        state.fzx += push;
+        state.fx  += push * C._DT;
+        state.fzx += push * C._DT;
       }
       // 左滚：玩家退到 1/3 屏幕宽以下才拉镜头（保留左边 1/3 缓冲）
       if (screenX < leftTrigger && state.fzx > 700) {
         var pull = leftTrigger - screenX;
-        state.fx  -= pull;
-        state.fzx -= pull;
+        state.fx  -= pull * C._DT;
+        state.fzx -= pull * C._DT;
       }
     }
     if (state.fx < 0) state.fx = 0;
@@ -2082,14 +2082,14 @@
       // tmsgtype: 0=隐藏, 1=展开中, 2=等待按键, 3=收起中
       if (state.tmsgtype > 0) {
         if (state.tmsgtype === 1) {
-          state.tmsgy += 1200;
-          state.tmsgtm--;
+          state.tmsgy += 1200 * C._DT;
+          state.tmsgtm -= C._DT;
           if (state.tmsgtm === 0) state.tmsgtype = 2;
         } else if (state.tmsgtype === 2) {
           if (key) { state.tmsgtype = 3; state.tmsgtm = 15; state.tmsgy = 0; }
         } else if (state.tmsgtype === 3) {
-          state.tmsgy += 1200;
-          state.tmsgtm--;
+          state.tmsgy += 1200 * C._DT;
+          state.tmsgtm -= C._DT;
           if (state.tmsgtm === 0) { state.tmsgtype = 0; state.tmsgy = 0; }
         }
       }
@@ -2126,7 +2126,7 @@
     }
 
     if (state.proc === C.PROC.STAGE_START) {
-      state.maintm++;
+      state.maintm += C._DT;
       if (state.maintm >= 30) {
         state.maintm = 0; state.proc = C.PROC.GAME;
         A.bgmChange(state.bgmId || 100);   // 进入游戏界面后才播放 BGM
@@ -2134,7 +2134,7 @@
     }
 
     if (state.proc === C.PROC.TITLE) {
-      state.maintm++;
+      state.maintm += C._DT;
       if (key) {
         state.life = 0;   // 新游戏，重置死亡计数
         state.checkpoint = null;   // 新游戏，清空中间旗检查点
@@ -2164,8 +2164,8 @@
   var _loopRunning = false;
   var _lastFrameTime = 0;
   var _accumulator = 0;
-  var _PHYS_STEP = 1000 / C.FPS;     // 物理固定 timestep = 30ms（原版基准）
-  // ---- 镜头渲染插值：30Hz 物理 / 60+Hz 渲染之间消除步进抖动 ----
+  var _PHYS_STEP = 1000 / C.FPS;     // 物理固定 timestep = 16.67ms（60Hz，C._DT=0.5 缩放原版30Hz常量）
+  // ---- 镜头渲染插值：60Hz 物理 / 60+Hz 渲染之间消除残余步进 ----
   var _fxPrev = 0;                   // 上一物理帧开始时的镜头位置
   var _camSnap = false;              // 本物理帧发生过关卡级镜头跳变（换关/进管/复活），渲染直接吸附
   var _CAM_SNAP_DIST = 100000;       // 兜底：帧间位移 >1000px 也视为非连续跳变（外部直接写 fx 时）
