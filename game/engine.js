@@ -1491,13 +1491,22 @@
       // 龟壳(atype=2)除外。此前只排除117导致敌人坠落时被侧面解析反复向左瞬移
       // （2-1 尖刺馒头怪离开 g10_11 时瞬移到 g10_7 的根因）
       if ((e.atype >= 100 || b.ttype !== 7 || e.atype === 2) && b.ttype !== 117) {
+        var sideHit = false;
         if (e.aa + e.anobia > xx[8] && e.aa < xx[8] + xx[2] &&
             e.ab + e.anobib > xx[9] + xx[1] / 2 - xx[0] && e.ab < xx[9] + xx[2]) {
-          e.aa = xx[8] - e.anobia; e.ac = 0; e.amuki = 0;
+          e.aa = xx[8] - e.anobia; e.ac = 0; e.amuki = 0; sideHit = true;
         }
         if (e.aa + e.anobia > xx[8] + xx[1] - xx[0] * 2 && e.aa < xx[8] + xx[1] &&
             e.ab + e.anobib > xx[9] + xx[1] / 2 - xx[0] && e.ab < xx[9] + xx[2]) {
-          e.aa = xx[8] + xx[1]; e.ac = 0; e.amuki = 1;
+          e.aa = xx[8] + xx[1]; e.ac = 0; e.amuki = 1; sideHit = true;
+        }
+        // こうらブレイク（原版 main.cpp:3955-3959）：滑动龟壳(atype=2)侧面撞击
+        // 隐藏块(ttype=7)时触发隐藏块——播金币音、变已用块(ttype=3)、弹金币粒子
+        // （与玩家从下方顶撞 ttype=7 的触发一致，见上方玩家分支）
+        if (sideHit && e.atype === 2 && b.ttype === 7) {
+          A.playSE(C.SE.COIN);
+          spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
+          b.ttype = 3;
         }
       }
     }
