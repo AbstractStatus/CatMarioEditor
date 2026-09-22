@@ -1587,7 +1587,7 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
