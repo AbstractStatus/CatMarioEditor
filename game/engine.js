@@ -334,6 +334,7 @@
       if (fxp > 700 && fxp < state.scrollx) {
         state.fx = fxp;
         state.fzx = fxp;
+        _camSnap = true;   // 换关/复活镜头定位为非连续跳变，渲染吸附
       }
     }
   }
@@ -560,6 +561,7 @@
             // 玩家已完全沉入管道并离屏：进行关卡切换
             p.mb = -80000000; p.mtype = 0; A.bgmStop();
             state.fx = 0;
+            _camSnap = true;   // 进管传送：镜头归零，渲染吸附不做插值
             var warp = p._warp; p._warp = null;
             var proceed = true;
             if (warp) {
@@ -1664,7 +1666,34 @@
   }
 
   // ==================== 渲染 ====================
-  function render(ctx) {
+  // 渲染包装：alpha 为累加器相位（距上一物理帧的时间比例 0~1），
+  // 在前后两物理帧的镜头位置之间线性插值后再绘制。
+  // 物理/碰撞/触发永远只使用整数物理帧的 state.fx（30Hz 确定性不变），
+  // 插值仅临时替换绘制期坐标，使世界滚动在任意刷新率屏幕上都连续平滑
+  // （fixed-timestep render interpolation）。
+  var _lastCamAlpha = 0, _lastRenderFx = 0;   // 最近一次渲染的插值相位/绘制相机（调试观测）
+  function render(ctx, alpha) {
+    var logicFx = state.fx;
+    var renderFx = logicFx;
+    if (state.proc === C.PROC.GAME && alpha > 0 && alpha < 1 && !_camSnap) {
+      var dFx = logicFx - _fxPrev;
+      // 正常跟镜每帧仅数像素~数十像素；跨关/进管/复活已用 _camSnap 显式标记，
+      // 位移阈值再兜底外部直接写 fx 的情况
+      if (Math.abs(dFx) < _CAM_SNAP_DIST) {
+        renderFx = _fxPrev + dFx * alpha;
+        state.fx = renderFx;
+      }
+    }
+    _lastCamAlpha = alpha;
+    _lastRenderFx = renderFx;
+    try {
+      renderScene(ctx);
+    } finally {
+      state.fx = logicFx;   // 恢复逻辑镜头，保证物理帧永不读到插值
+    }
+  }
+
+  function renderScene(ctx) {
     // 关掉插值：所有 drawImage 用 nearest-neighbor
     // 高清 PNG → 缩到虚拟坐标 → setTransform 放大到屏幕
     // 两次 nearest 保证每个原始像素最终还是锐利大方块（Win10 图片查看器那种效果）
@@ -1940,6 +1969,10 @@
 
   // ==================== 主循环 ====================
   function frame() {
+    // 记录本物理帧开始前的镜头位置，供渲染期在前后两帧间插值；
+    // 同时清除上一帧的跳变标记（帧内/帧外的换关、进管、复活会重新置位）
+    _camSnap = false;
+    _fxPrev = state.fx;
     var key = IN.get();
     _debugKey = key;
     _debugFrame++;
@@ -2018,6 +2051,7 @@
   function startGame() {
     state.player = createPlayer();
     state.fx = 0; state.fy = 0; state.fzx = 0;
+    _camSnap = true;   // 标题开局/宿主换关：镜头重置，渲染吸附
     state.scorepos = 0; state.score = 0;
     loadStage();
     // BGM 延后到 STAGE_START 倒计时结束、真正进入 GAME 状态时才播放，
@@ -2031,8 +2065,10 @@
   var _lastFrameTime = 0;
   var _accumulator = 0;
   var _PHYS_STEP = 1000 / C.FPS;     // 物理固定 timestep = 30ms（原版基准）
-  var _renderStep = 1000 / 60;       // 渲染目标 60Hz（仅做节流，rAF 驱动）
-  var _lastRenderTime = 0;
+  // ---- 镜头渲染插值：30Hz 物理 / 60+Hz 渲染之间消除步进抖动 ----
+  var _fxPrev = 0;                   // 上一物理帧开始时的镜头位置
+  var _camSnap = false;              // 本物理帧发生过关卡级镜头跳变（换关/进管/复活），渲染直接吸附
+  var _CAM_SNAP_DIST = 100000;       // 兜底：帧间位移 >1000px 也视为非连续跳变（外部直接写 fx 时）
 
   // 按住 F 连续单步：由引擎 rAF 驱动，不依赖系统 keyrepeat
   // （系统 repeat 会切换到最后按下的键，按住 F 再按方向键时 F repeat 停止，导致暂停下物理帧停摆、方向键"失灵"）
@@ -2174,7 +2210,7 @@
         _stepAcc = 0;
       }
       resizeCanvas();
-      render(ctx2d);
+      render(ctx2d, 0);
       return;
     }
 
@@ -2192,12 +2228,13 @@
     // 每帧重新同步画布虚拟尺寸（窗口 / DPR 变化即时生效）
     resizeCanvas();
 
-    // 渲染节流：目标 60Hz，实际 rAF 驱动会自动适配屏幕刷新率
-    // 跳过不必要的渲染可以省电/避免撕裂
-    if (now - _lastRenderTime >= _renderStep - 1) {
-      _lastRenderTime = now;
-      render(ctx2d);
-    }
+    // 每个 rAF 都渲染：alpha = 累加器相位（距上一物理帧的时间比例 0~1），
+    // 镜头在前后两物理帧之间插值。60Hz 屏呈现“物理帧→中点→物理帧”的均匀步进；
+    // 120/144Hz 高分屏同样均匀（旧的固定 60Hz 节流在高刷屏上反而间隔不均）。
+    var camAlpha = _accumulator / _PHYS_STEP;
+    if (camAlpha > 1) camAlpha = 1;
+    if (camAlpha < 0) camAlpha = 0;
+    render(ctx2d, camAlpha);
   }
 
   var _debugKey = 0, _debugFrame = 0;
@@ -2246,6 +2283,10 @@
   };
   // 调试用：暴露内部 state（含 pipes/player 完整字段），供自动化验证使用
   Engine._rawState = function () { return state; };
+  // 调试用：镜头插值观测（逻辑 fx / 上一物理帧 fx / 跳变标记 / 本次渲染相位 alpha / 实际绘制 fx）
+  Engine._camDebug = function () {
+    return { fx: state.fx, prev: _fxPrev, snap: _camSnap, alpha: _lastCamAlpha, renderFx: _lastRenderFx };
+  };
 
   Engine.debugBlocks = function (xMin, xMax) {
     var result = [];
