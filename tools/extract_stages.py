@@ -34,15 +34,28 @@ def ev(expr, default=0):
         return default
 
 
-def strip_line_comments(text):
-    """去掉 // 行注释（本文件无字符串内的 //，安全）。"""
+def strip_comments(text):
+    """去掉 // 行注释与 /* */ 块注释（本文件无字符串内的注释符，安全）。
+
+    必须同时剥离块注释：1-2-2(stc==2) 分支用 /* */ 注释掉了旧设计
+    （tyobi(..,114) 毒块 + sa[] stype 50/40/100 三根管道），
+    只剥 // 会把注释内代码当成真实数据提取出幻影 b0/p0/p1/p2。
+    单次扫描按先遇到的注释符生效，规避 “//  /*” 之类互相包含的歧义。
+    """
     out = []
-    for line in text.splitlines():
-        idx = line.find("//")
-        if idx != -1:
-            line = line[:idx]
-        out.append(line)
-    return "\n".join(out)
+    i = 0
+    n = len(text)
+    while i < n:
+        if text.startswith("//", i):
+            nl = text.find("\n", i)
+            i = n if nl == -1 else nl
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 def match_brace(text, open_pos):
@@ -263,7 +276,7 @@ def main():
         if close == -1:
             continue
         body_raw = raw[hobrace:close]
-        body = strip_line_comments(body_raw)
+        body = strip_comments(body_raw)
 
         grid = parse_grid(body)
         if grid is None:

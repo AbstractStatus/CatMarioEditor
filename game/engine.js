@@ -1255,7 +1255,9 @@
           e.azimentype = 2; break;
         case 85:
           if (e.axtype === 0) { e.axtype = 1; e.amuki = 1; }
+          // 原版 main.cpp:3193-3194 两条触发：玩家从左侧/右侧接近时旗杆分别向左/向右逃跑
           if (p.mb >= 30000 && p.ma >= e.aa - 15000 && p.ma <= e.aa && e.axtype === 1) { e.axtype = 5; e.amuki = 0; }
+          if (p.mb >= 24000 && p.ma <= e.aa + 24000 && p.ma >= e.aa && e.axtype === 1) { e.axtype = 5; e.amuki = 1; }
           if (e.axtype === 5) xx[10] = 400;
           break;
         case 86:
