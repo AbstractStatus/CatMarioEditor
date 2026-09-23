@@ -269,7 +269,7 @@
 
     // 敌人触发器
     def.enemies.forEach(function (e) {
-      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bz: 1, btm: 0, spawned: false, uid: e.uid || null };
+      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bdir: e.bdir || null, bz: 1, btm: 0, spawned: false, uid: e.uid || null };
       if (e._custom) trig._custom = e._custom;
       state.triggers.push(trig);
     });
@@ -340,13 +340,14 @@
   }
 
   // ==================== 敌人生成 ====================
-  function spawnEnemy(xa, xb, xc, xd, xnotm, xtype, xxtype) {
+  function spawnEnemy(xa, xb, xc, xd, xnotm, xtype, xxtype, xbdir) {
     var sz = C.ENEMY_SIZE[xtype] || [3000, 3000];
     var e = {
       aa: xa, ab: xb,
       ac: xc, ad: xd,
       anobia: sz[0], anobib: sz[1],
       atype: xtype, axtype: xxtype,
+      bdir: xbdir || null,   // 火焰棒旋转方向：'cw'顺时针 / 'ccw'逆时针 / null=按原版 aa%10 推断
       amuki: 1,
       anotm: xnotm,
       atm: 0, a2tm: 0,
@@ -1053,7 +1054,7 @@
         if (xx[0] === 1) {
           tr.btm = 401; tr.spawned = true;
           if (tr.btype >= 10) tr.btm = 9999999;
-          var spawnedE = spawnEnemy(tr.ba, tr.bb, 0, 0, 0, tr.btype, tr.bxtype);
+          var spawnedE = spawnEnemy(tr.ba, tr.bb, 0, 0, 0, tr.btype, tr.bxtype, tr.bdir);
           if (spawnedE) {
             if (tr.uid) spawnedE.uid = tr.uid;   // 敌人实例继承触发器（=编辑器元素）uid
             if (tr._custom) spawnedE._custom = tr._custom;
@@ -1268,7 +1269,10 @@
           break;
         case 87: case 88:
           e.azimentype = 0;
-          if (e.aa % 10 !== 1) e.atm += 6 * C._DT; else e.atm -= 6 * C._DT;
+          // 旋转方向：bdir='cw'顺时针(atm+=) / 'ccw'逆时针(atm-=)；
+          // 未设置时按原版 aa%10===1 推断（原版坐标末尾为1的火焰棒反转）
+          var fbCw = e.bdir ? (e.bdir === 'cw') : (e.aa % 10 !== 1);
+          if (fbCw) e.atm += 6 * C._DT; else e.atm -= 6 * C._DT;
           if (e.atm > 720) e.atm -= 720;
           if (e.atm < 0) e.atm += 720;
           break;

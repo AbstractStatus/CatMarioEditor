@@ -263,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog22"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd43"></script>
+<script src="engine.js?v=hd44"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -465,12 +465,16 @@ body.dragging #dropTip { display: flex; }
           // bxtype = 火球数 + (角度+100)*100（>=10000 表示带角度；遗留值 101~120
           // 是原版 P 开关联动值，引擎按随机初相处理）
           // rot=-1（随机初相）→ 输出遗留 bxtype=100+cnt，引擎走随机初相分支
+          // bdir = 旋转方向 'cw'顺时针 / 'ccw'逆时针（默认 cw）
+          // mirror=true → atype 88（水平镜像，cos 取反），否则 atype 87
           var cnt = e.xt || tg.xt;
+          var bdir = e.dir === 'ccw' ? 'ccw' : 'cw';
+          var btype = e.mirror ? 88 : tg.t;
           if (e.rot === -1) {
-            enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: tg.t, bxtype: 100 + cnt, uid: e.uid || null });
+            enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: btype, bxtype: 100 + cnt, bdir: bdir, uid: e.uid || null });
           } else {
             var rot = (((e.rot | 0) % 360) + 360) % 360;
-            enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: tg.t, bxtype: cnt + (rot + 100) * 100, uid: e.uid || null });
+            enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: btype, bxtype: cnt + (rot + 100) * 100, bdir: bdir, uid: e.uid || null });
           }
         } else {
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });

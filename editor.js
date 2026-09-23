@@ -191,7 +191,10 @@
         if (e.uid) o.uid = e.uid;   // 撤销快照白名单：uid 必须随快照保留
         if (e.len != null) o.len = e.len;
         if (e.xt != null) o.xt = e.xt;
-        if (e.rot) o.rot = e.rot;
+        if (e.rot === -1) o.rot = e.rot;   // 撤销快照：保留随机初相标记
+        else if (e.rot) o.rot = e.rot;
+        if (e.dir === 'cw' || e.dir === 'ccw') o.dir = e.dir;   // 火焰棒旋转方向
+        if (e.mirror) o.mirror = true;   // 火焰棒水平镜像（atype 88）
         if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
         if (e.hintType) o.hintType = e.hintType;
         if (e.hintCustom) o.hintCustom = e.hintCustom;
@@ -521,7 +524,7 @@
       ne.rot = 0;
     }
     if (d.xt) ne.xt = d.xt;
-    if (d.id === 'firebar') ne.rot = -1;   // 新放置的火焰棒默认随机初相（与原版一致）
+    if (d.id === 'firebar') { ne.rot = -1; ne.dir = 'cw'; ne.mirror = false; }   // 新放置的火焰棒默认随机初相 + 顺时针 + 非镜像
     if (d.id === '_trapzone') {
       ne.trap = {
         stype: d.trapStype || 101,
@@ -728,15 +731,36 @@
       var n = e.xt || d.xt || 5;
       var isRand = e.rot === -1;
       var ang = (isRand ? 0 : ((e.rot || 0) * Math.PI) / 180);
+      var isCcw = e.dir === 'ccw';
+      var isMirror = !!e.mirror;   // atype 88：水平镜像（cos 取反）
       var pcx = x + TILE / 2, pcy = y + TILE / 2;
       ctx.globalAlpha = isRand ? 0.5 : a;
       for (var i = 0; i <= n; i++) {
-        var fbx = pcx + Math.cos(ang) * i * tilePx(18);
+        var fbx = pcx + (isMirror ? -1 : 1) * Math.cos(ang) * i * tilePx(18);
         var fby = pcy + Math.sin(ang) * i * tilePx(18);
         ctx.fillStyle = 'rgb(230,120,0)';
         ctx.beginPath(); ctx.arc(fbx, fby, tilePx(8), 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
       }
+      // 旋转方向指示：圆心外一圈弧形箭头（cw=顺时针↻ / ccw=逆时针↺）
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = isCcw ? '#3b82f6' : '#22c55e';
+      ctx.lineWidth = 2;
+      var rArc = tilePx(11);
+      var a0 = isCcw ? Math.PI * 0.85 : -Math.PI * 0.35;
+      var a1 = isCcw ? Math.PI * 0.15 : Math.PI * 0.35;
+      ctx.beginPath(); ctx.arc(pcx, pcy, rArc, a0, a1, isCcw); ctx.stroke();
+      // 箭头头部
+      var ah = isCcw ? a1 : a0;
+      var ax = pcx + Math.cos(ah) * rArc, ay = pcy + Math.sin(ah) * rArc;
+      var hAng = ah + (isCcw ? -Math.PI / 2 : Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - Math.cos(hAng - 0.4) * tilePx(5), ay - Math.sin(hAng - 0.4) * tilePx(5));
+      ctx.lineTo(ax - Math.cos(hAng + 0.4) * tilePx(5), ay - Math.sin(hAng + 0.4) * tilePx(5));
+      ctx.closePath();
+      ctx.fillStyle = isCcw ? '#3b82f6' : '#22c55e';
+      ctx.fill();
       if (isRand) {
         ctx.globalAlpha = 0.85;
         ctx.fillStyle = '#fff';
@@ -1570,7 +1594,7 @@
     posRow.appendChild(rowInp);
     propBody.appendChild(posRow);
 
-    var fTotal = null, fRot = null, fRand = null, fLen = null, fWarp = null;
+    var fTotal = null, fRot = null, fRand = null, fDir = null, fMirror = null, fLen = null, fWarp = null;
     var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
     var fBmOri = null, fBmCount = null;
     var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
@@ -1592,6 +1616,22 @@
       fRot.disabled = isRand;
       propBody.appendChild(propRow('初始角度', fRot, '度，顺时针，0=向右'));
       fRand.addEventListener('change', function () { fRot.disabled = fRand.checked; });
+      fDir = document.createElement('select');
+      [['cw', '顺时针 ↻'], ['ccw', '逆时针 ↺']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fDir.appendChild(o);
+      });
+      fDir.value = selected.dir === 'ccw' ? 'ccw' : 'cw';
+      propBody.appendChild(propRow('旋转方向', fDir, ''));
+      fMirror = document.createElement('input');
+      fMirror.type = 'checkbox';
+      fMirror.checked = !!selected.mirror;
+      var fMirrorLabel = document.createElement('label');
+      fMirrorLabel.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+      fMirrorLabel.appendChild(fMirror);
+      fMirrorLabel.appendChild(document.createTextNode(' 水平镜像（atype 88，可与普通棒同位置组成双棒）'));
+      propBody.appendChild(propRow('', fMirrorLabel, ''));
     }
     if (d.id === 'block_fall' || d.id === 'block_fall_d') {
       // 坠落砖组：排列（横/竖）、砖块数（2-12）、移动方向（横排=上/下，竖排=左/右）、延时（秒）
@@ -1887,6 +1927,8 @@
       if (isFinite(r)) selected.row = Math.max(-EXTRA_TOP_ROWS, Math.min(ROWS - 1, r));
       if (fTotal) selected.xt = Math.max(1, Math.min(20, (parseInt(fTotal.value, 10) || 6) - 1));
       if (fRand) selected.rot = fRand.checked ? -1 : ((parseInt(fRot.value, 10) || 0) % 360 + 360) % 360;
+      if (fDir) selected.dir = fDir.value === 'ccw' ? 'ccw' : 'cw';
+      if (fMirror) selected.mirror = fMirror.checked;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
       if (fPlatW) {
         var nW = Math.max(1, Math.min(50, parseInt(fPlatW.value, 10) || 5));
@@ -3191,7 +3233,7 @@
     var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
       105: 'item_green_question', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
       31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 83: 'enemy_spike_ball',
-      84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 90: 'enemy_beam' };
+      84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 88: 'firebar', 90: 'enemy_beam' };
     return m[t] || null;
   }
   var W_LIFT_ID = { 0: 'lift_yellow', 2: 'lift_green', 21: 'lift_gray' };
@@ -3375,11 +3417,17 @@
         // 火焰棒：圆心在第0颗火球=格子中心（ba=(col*29+14.5)*100, bb=(row*29-12+14.5)*100）；
         // bxtype = 火球数 + (角度+100)*100（角度编码 bxtype>=10000；遗留值 101~120 是
         // 原版 P 开关联动值，100 位非角度，按 rot=0 处理）
+        // 旋转方向：原版按 ba%10===1 反转（逆时针），其余顺时针
         var bt = en.bxtype || 5;
         var fbCol = Math.round((en.ba / 100 - 14.5) / 29);
         var fbRow = Math.round((en.bb / 100 + 12 - 14.5) / 29);
         note(fbCol);
-        add('firebar', fbCol, fbRow, { xt: bt % 100 || 5, rot: bt >= 10000 ? (Math.floor(bt / 100) - 100) % 360 : -1 }, euid);
+        add('firebar', fbCol, fbRow, {
+          xt: bt % 100 || 5,
+          rot: bt >= 10000 ? (Math.floor(bt / 100) - 100) % 360 : -1,
+          dir: (en.ba % 10 === 1) ? 'ccw' : 'cw',
+          mirror: en.btype === 88   // atype 88 = 水平镜像（cos 取反），与 87 同位置可组成双棒
+        }, euid);
       } else {
         var col = Math.round(en.ba / 100 / 29), row = Math.round((en.bb / 100 + 12) / 29);
         note(col);
@@ -3687,6 +3735,8 @@
       if (e.xt) out.xt = e.xt | 0;
       if (e.rot === -1) out.rot = -1;   // 火焰棒：-1 表示随机初相（对应引擎 bxtype<10000）
       else if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
+      if (e.dir === 'cw' || e.dir === 'ccw') out.dir = e.dir;   // 火焰棒旋转方向
+      if (e.mirror === true) out.mirror = true;   // 火焰棒水平镜像（atype 88）
       if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
       // 问号块/隐藏块的弹出对象与量产标记（pop 必须保留，mass 默认 false）
       if (e.id === 'block_question' || e.id === 'block_hidden') {
