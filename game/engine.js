@@ -1342,18 +1342,21 @@
       xx[25] = 0;
 
       // 火焰棒特殊碰撞：检测每颗火球是否碰到玩家（而不仅仅是中心点）
-      // 参考旧引擎 main.cpp case 87/88：间距 xx[26]=18px，球直径 xx[4]=1800 世界单位
+      // 参考旧引擎 main.cpp case 87/88：间距 xx[26]=18px，基准方框 xx[4]=1800(18px)、
+      // 内缩 xx[5]=800(8px) → 等效仅中心 2×2px 判定区（火球视觉半径8px，碰撞远小于视觉）
       if ((e.atype === 87 || e.atype === 88) && p.mmutekitm <= 0 && p.mtype !== C.MTYPE.DEAD) {
         var fbCnt = e.axtype % 100;
         var fbAng = e.atm * Math.PI / 180 / 2;
-        var fbR = 800; // 火球碰撞半径（世界单位=8px），匹配视觉球半径8px
+        var FB_BOX = 1800;      // 基准方框边长（世界单位=18px，略大于视觉直径16px）
+        var FB_INSET = 800;     // 内缩量（世界单位=8px）
+        var fbHalf = FB_BOX / 2 - FB_INSET;   // 等效半边长=100(1px)，判定盒2×2px
         for (var fi = 0; fi <= fbCnt; fi++) {
           // atype 88 是水平镜像的火焰棒：cos 取反
           var sign = e.atype === 88 ? -1 : 1;
           var fbx = e.aa + sign * fi * 1800 * Math.cos(fbAng);  // 1800 = 18px * 100 世界单位（旧引擎 xx[26]=18）
           var fby = e.ab + fi * 1800 * Math.sin(fbAng);
-          if (p.ma + p.mnobia > fbx - fbR && p.ma < fbx + fbR &&
-              p.mb + p.mnobib > fby - fbR && p.mb < fby + fbR) {
+          if (p.ma + p.mnobia > fbx - fbHalf && p.ma < fbx + fbHalf &&
+              p.mb + p.mnobib > fby - fbHalf && p.mb < fby + fbHalf) {
             markHurt('firebar', e.uid);
             p.mhp -= 1;
             break;
