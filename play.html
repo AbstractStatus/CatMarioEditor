@@ -435,6 +435,13 @@ body.dragging #dropTip { display: flex; }
         if (e.follow && tvByte >= 1 && tvByte <= 10 && tvByte !== 9) {
           blocks.push({ x: x, y: y, type: tvByte, xt: 0, followJump: true, uid: e.uid || null });
           used++;
+        } else if (e.follow && (tvByte === 50 || tvByte === 51 || tvByte === 54)) {
+          // 馒头怪系敌人（普通 syobon atype=0 / 龟壳 turtle atype=1 / 尖刺 king atype=4）的跳跃跟随：
+          // 字节网格 trigger 无法携带属性，改走 enemies 数组并设 followJump
+          // （引擎 case 0/1/4 按此属性判定；king 原版 axtype=1 行为由 loadStage 自动迁移）
+          var _ebtype = tvByte === 50 ? 0 : (tvByte === 51 ? 1 : 4);
+          enemies.push({ ba: x * 100, bb: y * 100, btype: _ebtype, bxtype: 0, followJump: true, uid: e.uid || null });
+          used++;
         } else {
           if (put(r, c, tvByte, e.uid)) used++;
         }

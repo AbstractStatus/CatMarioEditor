@@ -1905,6 +1905,22 @@
       fFollow.value = (selected.follow || d.follow) ? 'yes' : 'no';
       propBody.appendChild(propRow('跳跃跟随', fFollow, '玩家从下方靠近起跳时方块跟着上移躲开（原版 1-1 第一块问号砖的行为）'));
     }
+    // 敌人跳跃跟随（解耦属性）：普通馒头怪/龟壳馒头怪/尖刺馒头怪 可配置玩家起跳时同步起跳
+    // （尖刺馒头怪原版硬编码为 axtype=1，现独立为 follow 属性；另两个原版无此行为）
+    var fEnemyFollow = null;
+    if (d.id === 'enemy_syobon' || d.id === 'enemy_turtle' || d.id === 'enemy_king') {
+      fEnemyFollow = document.createElement('select');
+      [['no', '否：普通（默认）'], ['yes', '是：玩家起跳时跟着跳']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fEnemyFollow.appendChild(o);
+      });
+      fEnemyFollow.value = (selected.follow || d.follow) ? 'yes' : 'no';
+      var _ekNote = d.id === 'enemy_king'
+        ? '玩家在附近起跳时，该敌人同步起跳（原版 2-1 首只尖刺馒头怪的行为）'
+        : '玩家在附近起跳时，该敌人同步起跳（复用尖刺馒头怪的判定与力度）';
+      propBody.appendChild(propRow('跳跃跟随', fEnemyFollow, _ekNote));
+    }
     // 提示块：消息类型选择 + 自定义文本
     var fHintType = null, fHintText = null;
     if (d.id === 'b2_hint') {
@@ -2007,6 +2023,11 @@
       // 跳跃跟随写回（稀疏存储：关闭即删除属性）
       if (fFollow) {
         if (fFollow.value === 'yes') selected.follow = true;
+        else delete selected.follow;
+      }
+      // 敌人跳跃跟随写回（enemy_king 专用，稀疏存储）
+      if (fEnemyFollow) {
+        if (fEnemyFollow.value === 'yes') selected.follow = true;
         else delete selected.follow;
       }
       // 连接管保存：per-port lengths + rot
@@ -3451,7 +3472,15 @@
       } else {
         var col = Math.round(en.ba / 100 / 29), row = Math.round((en.bb / 100 + 12) / 29);
         note(col);
-        add(eid, col, row, null, euid);
+        // 馒头怪系敌人（syobon/turtle/king）：跳跃跟随解耦属性还原
+        // 显式 followJump 优先；enemy_king 旧数据 btype=4/bxtype=1 自动迁移为 follow=true
+        var ekExtra = null;
+        if (eid === 'enemy_syobon' || eid === 'enemy_turtle' || eid === 'enemy_king') {
+          var fj = (en.followJump != null) ? !!en.followJump
+            : (eid === 'enemy_king' && en.btype === 4 && (en.bxtype || 0) === 1);
+          if (fj) ekExtra = { follow: true };
+        }
+        add(eid, col, row, ekExtra, euid);
       }
     });
     // 5) 升降台（sra/srb 世界单位）
@@ -3763,8 +3792,8 @@
         if (e.pop) out.pop = String(e.pop);
         out.mass = !!e.mass;
       }
-      // 跳跃跟随（解耦属性，block 类元素通用；稀疏存储仅 true 落盘）
-      if (ed.cat === 'block' && e.follow) out.follow = true;
+      // 跳跃跟随（解耦属性：block 类通用 + 馒头怪系敌人；稀疏存储仅 true 落盘）
+      if ((ed.cat === 'block' || e.id === 'enemy_syobon' || e.id === 'enemy_turtle' || e.id === 'enemy_king') && e.follow) out.follow = true;
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;

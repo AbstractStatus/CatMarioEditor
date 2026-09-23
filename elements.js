@@ -176,15 +176,15 @@
 
     // ================= 敌人 =================
     { id: 'enemy_syobon', cat: 'enemy', name: '馒头怪', kind: 'sprite', img: 'enemy/enemy_syobon.png',
-      tw: 1, th: 1, mapId: 50, atype: 0, hint: 'atype=0：最常见的ショボン，左右走动，踩不死（会反杀）' },
+      tw: 1, th: 1, mapId: 50, atype: 0, hint: 'atype=0：最常见的ショボン，左右走动，踩不死（会反杀）。可在属性面板开启「跳跃跟随」：玩家在附近起跳时它同步起跳' },
     { id: 'enemy_turtle', cat: 'enemy', name: '龟壳馒头怪', kind: 'sprite', img: 'enemy/enemy_turtle.png',
-      tw: 1, th: 1, mapId: 51, atype: 1, hint: 'atype=1：30x43 的绿龟（地图上占 1 格，精灵向下溢出绘制）' },
+      tw: 1, th: 1, mapId: 51, atype: 1, hint: 'atype=1：30x43 的绿龟（地图上占 1 格，精灵向下溢出绘制）。可在属性面板开启「跳跃跟随」：玩家在附近起跳时它同步起跳' },
     { id: 'enemy_shell', cat: 'enemy', name: '龟壳', kind: 'sprite', img: 'enemy/enemy_shell.png',
       tw: 1, th: 1, mapId: 52, atype: 2, hint: 'atype=2：静止龟壳，踩后可滑动' },
     { id: 'enemy_ghost', cat: 'enemy', name: '白幽灵', kind: 'sprite', img: 'enemy/enemy_ghost.png',
       tw: 1, th: 2, mapId: 53, atype: 3, hint: 'atype=3：30x44 高个幽灵，背对时才动' },
     { id: 'enemy_king', cat: 'enemy', name: '尖刺馒头怪', kind: 'sprite', img: 'enemy/enemy_king.png',
-      tw: 1, th: 1, mapId: 54, atype: 4, hint: 'atype=4：33x35 戴皇冠的白猫' },
+      tw: 1, th: 1, mapId: 54, atype: 4, hint: 'atype=4：33x35 戴皇冠的白猫。可在属性面板开启「跳跃跟随」：玩家在附近起跳时它同步起跳（原版 2-1 首只尖刺馒头怪的行为，原硬编码为 axtype=1，现解耦为 follow 属性）' },
     { id: 'enemy_fireball', cat: 'enemy', name: '火球', kind: 'sprite', img: 'enemy/enemy_fireball.png',
       tw: 1, th: 1, atype: 84, hint: 'atype=84：橙色圆形火球' },
     { id: 'enemy_syobon_pad', cat: 'enemy', name: '火箭馒头怪', kind: 'sprite', img: 'enemy/enemy_syobon_pad.png',

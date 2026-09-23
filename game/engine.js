@@ -275,7 +275,10 @@
 
     // 敌人触发器
     def.enemies.forEach(function (e) {
-      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bdir: e.bdir || null, bz: 1, btm: 0, spawned: false, uid: e.uid || null };
+      // followJump（跳跃跟随，解耦属性）：显式优先；原版 atype=4/axtype=1（尖刺馒头怪跟随跳）
+      // 未携带属性时自动迁移，保持原版行为不变
+      var followJump = (e.followJump != null) ? !!e.followJump : (e.btype === 4 && (e.bxtype || 0) === 1);
+      var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bdir: e.bdir || null, bz: 1, btm: 0, spawned: false, uid: e.uid || null, followJump: followJump };
       if (e._custom) trig._custom = e._custom;
       state.triggers.push(trig);
     });
@@ -1065,6 +1068,7 @@
           if (spawnedE) {
             if (tr.uid) spawnedE.uid = tr.uid;   // 敌人实例继承触发器（=编辑器元素）uid
             if (tr._custom) spawnedE._custom = tr._custom;
+            if (tr.followJump != null) spawnedE.followJump = !!tr.followJump;  // 跳跃跟随（解耦属性）
           }
         }
       }
@@ -1144,7 +1148,18 @@
 
       // 敌人 AI（按 atype）
       switch (e.atype) {
-        case 0: case 1: xx[10] = 100; break;
+        case 0: case 1:
+          xx[10] = 100;
+          // 跳跃跟随（解耦属性 e.followJump）：玩家在附近起跳时敌人同步起跳。
+          // 普通馒头怪(atype=0)/龟壳馒头怪(atype=1) 原版无此行为，开启 followJump 后复用
+          // 尖刺馒头怪(case 4) 的判定与力度
+          if (e.atm >= 0) e.atm -= C._DT;
+          if (e.followJump && Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
+            if (p.mzimen === 0 && e.axzimen === 1) {
+              e.ad = -1600; e.atm = 40; e.ab -= 1000;
+            }
+          }
+          break;
         case 2:
           xx[10] = 0;
           if (e.axtype >= 1) {
@@ -1173,8 +1188,10 @@
         case 4:
           xx[10] = 120;
           if (e.atm >= 0) e.atm -= C._DT;
-          if (Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
-            if (e.axtype === 1 && p.mzimen === 0 && e.axzimen === 1) {
+          // 跳跃跟随（解耦属性 e.followJump）：玩家在附近起跳时敌人同步起跳。
+          // 原版硬编码为 axtype===1；显式 followJump 优先，旧数据 axtype===1 自动迁移
+          if (e.followJump && Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
+            if (p.mzimen === 0 && e.axzimen === 1) {
               e.ad = -1600; e.atm = 40; e.ab -= 1000;
             }
           }
