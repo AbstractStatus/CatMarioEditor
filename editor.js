@@ -200,6 +200,7 @@
         if (e.hintCustom) o.hintCustom = e.hintCustom;
         if (e.pop) o.pop = e.pop;
         if (e.mass) o.mass = true;
+        if (e.follow) o.follow = true;   // 跳跃跟随（解耦属性，block 类通用）
         if (e.ori) o.ori = e.ori;
         if (e.count != null) o.count = e.count;
         if (e.dir) o.dir = e.dir;
@@ -1892,6 +1893,18 @@
       fQMass.value = (selected.mass || d.mass) ? 'yes' : 'no';
       propBody.appendChild(propRow('是否量产', fQMass, '金币连出20枚、其余每约16帧弹一个；P开关无量产'));
     }
+    // 跳跃跟随（解耦属性）：任意 block 类元素可配置（原 ttype=100 逃跑砖专用行为）
+    var fFollow = null;
+    if (d.cat === 'block' && !d.internal) {
+      fFollow = document.createElement('select');
+      [['no', '否：普通方块（默认）'], ['yes', '是：逃跑方块']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fFollow.appendChild(o);
+      });
+      fFollow.value = (selected.follow || d.follow) ? 'yes' : 'no';
+      propBody.appendChild(propRow('跳跃跟随', fFollow, '玩家从下方靠近起跳时方块跟着上移躲开（原版 1-1 第一块问号砖的行为）'));
+    }
     // 提示块：消息类型选择 + 自定义文本
     var fHintType = null, fHintText = null;
     if (d.id === 'b2_hint') {
@@ -1990,6 +2003,11 @@
       if (fQPop) {
         selected.pop = fQPop.value;
         selected.mass = fQMass.value === 'yes';
+      }
+      // 跳跃跟随写回（稀疏存储：关闭即删除属性）
+      if (fFollow) {
+        if (fFollow.value === 'yes') selected.follow = true;
+        else delete selected.follow;
       }
       // 连接管保存：per-port lengths + rot
       if (fPortInputs) {
@@ -3191,7 +3209,9 @@
     // ttype=1 普通砖块（tyobi 实体，可顶碎）；1-3 的 22列3行那块是整蛊事件移动对象，
     // 由 worldToElements 特判为 block_brick_m，不走此映射
     if (type === 1) return { id: 'block_brick' };
-    if (type === 100) return { id: 'block_brick' };
+    // ttype=100 逃跑问号砖（1-1 b0 陷阱块）：外观=问号块、顶出金币、跳跃跟随；
+    // 跟随已解耦为 follow 属性（xt=2 为只顶金币不跟随的历史变体，无跟随）
+    if (type === 100) return { id: 'block_question', extra: { pop: 'coin', follow: (xt || 0) !== 2 } };
     // ttype=101 txtype：0=白猫怪 1=皇冠怪 3/10=火焰花 4=机器人（皇冠怪/机器人按敌人近似）
     if (type === 101) return (xt === 3 || xt === 10)
       ? { id: 'block_question', extra: { pop: 'flower' } }
@@ -3743,6 +3763,8 @@
         if (e.pop) out.pop = String(e.pop);
         out.mass = !!e.mass;
       }
+      // 跳跃跟随（解耦属性，block 类元素通用；稀疏存储仅 true 落盘）
+      if (ed.cat === 'block' && e.follow) out.follow = true;
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;

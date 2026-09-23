@@ -191,8 +191,14 @@
     }
 
     // 特殊方块
+    // followJump（跳跃跟随，解耦属性）：跟随逻辑见 collideBlocks，任何 ttype 均可配置；
+    // 显式 followJump 优先，原版 ttype=100/xt=0（1-1 b0 逃跑问号砖）未携带属性时自动迁移
     def.blocks.forEach(function (b) {
-      state.blocks.push({ ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0, uid: b.uid || null });
+      state.blocks.push({
+        ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
+        followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
+        uid: b.uid || null
+      });
     });
 
     // 管道
@@ -741,11 +747,12 @@
             }
           }
 
-          // 特殊方块交互 — ttype 100 每帧跟随行为（玩家从下方靠近时方块上移/下移）
+          // 特殊方块交互 — 跳跃跟随（解耦属性 b.followJump，任意方块可配置；loadStage 对
+          // 原版 ttype=100/xt=0（1-1 b0 逃跑问号砖）自动迁移，原版行为不变）
           // 原版行 2224-2227：mb 在 tb 附近且 md<=0 时，tb 跟随 mb 移动
           // 公式 tb[t] = mb - 1200 - xx[1]（fy 在原版恒为 0）
           // 条件：玩家在方块下方附近（mb 在 tb-600 到 tb+4600 之间）+ 水平对齐 + 上升/静止
-          if (b.ttype === 100 && b.txtype === 0 &&
+          if (b.followJump &&
               p.mb > xx[9] - 600 && p.mb < xx[9] + 4600 &&
               p.ma + p.mnobia > xx[8] - 400 && p.ma < xx[8] + xx[1] && 
               p.md < 600) {

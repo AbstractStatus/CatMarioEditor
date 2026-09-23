@@ -263,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog22"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd45"></script>
+<script src="engine.js?v=hd46"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -399,10 +399,12 @@ body.dragging #dropTip { display: flex; }
         var qSingle = { coin: [2, 0], mushroom: [102, 0], poison: [103, 0], enemy: [101, 0], flower: [101, 3], badstar: [104, 0], pswitch: [105, 0] };
         var qMass = { coin: [112, 0], mushroom: [110, 2], poison: [110, 0], enemy: [110, 1], flower: [110, 3], badstar: [110, 4] };
         var qv = qm ? (qMass[qp] || qSingle[qp] || qSingle.coin) : (qSingle[qp] || qSingle.coin);
-        if (qv[0] === 2) {
+        // follow（跳跃跟随，解耦属性）→ 引擎 blocks.followJump；
+        // 带跟随的金币单发块不能走字节网格（无法携带属性），改走 tyobi blocks（ttype=2 行为等价：顶出金币变已用块）
+        if (qv[0] === 2 && !e.follow) {
           if (put(r, c, 2, e.uid)) used++;
         } else {
-          blocks.push({ x: x, y: y, type: qv[0], xt: qv[1], uid: e.uid || null });
+          blocks.push({ x: x, y: y, type: qv[0], xt: qv[1], followJump: !!e.follow, uid: e.uid || null });
           used++;
         }
       } else if (id === 'block_hidden') {
@@ -413,15 +415,29 @@ body.dragging #dropTip { display: flex; }
         var hp = e.pop || 'coin', hm = !!e.mass;
         var hSingle = { coin: 7, poison: 0, mushroom: 4, enemy: 6, flower: 8, badstar: 11, pswitch: 10 };
         var hMass = { coin: 12, poison: 20, mushroom: 22, enemy: 26, flower: 28, badstar: 30 };
-        if (hp === 'coin' && !hm) {
+        // follow（跳跃跟随）时金币单发也不能走字节网格，改走 tyobi blocks（ttype=7 行为等价）
+        if (hp === 'coin' && !hm && !e.follow) {
           if (put(r, c, 7, e.uid)) used++;
         } else {
           var hxt = hm && hMass[hp] != null ? hMass[hp] : (hSingle[hp] != null ? hSingle[hp] : 0);
-          blocks.push({ x: x, y: y, type: 114, xt: hxt, uid: e.uid || null });
+          // 金币单发+跟随 → ttype=7（隐形、顶出金币）；其余 → ttype=114 + followJump
+          blocks.push({
+            x: x, y: y, type: (hp === 'coin' && !hm) ? 7 : 114,
+            xt: (hp === 'coin' && !hm) ? 0 : hxt,
+            followJump: !!e.follow, uid: e.uid || null
+          });
           used++;
         }
       } else if (TILE_VAL[id] !== undefined) {
-        if (put(r, c, TILE_VAL[id], e.uid)) used++;
+        var tvByte = TILE_VAL[id];
+        // follow（跳跃跟随）的实体方块（字节1-8/10）不能进字节网格（无法携带属性），
+        // 改走 tyobi blocks：ttype=字节值 + followJump，引擎渲染/碰撞与网格路径完全同构
+        if (e.follow && tvByte >= 1 && tvByte <= 10 && tvByte !== 9) {
+          blocks.push({ x: x, y: y, type: tvByte, xt: 0, followJump: true, uid: e.uid || null });
+          used++;
+        } else {
+          if (put(r, c, tvByte, e.uid)) used++;
+        }
       } else if (LIFT_SRSP[id] !== undefined) {
         var len = Math.max(1, Math.min(e.len | 0 || 3, 50));
         lifts.push({
@@ -457,7 +473,7 @@ body.dragging #dropTip { display: flex; }
         }
         // 隐藏块(114)：hv=0 紫毒蘑菇(默认) / 2 金币 / 10 P开关联动
         if (id === 'block_hidden_poison') xt = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
-        blocks.push({ x: x, y: y, type: sp.type, xt: xt, uid: e.uid || null });
+        blocks.push({ x: x, y: y, type: sp.type, xt: xt, followJump: !!e.follow, uid: e.uid || null });
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];
         if (id === 'firebar') {
