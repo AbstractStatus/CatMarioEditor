@@ -792,7 +792,7 @@
           }
           if (b.ttype === 110 && xx[17] === 1) { b.ttype = 111; b.thp = 999; }
           if (b.ttype === 111 && b.ta - state.fx >= 0) {
-            b.thp++;
+            b.thp += C._DT;
             if (b.thp >= 16) {
               b.thp = 0; A.playSE(8);
               // 量产对象由 txtype 选择（编辑器统一问号块）：
@@ -805,7 +805,7 @@
           }
           if (b.ttype === 112 && xx[17] === 1) { b.ttype = 113; b.thp = 999; b.titem = 0; }
           if (b.ttype === 113 && b.ta - state.fx >= 0) {
-            if (b.titem <= 19) b.thp++;
+            if (b.titem <= 19) b.thp += C._DT;
             if (b.thp >= 3) { b.thp = 0; b.titem++; A.playSE(C.SE.COIN); spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16); }
           }
           // 隐藏块（ttype=114，原版行 2323-2344）：平时隐形且不碰撞，仅从下方顶到时触发
