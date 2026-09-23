@@ -184,14 +184,26 @@
   function playSeWeb(id, buf) {
     var c = ensureCtx();
     if (!c) return;
+    // 重启语义（对齐原版 DxLib PlaySoundMem）：同 id 新播放前先停掉所有
+    // 在播源。金币量产（ttype=113）每3帧播1次 coin.mp3（时长1.332s），
+    // 若每次新建 BufferSource 会叠加 ~20 路同播 → 汇总硬削波=破音；
+    // 重启则始终单路在播，听感为"叮-叮-叮"断续，与原版一致
+    var list = activeSe[id];
+    if (list) {
+      for (var i = list.length - 1; i >= 0; i--) {
+        var old = list[i];
+        try { old.onended = null; old.stop(); old.disconnect(); } catch (e) {}
+      }
+      list.length = 0;
+    }
     var src = c.createBufferSource();
     src.buffer = buf;
     src.connect(seGain);
-    var list = activeSe[id] || (activeSe[id] = []);
+    if (!list) list = activeSe[id] = [];
     list.push(src);
     src.onended = function () {
-      var i = list.indexOf(src);
-      if (i >= 0) list.splice(i, 1);
+      var j = list.indexOf(src);
+      if (j >= 0) list.splice(j, 1);
     };
     if (c.state === 'suspended') { try { c.resume(); } catch (e) {} }
     src.start(0);
@@ -211,9 +223,17 @@
     var url = getSfxUrl(id);
     if (!url) return;
     var pool = getSePool(id);
+    // 重启语义（对齐 playSeWeb）：优先复用池中正在播放的元素（reset
+    // currentTime=0 重播），其次才取空闲元素；池满时复用最旧的一个而非
+    // 新建，避免金币量产时叠加多达 8 路 HTMLAudio 同播破音
     var el = null;
     for (var i = 0; i < pool.length; i++) {
-      if (pool[i].paused || pool[i].ended) { el = pool[i]; break; }
+      if (!pool[i].paused && !pool[i].ended) { el = pool[i]; break; }
+    }
+    if (!el) {
+      for (var j = 0; j < pool.length; j++) {
+        if (pool[j].paused || pool[j].ended) { el = pool[j]; break; }
+      }
     }
     if (!el) {
       if (pool.length >= POOL_SIZE) el = pool.shift();
