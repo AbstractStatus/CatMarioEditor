@@ -2106,13 +2106,13 @@
       var tzd0 = trapDims(selected, d);
       // 方向下拉
       fTzDir = document.createElement('select');
-      [['up', '上生成'], ['down', '下生成（天降）'],
-       ['left', '左生成'], ['right', '右生成']].forEach(function (op) {
+      [['up', '从下生成'], ['down', '从上生成（天降）'],
+       ['left', '从右生成'], ['right', '从左生成']].forEach(function (op) {
         var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
         if (tzd0.dir === op[0]) o.selected = true;
         fTzDir.appendChild(o);
       });
-      propBody.appendChild(propRow('生成方向', fTzDir, '玩家进入触发区时按此方向在边缘生成对象（向下=天降）'));
+      propBody.appendChild(propRow('生成方向', fTzDir, '玩家进入触发区时按此方向在边缘生成对象（向上冒出=从下生成，天降=从上生成）'));
       // 对象下拉：所有元素按分类分组
       fTzTarget = document.createElement('select');
       var tzCats = CAT.CATS;
