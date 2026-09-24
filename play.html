@@ -261,9 +261,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd3"></script>
 <script src="audio.js?v=custom8"></script>
 <script src="input.js?v=custom5"></script>
-<script src="elements.js?v=evlog22"></script>
+<script src="elements.js?v=evlog23"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd46"></script>
+<script src="engine.js?v=hd47"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -503,12 +503,44 @@ body.dragging #dropTip { display: flex; }
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
       } else if (id === '_trapzone') {
-        // 内部陷阱触发区（原版 stype 100-104，非实体 AABB）：原始世界坐标 1:1 还原
-        // 100猫脸怪 / 101幽灵天降 / 102按sxtype天降敌人 / 103激光炮 / 104光束
+        // 内部陷阱触发区双区域（stype=105 通用陷阱）：
+        // trap = { tw, th, dir, target, count }；sa/sb/sc/sd 由 col/row + tw/th 运行时派生
+        // 兼容旧数据：无 tw/th 时由 sc/sd 派生；无 dir/target 时由 stype/sxtype 派生
         var tz = e.trap || {};
+        var tzDir = tz.dir, tzTarget = tz.target;
+        // 兼容旧数据：若无 dir/target 但有 stype/sxtype，转换后输出
+        if (!tzDir || !tzTarget) {
+          var legacyMap = {
+            '100': { dir: 'down',  target: 'enemy_ghost' },
+            '101': { dir: 'up',    target: 'enemy_ghost' },
+            '103': { dir: 'right', target: 'enemy_laser' },
+            '104': { dir: 'right', target: 'enemy_laser' }
+          };
+          var lk = legacyMap[String(tz.stype | 0)];
+          if (lk) { tzDir = tzDir || lk.dir; tzTarget = tzTarget || lk.target; }
+          if (String(tz.stype | 0) === '102') {
+            var sx = tz.sxtype | 0;
+            if (sx === 0)      { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_syobon'; }
+            else if (sx === 1) { tzDir = tzDir || 'down'; tzTarget = tzTarget || 'enemy_king'; }
+            else if (sx === 2 || sx === 4) { tzDir = tzDir || 'up'; tzTarget = tzTarget || 'enemy_tongue_cat'; }
+            else if (sx === 9) { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_ghost'; }
+            else if (sx === 12){ tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_flame'; }
+            else               { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_syobon'; }
+          }
+          tzDir = tzDir || 'down';
+          tzTarget = tzTarget || 'enemy_ghost';
+        }
+        // 派生触发区世界坐标矩形（sa/sb/sc/sd）由 col/row + tw/th 计算
+        var tzTw = tz.tw != null ? tz.tw : (tz.sc != null ? Math.max(1, Math.round(tz.sc / 2900)) : 3);
+        var tzTh = tz.th != null ? tz.th : (tz.sd != null ? Math.max(1, Math.round(tz.sd / 2900)) : 4);
+        var tzSa = c * 2900;
+        var tzSb = (r * 29 - 12) * 100;
         pipes.push({
-          sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0,
-          stype: tz.stype | 0, sxtype: tz.sxtype | 0, uid: e.uid || null
+          sa: tzSa, sb: tzSb,
+          sc: tzTw * 2900, sd: tzTh * 2900,
+          stype: 105, dir: tzDir, target: tzTarget,
+          count: Math.max(1, Math.min(12, tz.count | 0 || 1)),
+          uid: e.uid || null
         });
         used++;
       } else if (id === 'trap_event' || id === 'block_qball') {

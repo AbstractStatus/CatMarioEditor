@@ -206,6 +206,8 @@
     def.pipes.forEach(function (p) {
       var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0, uid: p.uid || null };
       if (p.stype === 51) _fbCreated.push({ p: p, pipe: pipe });
+      // stype=105 通用陷阱：保留方向(dir) + 目标对象(target) + 生成个数(count)
+      if (p.stype === 105) { pipe.dir = p.dir || 'down'; pipe.target = p.target || 'enemy_ghost'; pipe.count = Math.max(1, Math.min(12, p.count | 0 || 1)); }
       // stype=60 传送管道口：保留传送目标 {end,id}
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}

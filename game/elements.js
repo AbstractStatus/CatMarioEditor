@@ -629,6 +629,62 @@
     }
   });
 
+  // ---- stype 105: 通用陷阱（双区域：触发区 AABB + 生成区方向/对象/个数）----
+  // dir=生成方向(up/down/left/right，down=天降)，target=元素 id，count=生成个数
+  // 触发区 AABB = sa/sb/sc/sd；生成位置基于触发区边缘 + 方向 + count：
+  //   up/down(竖向生成→横向排列): 第N个在 (sa + N*2900, 锚点y)，锚点 up=sb+sd底 / down=sb顶
+  //   left/right(横向生成→竖向排列): 第N个在 (锚点x, sb+sd - N*2900)，锚点 left=sa+sc右 / right=sa左
+  // 第1个出生锚点: up=左下 down=左上 left=右下 right=左下
+  // 元素 id → atype 映射；无映射的元素（方块/道具/背景/音乐）按馒头怪(atype=4)兜底动画
+  var TRAP_TARGET_ATYPE = {
+    enemy_syobon: 0, enemy_turtle: 1, enemy_shell: 2, enemy_ghost: 3,
+    enemy_king: 4, enemy_tongue_cat: 5, enemy_robot: 6, enemy_syobon_pad: 7,
+    enemy_runner: 8, enemy_flame: 9, enemy_flame_h: 10,
+    enemy_moralar: 30, enemy_chicken: 31,
+    enemy_laser: 79, enemy_cloud_face: 80, enemy_cloud_plain: 81,
+    enemy_spike_ball: 83, enemy_fireball: 84, fake_pole: 85,
+    enemy_peach_cat: 86, firebar: 87, enemy_beam: 90
+  };
+  PipeTypes[105] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
+    var dir = s.dir || 'down';
+    var target = s.target || 'enemy_ghost';
+    var count = Math.max(1, Math.min(12, s.count | 0 || 1));
+    // 元素 id → atype；无映射的元素按馒头怪(atype=4)兜底
+    var atype = TRAP_TARGET_ATYPE[target];
+    if (atype == null) atype = 4;   // 馒头怪兜底动画
+    var i, sx, sy, sac = 0, sad = 0, xxtype = 0;
+    for (i = 0; i < count; i++) {
+      sac = 0; sad = 0; xxtype = 0;
+      if (dir === 'up') {
+        // 向上生成：第N个在触发区底边左起第N格，向上运动
+        sx = s.sa + i * 2900 + 1000;
+        sy = s.sb + s.sd - 2000;
+        sad = -1500;
+        if (atype === 3) xxtype = 1;        // 白幽灵：axtype=1 向下飘
+      } else if (dir === 'down') {
+        // 向下生成（天降）：第N个在触发区顶边左起第N格，向下运动
+        sx = s.sa + i * 2900 + 1000;
+        sy = s.sb - 4000;
+        sad = 1500;
+        if (atype === 3) { sad = 0; xxtype = 1; }   // 白幽灵：自带下飘
+      } else if (dir === 'left') {
+        // 向左生成：第N个在触发区右边下起第N格，向左运动
+        sx = s.sa + s.sc - 4000;
+        sy = s.sb + s.sd - i * 2900 - 2000;
+        sac = -1500;
+      } else { // right
+        // 向右生成：第N个在触发区左边下起第N格，向右运动
+        sx = s.sa + 1000;
+        sy = s.sb + s.sd - i * 2900 - 2000;
+        sac = 1500;
+      }
+      spawnEnemy(sx, sy, sac, sad, 0, atype, xxtype);
+    }
+    // 专属音效仅白幽灵播放 SE10；火箭馒头怪(atype=7)的弹簧音由 spawnEnemy 内部自动播放
+    if (atype === 3) A.playSE(10);
+    s.sa = -800000000;
+  });
+
   // ==================== 连接管道（精确碰撞 + 统一边框）====================
   // 拆分策略：play.html convert 时每个 connector 生成 1+N 条碰撞 pipe + 1 条边框 pipe
   //   stype 74: 中心块 2×2 tile — 只 fillRect（碰撞）

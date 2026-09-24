@@ -94,10 +94,8 @@
     { id: 'block_pipe_body', cat: 'block', name: '管道砖(身)', kind: 'sprite', internal: true,
       img: 'vector/pipe_body.png', tw: 2, th: 1, mapId: 41, hint: '原版内部用：grid字节41/43/44 → 管身' },
     { id: '_trapzone', cat: 'struct', name: '陷阱触发区', kind: 'special', img: 'enemy/enemy_ghost.png',
-      tw: 1, th: 1, trapStype: 101, trapSxtype: 0, trapW: 7000, trapH: 70000,
-      hint: '原版 stype 100-104 非实体 AABB 触发区：玩家进入区域时触发。' +
-        '100=猫脸怪(生成白幽灵) / 101=天降白幽灵 / 102=按sxtype天降敌人 / 103=激光炮 / 104=光束。' +
-        '画布以虚线框显示，可调 stype/sxtype，试玩时 1:1 还原' },
+      tw: 1, th: 1, trapDir: 'down', trapTarget: 'enemy_ghost', trapTw: 3, trapTh: 4, trapCount: 1,
+      hint: '双区域模型（触发区+生成区捆绑）：触发区=可拖拽改大小的虚线框(格子单位)，玩家进入即触发；生成区=按方向在触发区边缘生成对象。方向=上/下/左/右(向下=天降)；对象=任意敌人/方块/道具/背景元素；个数=1-12(竖向生成→横向排列，横向生成→竖向排列)。画布以两色虚线框+方向箭头+对象图标显示，选中后触发区四角/四边可拖拽改大小' },
     { id: 'trap_event', cat: 'struct', name: '事件触发区', kind: 'special',
       tw: 3, th: 3, w: 3, h: 3, events: [],
       hint: '隐形AABB触发区（画布虚线框，玩家看不见）：玩家进入区域即按顺序执行事件动作（播音效/按偏移生成敌人/改其他元素属性/移动其他元素），每关触发一次。选中后在⚙属性里改宽(格)、高(格)、编辑事件动作列表（可一键填入1-3整蛊模板）' },
@@ -211,6 +209,9 @@
       tw: 2, th: 2, atype: 86, hint: 'atype=86：49x59 桃色方块猫（ニャッスン），靠近才变表情' },
     { id: 'enemy_beam', cat: 'enemy', name: '巨型馒头怪', kind: 'sprite', img: 'enemy/enemy_beam.png',
       tw: 2, th: 2, atype: 90, hint: 'atype=90：omake(102,0,64,63) 斜向黄色光束' },
+    { id: 'enemy_laser', cat: 'enemy', name: '激光', kind: 'vector',
+      tw: 4, th: 1, atype: 79,
+      hint: 'atype=79：横向扁矩形激光（120×15px），原版 stype103/104 陷阱触发后生成。静止不动，碰到即死' },
     { id: 'enemy_flame_h', cat: 'enemy', name: '横火焰', kind: 'sprite', img: 'enemy/enemy_flame_h.png',
       tw: 2, th: 1, atype: 10, hint: 'atype=10：omake(214,0,46,16) 横向喷火' },
     { id: 'fake_pole', cat: 'enemy', name: '假旗杆(陷阱)', kind: 'vector', img: 'vector/fake_pole.png',

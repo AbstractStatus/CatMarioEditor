@@ -247,6 +247,9 @@
   var dragOrigCol = 0, dragOrigRow = 0;   // 拖动开始时元素位置
   var dragStartCol = 0, dragStartRow = 0; // 拖动开始时鼠标所在格
   var dblSeedUid = null;      // 双击第一下按下时该格已有元素的 uid（区分“双击已有元素”与“空白处放置”）
+  var resizing = false;       // 是否在 resize 触发区手柄
+  var resizeEdge = null;      // 当前 resize 的边/角代号
+  var resizeOrigTw = 0, resizeOrigTh = 0;  // resize 开始时触发区格子尺寸
 
   // 命中测试：按图层从高到低，返回第一个覆盖 (col,row) 的元素
   function hitTest(col, row) {
@@ -352,11 +355,35 @@
     return { x: x, y: y, w: w, h: h };
   }
 
+  // 陷阱触发区双区域辅助：从 trap 字段读取触发区格子尺寸 + 生成区方向/对象/个数
+  // 兼容旧数据：无 tw/th 时由 sc/sd(世界单位) 派生；无 count 时默认 1
+  function trapDims(e, d) {
+    var tz = e.trap || {};
+    var tw = tz.tw, th = tz.th;
+    if (tw == null && tz.sc != null) tw = Math.max(1, Math.round(tz.sc / 2900));
+    if (th == null && tz.sd != null) th = Math.max(1, Math.round(tz.sd / 2900));
+    tw = Math.max(1, tw != null ? tw : (d.trapTw || 3));
+    th = Math.max(1, th != null ? th : (d.trapTh || 4));
+    var dir = tz.dir, target = tz.target;
+    if (!dir || !target) {
+      var legacy = legacyTrapToDirTarget(tz.stype, tz.sxtype);
+      dir = dir || legacy.dir;
+      target = target || legacy.target;
+    }
+    return {
+      tw: tw, th: th,
+      dir: dir || d.trapDir || 'down',
+      target: target || d.trapTarget || 'enemy_ghost',
+      count: Math.max(1, Math.min(12, tz.count != null ? tz.count : (d.trapCount || 1)))
+    };
+  }
+
   function footprintOf(e) {
     var d = CAT.byId(e.id);
     if (d.id === '_trapzone') {
-      // 陷阱触发区：仅显示起始区域（1×2 格标记），实际 AABB（trap.sc/sd）保留给试玩，不在画布展开
-      return { c0: e.col, c1: e.col, r0: e.row, r1: e.row + 1, tw: 1, th: 2 };
+      // 陷阱触发区：占地 = 触发区格子尺寸 tw×th（可拖拽改大小）
+      var tzd = trapDims(e, d);
+      return { c0: e.col, c1: e.col + tzd.tw - 1, r0: e.row, r1: e.row + tzd.th - 1, tw: tzd.tw, th: tzd.th };
     }
     if (d.id === 'trap_event') {
       // 事件触发区：宽(格)×高(格) 由实例 w/h 决定
@@ -475,7 +502,7 @@
       if (_pmDir0 === 'left' || _pmDir0 === 'right') { tw = _pmLen0 + 1; th = 2; }
       else { tw = 2; th = _pmLen0 + 1; }
     }
-    if (d.id === '_trapzone') { tw = 1; th = 2; }
+    if (d.id === '_trapzone') { tw = d.trapTw || 3; th = d.trapTh || 4; }
     if (d.id === 'trap_event') { tw = d.w || 3; th = d.h || 3; }
     col = Math.min(col, state.cols - tw);
     row = Math.min(row, ROWS - th);
@@ -528,12 +555,11 @@
     if (d.id === 'firebar') { ne.rot = -1; ne.dir = 'cw'; ne.mirror = false; }   // 新放置的火焰棒默认随机初相 + 顺时针 + 非镜像
     if (d.id === '_trapzone') {
       ne.trap = {
-        stype: d.trapStype || 101,
-        sxtype: d.trapSxtype || 0,
-        sa: col * 2900,
-        sb: (row * 29 - 12) * 100,
-        sc: d.trapW || 7000,
-        sd: d.trapH || 70000
+        tw: d.trapTw || 3,
+        th: d.trapTh || 4,
+        dir: d.trapDir || 'down',
+        target: d.trapTarget || 'enemy_ghost',
+        count: d.trapCount || 1
       };
     }
     if (d.id === 'trap_event' || d.id === 'block_qball') {
@@ -651,32 +677,183 @@
     ctx.globalAlpha = 1;
   }
 
+  // 兼容旧数据：原版 stype 100-104 → 新方向+对象模型映射
+  // 与 .trae/documents/trapzone_direction_model_plan.md 步骤 9 一致
+  function legacyTrapToDirTarget(st, sx) {
+    sx = sx || 0;
+    switch (st) {
+      case 100: return { dir: 'down',  target: 'enemy_ghost' };
+      case 101: return { dir: 'up',    target: 'enemy_ghost' };
+      case 102:
+        if (sx === 0)      return { dir: 'up',   target: 'enemy_syobon' };
+        else if (sx === 1) return { dir: 'down', target: 'enemy_king' };
+        else if (sx === 2 || sx === 4) return { dir: 'up', target: 'enemy_tongue_cat' };
+        else if (sx === 9) return { dir: 'up',   target: 'enemy_ghost' };
+        else if (sx === 12)return { dir: 'up',   target: 'enemy_flame' };
+        return { dir: 'up', target: 'enemy_syobon' };
+      case 103: return { dir: 'right', target: 'enemy_laser' };
+      case 104: return { dir: 'right', target: 'enemy_laser' };
+      default:  return { dir: 'up',    target: 'enemy_ghost' };
+    }
+  }
+
+  // 陷阱触发区预览：基于触发区矩形(ax/ay/aw/ah) + 方向 + count 绘制生成区
+  // 生成区矩形由触发区位置 + 方向 + count 派生（无独立尺寸）：
+  //   up/down(竖向生成→横向排列): 宽=count格 高=1格, 第N个沿x正向, 第1个在触发区底/顶边
+  //   left/right(横向生成→竖向排列): 宽=1格 高=count格, 第N个沿y负向, 第1个在触发区右/左边
+  // 第1个出生锚点: up=左下 down=左上 left=右下 right=左下
+  function drawTrapPreview(dir, target, count, ax, ay, aw, ah) {
+    var WPX = TILE / 29;
+    var tdef = CAT.byId(target);
+    count = Math.max(1, count || 1);
+    // 计算生成区矩形（虚线框）+ 各生成点位置
+    var gRect, i, gx, gy, sx0, sy0;
+    if (dir === 'up' || dir === 'down') {
+      var gW = count * TILE, gH = TILE;
+      gRect = (dir === 'up') ? { x: ax, y: ay + ah - gH, w: gW, h: gH }
+                             : { x: ax, y: ay, w: gW, h: gH };
+    } else {
+      var gW2 = TILE, gH2 = count * TILE;
+      gRect = (dir === 'left') ? { x: ax + aw - gW2, y: ay + ah - gH2, w: gW2, h: gH2 }
+                               : { x: ax, y: ay + ah - gH2, w: gW2, h: gH2 };
+    }
+    // 生成区虚线框（青色半透明）
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeRect(gRect.x + 1, gRect.y + 1, Math.max(2, gRect.w - 2), Math.max(2, gRect.h - 2));
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    for (i = 0; i < count; i++) {
+      if (dir === 'up')         { gx = ax + i * TILE + TILE / 2; gy = ay + ah - TILE / 2; sx0 = gx; sy0 = ay + ah; }
+      else if (dir === 'down')  { gx = ax + i * TILE + TILE / 2; gy = ay + TILE / 2;       sx0 = gx; sy0 = ay; }
+      else if (dir === 'left')  { gx = ax + aw - TILE / 2;       gy = ay + ah - i * TILE - TILE / 2; sx0 = ax + aw; sy0 = gy; }
+      else                      { gx = ax + TILE / 2;             gy = ay + ah - i * TILE - TILE / 2; sx0 = ax;       sy0 = gy; } // right
+
+      // 方向箭头（从触发区边缘指向生成位置）
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx0, sy0);
+      ctx.lineTo(gx, gy);
+      var ahAng = Math.atan2(gy - sy0, gx - sx0);
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(gx - 5 * Math.cos(ahAng - 0.4), gy - 5 * Math.sin(ahAng - 0.4));
+      ctx.moveTo(gx, gy);
+      ctx.lineTo(gx - 5 * Math.cos(ahAng + 0.4), gy - 5 * Math.sin(ahAng + 0.4));
+      ctx.stroke();
+
+      // 对象图标
+      if (tdef) {
+        if (target === 'enemy_laser') {
+          var lw = 120 * WPX, lh = 15 * WPX;
+          ctx.fillStyle = 'rgb(250, 250, 0)';
+          ctx.fillRect(gx - lw / 2, gy - lh / 2, lw, lh);
+          ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+          ctx.strokeRect(gx - lw / 2 + 0.5, gy - lh / 2 + 0.5, lw - 1, lh - 1);
+        } else if (tdef.kind === 'sprite' && tdef.img) {
+          var im = getImg(tdef);
+          if (im && im.complete && im.naturalWidth > 0) {
+            var cw = TILE * (tdef.tw || 1), ch = TILE * (tdef.th || 1);
+            drawImg(im, gx - cw / 2, gy - ch / 2, cw, ch);
+          }
+        } else {
+          var pw = TILE * 0.8, ph = TILE * 0.8;
+          ctx.fillStyle = 'rgba(150, 100, 200, 0.7)';
+          ctx.fillRect(gx - pw / 2, gy - ph / 2, pw, ph);
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+          ctx.strokeRect(gx - pw / 2 + 0.5, gy - ph / 2 + 0.5, pw - 1, ph - 1);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold ' + Math.max(9, TILE / 3) + 'px monospace';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText((tdef.name || '?').charAt(0), gx, gy);
+          ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        }
+      }
+    }
+  }
+
+  // resize 手柄绘制：选中 _trapzone 时在触发区四角/四边画 8 个小方块
+  function drawResizeHandles(ax, ay, aw, ah) {
+    var hs = 6;   // 手柄大小
+    var pts = [
+      { x: ax,         y: ay,         e: 'nw' },         // 左上角
+      { x: ax + aw,    y: ay,         e: 'ne' },         // 右上角
+      { x: ax,         y: ay + ah,    e: 'sw' },         // 左下角
+      { x: ax + aw,    y: ay + ah,    e: 'se' },         // 右下角
+      { x: ax + aw / 2, y: ay,        e: 'n' },          // 上边
+      { x: ax + aw / 2, y: ay + ah,   e: 's' },          // 下边
+      { x: ax,         y: ay + ah / 2, e: 'w' },         // 左边
+      { x: ax + aw,    y: ay + ah / 2, e: 'e' }          // 右边
+    ];
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#0b0e14';
+    ctx.lineWidth = 1;
+    for (var i = 0; i < pts.length; i++) {
+      ctx.fillRect(pts[i].x - hs / 2, pts[i].y - hs / 2, hs, hs);
+      ctx.strokeRect(pts[i].x - hs / 2 + 0.5, pts[i].y - hs / 2 + 0.5, hs - 1, hs - 1);
+    }
+  }
+
+  // resize 手柄命中检测：返回命中的边/角代号（'nw'/'n'/'sw'/'w'/'e'/'ne'/'s'/'se'），否则 null
+  function resizeHitTest(mx, my, ax, ay, aw, ah) {
+    var hs = 8;   // 命中半径（比绘制稍大）
+    var corners = [
+      { x: ax,         y: ay,         e: 'nw' },
+      { x: ax + aw,    y: ay,         e: 'ne' },
+      { x: ax,         y: ay + ah,    e: 'sw' },
+      { x: ax + aw,    y: ay + ah,    e: 'se' },
+      { x: ax + aw / 2, y: ay,        e: 'n' },
+      { x: ax + aw / 2, y: ay + ah,   e: 's' },
+      { x: ax,         y: ay + ah / 2, e: 'w' },
+      { x: ax + aw,    y: ay + ah / 2, e: 'e' }
+    ];
+    for (var i = 0; i < corners.length; i++) {
+      if (Math.abs(mx - corners[i].x) <= hs && Math.abs(my - corners[i].y) <= hs) return corners[i].e;
+    }
+    return null;
+  }
+
   function drawElement(e, alpha) {
     var d = CAT.byId(e.id);
     if (!d) return;
     if (d.id === '_trapzone') {
-      // 陷阱触发区：仅绘制起始标记（1×2 格），不展开完整 AABB（过程区域不显示）
-      var tz = e.trap || {};
-      var tx = e.col * TILE, ty = (e.row + EXTRA_TOP_ROWS) * TILE;
-      var tw = TILE, th = 2 * TILE;
+      // 陷阱触发区双区域：触发区(虚线框,可拖拽改大小) + 生成区(派生,对象图标×count)
+      var tzd = trapDims(e, d);
+      var tzA = alpha == null ? 1 : alpha;
+      var WPX = TILE / 29;
+      var ax = e.col * TILE;                            // 触发区左 = sa * TILE/2900 = col*TILE
+      var ay = (e.row + EXTRA_TOP_ROWS) * TILE - 12 * WPX;   // 触发区顶（减 12 世界像素偏移）
+      var aw = tzd.tw * TILE;                           // 触发区宽 = tw 格
+      var ah = tzd.th * TILE;                           // 触发区高 = th 格
+      var dirColors = { up: '#c084fc', down: '#ff5c5c', left: '#fbbf24', right: '#38bdf8' };
+      var col = dirColors[tzd.dir] || '#ff00ff';
       ctx.save();
-      ctx.globalAlpha = a * 0.9;
-      var st = tz.stype || d.trapStype || 101;
-      var colors = { 100: '#ff5c5c', 101: '#c084fc', 102: '#fbbf24', 103: '#38bdf8', 104: '#34d399' };
-      var col = colors[st] || '#ff00ff';
+      ctx.globalAlpha = tzA * 0.55;
+      // 触发区虚线框
       ctx.strokeStyle = col;
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 3]);
-      ctx.strokeRect(tx + 1, ty + 1, tw - 2, th - 2);
+      ctx.strokeRect(ax + 1, ay + 1, Math.max(2, aw - 2), Math.max(2, ah - 2));
       ctx.setLineDash([]);
-      // 标签
-      var names = { 100: '猫脸', 101: '幽灵', 102: '天降', 103: '激光', 104: '光束' };
-      var label = names[st] || st;
+      ctx.globalAlpha = tzA * 0.9;
+      // 生成区预览（方向箭头 + count 个对象图标 + 生成区虚线框）
+      drawTrapPreview(tzd.dir, tzd.target, tzd.count, ax, ay, aw, ah);
+      // 顶部标签条：「方向符号+对象名 ×count」
+      var dirSymbols = { up: '↑', down: '↓', left: '←', right: '→' };
+      var targetName = (CAT.byId(tzd.target) || {}).name || tzd.target;
+      var label = (dirSymbols[tzd.dir] || '?') + targetName + ' ×' + tzd.count;
       ctx.font = 'bold 11px monospace';
+      var lw = ctx.measureText(label).width + 8;
       ctx.fillStyle = col;
-      ctx.fillRect(tx, ty, tw, 15);
+      ctx.fillRect(ax, ay, Math.max(lw, aw), 15);
       ctx.fillStyle = '#0b0e14';
-      ctx.fillText(label, tx + 3, ty + 12);
+      ctx.fillText(label, ax + 4, ay + 12);
+      // resize 手柄（仅选中时显示）
+      if (selected === e) drawResizeHandles(ax, ay, aw, ah);
       ctx.restore();
       return;
     }
@@ -1808,20 +1985,60 @@
       });
       propBody.appendChild(propRow('开口方向', fPmDir, '决定管口朝向和管身延伸方向'));
     }
-    // 陷阱触发区：stype + sxtype
-    var fTzStype = null, fTzSxtype = null;
+    // 陷阱触发区：方向 + 对象 + AABB 宽高
+    var fTzDir = null, fTzTarget = null, fTzW = null, fTzH = null, fTzCount = null;
     if (d.id === '_trapzone') {
-      var tz0 = selected.trap || {};
-      fTzStype = document.createElement('select');
-      [['100', '100：猫脸怪（地面生成白幽灵）'], ['101', '101：天降白幽灵'],
-        ['102', '102：按 sxtype 天降敌人'], ['103', '103：激光炮'], ['104', '104：光束']].forEach(function (op) {
+      var tzd0 = trapDims(selected, d);
+      // 方向下拉
+      fTzDir = document.createElement('select');
+      [['up', '上生成'], ['down', '下生成（天降）'],
+       ['left', '左生成'], ['right', '右生成']].forEach(function (op) {
         var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
-        if (String(tz0.stype || d.trapStype || 101) === op[0]) o.selected = true;
-        fTzStype.appendChild(o);
+        if (tzd0.dir === op[0]) o.selected = true;
+        fTzDir.appendChild(o);
       });
-      propBody.appendChild(propRow('触发类型', fTzStype, '玩家进入 AABB 区域时触发'));
-      fTzSxtype = numInput(0, 999, tz0.sxtype != null ? tz0.sxtype : (d.trapSxtype || 0));
-      propBody.appendChild(propRow('子类型 sxtype', fTzSxtype, '102 用：0=4白猫/9=3幽灵天降/10=转101 等'));
+      propBody.appendChild(propRow('生成方向', fTzDir, '玩家进入触发区时按此方向在边缘生成对象（向下=天降）'));
+      // 对象下拉：所有元素按分类分组
+      fTzTarget = document.createElement('select');
+      var tzCats = CAT.CATS;
+      var tzCatOrder = ['enemy', 'block', 'item', 'struct', 'bg', 'audio'];
+      tzCatOrder.forEach(function (catKey) {
+        var og = document.createElement('optgroup');
+        og.label = tzCats[catKey] || catKey;
+        var hasAny = false;
+        CAT.ELEMENTS.forEach(function (ed) {
+          if (ed.cat !== catKey) return;
+          if (ed.internal) return;                  // 跳过内部辅助元素
+          if (ed.id === '_trapzone' || ed.id === 'player_start') return;
+          hasAny = true;
+          var o = document.createElement('option');
+          o.value = ed.id; o.textContent = ed.name || ed.id;
+          if (tzd0.target === ed.id) o.selected = true;
+          og.appendChild(o);
+        });
+        if (hasAny) fTzTarget.appendChild(og);
+      });
+      // 自定义元素也加入
+      var customList = CAT.listCustom();
+      if (customList.length) {
+        var ogc = document.createElement('optgroup'); ogc.label = '自定义';
+        customList.forEach(function (ed) {
+          var o = document.createElement('option');
+          o.value = ed.id; o.textContent = ed.name || ed.id;
+          if (tzd0.target === ed.id) o.selected = true;
+          ogc.appendChild(o);
+        });
+        fTzTarget.appendChild(ogc);
+      }
+      propBody.appendChild(propRow('生成对象', fTzTarget, '可选项为所有敌人/方块/道具/背景元素；无陷阱动画的元素按馒头怪兜底'));
+      // 触发区宽高（格子，也可拖拽手柄改）
+      fTzW = numInput(1, 50, tzd0.tw);
+      propBody.appendChild(propRow('触发区宽(格)', fTzW, '触发区虚线框宽度，也可在画布拖拽四角/四边手柄改大小'));
+      fTzH = numInput(1, 50, tzd0.th);
+      propBody.appendChild(propRow('触发区高(格)', fTzH, '触发区虚线框高度，也可在画布拖拽手柄改大小'));
+      // 生成个数
+      fTzCount = numInput(1, 12, tzd0.count);
+      propBody.appendChild(propRow('生成个数', fTzCount, '竖向生成方向(上/下)→横向排列；横向生成方向(左/右)→竖向排列'));
     }
     // 事件触发器：trap_event 宽高 + 两者共用 events 动作列表编辑器
     var fTeW = null, fTeH = null, evWork = null;
@@ -2067,13 +2284,24 @@
         }
       }
       if (fPmDir) selected.dir = fPmDir.value;
-      // 陷阱触发区保存：stype/sxtype + 同步 sa/sb 到新坐标
-      if (fTzStype) {
-        if (!selected.trap) selected.trap = { sa: selected.col * 2900, sb: (selected.row * 29 - 12) * 100, sc: d.trapW || 7000, sd: d.trapH || 70000 };
-        selected.trap.stype = Math.max(100, Math.min(104, parseInt(fTzStype.value, 10) || 101));
-        selected.trap.sxtype = Math.max(0, parseInt(fTzSxtype.value, 10) || 0);
-        selected.trap.sa = selected.col * 2900;
-        selected.trap.sb = (selected.row * 29 - 12) * 100;
+      // 陷阱触发区保存：tw/th/dir/target/count（sa/sb/sc/sd 运行时派生，不存储）
+      if (fTzDir) {
+        if (!selected.trap) selected.trap = { tw: d.trapTw || 3, th: d.trapTh || 4, dir: d.trapDir || 'down', target: d.trapTarget || 'enemy_ghost', count: d.trapCount || 1 };
+        selected.trap.tw = Math.max(1, Math.min(50, parseInt(fTzW.value, 10) || (d.trapTw || 3)));
+        selected.trap.th = Math.max(1, Math.min(50, parseInt(fTzH.value, 10) || (d.trapTh || 4)));
+        selected.trap.dir = fTzDir.value;
+        selected.trap.target = fTzTarget.value;
+        selected.trap.count = Math.max(1, Math.min(12, parseInt(fTzCount.value, 10) || 1));
+        // 清理旧字段（sa/sb/sc/sd/stype/sxtype 不再使用，由 tw/th+col/row 运行时派生）
+        delete selected.trap.sa;
+        delete selected.trap.sb;
+        delete selected.trap.sc;
+        delete selected.trap.sd;
+        delete selected.trap.stype;
+        delete selected.trap.sxtype;
+        // 触发区宽高变大后钳制位置避免越界
+        selected.col = Math.min(selected.col, state.cols - selected.trap.tw);
+        selected.row = Math.min(selected.row, ROWS - selected.trap.th);
       }
       // 事件触发器保存：trap_event 宽高（越界钳制）+ events 动作列表写回
       if (fTeW) {
@@ -2941,6 +3169,33 @@
       dblSeedUid = _seedHit ? _seedHit.uid : null;
     }
 
+    // resize 手柄命中检测：已选中 _trapzone 时，先检查是否点中触发区边缘手柄
+    if (ev.button === 0 && selected && selected.id === '_trapzone') {
+      var _rsd = CAT.byId(selected.id);
+      var _rtz = trapDims(selected, _rsd);
+      var _WPX = TILE / 29;
+      var _rax = selected.col * TILE;
+      var _ray = (selected.row + EXTRA_TOP_ROWS) * TILE - 12 * _WPX;
+      var _raw = _rtz.tw * TILE, _rah = _rtz.th * TILE;
+      var rect2 = canvas.getBoundingClientRect();
+      var _rmx = ev.clientX - rect2.left;
+      var _rmy = ev.clientY - rect2.top;
+      var _hit = resizeHitTest(_rmx, _rmy, _rax, _ray, _raw, _rah);
+      if (_hit) {
+        resizing = true;
+        resizeEdge = _hit;
+        resizeOrigTw = _rtz.tw;
+        resizeOrigTh = _rtz.th;
+        dragOrigCol = selected.col;
+        dragOrigRow = selected.row;
+        dragStartCol = cell.col;
+        dragStartRow = cell.row;
+        dragCommitted = false;
+        inStroke = true;
+        return;   // 不进入选中/拖动流程
+      }
+    }
+
     if (ev.button === 2) {
       // 右键：取消当前工具选择，不擦除元素
       cancelTool();
@@ -3000,6 +3255,35 @@
     }
     statusEl.textContent = statusTxt;
 
+    // resize 触发区手柄：按 edge 方向更新 trap.tw/th（含 col/row 调整）
+    if (resizing && selected && selected.id === '_trapzone' && selected.trap) {
+      var dc = cell.col - dragStartCol, dr = cell.row - dragStartRow;
+      var nTw = resizeOrigTw, nTh = resizeOrigTh, nCol = dragOrigCol, nRow = dragOrigRow;
+      if (resizeEdge.indexOf('e') >= 0) nTw = resizeOrigTw + dc;
+      if (resizeEdge.indexOf('w') >= 0) { nTw = resizeOrigTw - dc; nCol = dragOrigCol + dc; }
+      if (resizeEdge.indexOf('s') >= 0) nTh = resizeOrigTh + dr;
+      if (resizeEdge.indexOf('n') >= 0) { nTh = resizeOrigTh - dr; nRow = dragOrigRow + dr; }
+      // 钳制
+      nTw = Math.max(1, Math.min(50, nTw));
+      nTh = Math.max(1, Math.min(50, nTh));
+      // 如果 w/n 导致尺寸缩小到小于1，补偿 col/row 不让左上越过原始右下
+      if (nCol < 0) { nTw += nCol; nCol = 0; }
+      if (nRow < -EXTRA_TOP_ROWS) { nTh += (nRow + EXTRA_TOP_ROWS); nRow = -EXTRA_TOP_ROWS; }
+      if (nCol + nTw > state.cols) nTw = state.cols - nCol;
+      if (nRow + nTh > ROWS) nTh = ROWS - nRow;
+      if (nTw < 1) nTw = 1;
+      if (nTh < 1) nTh = 1;
+      if (nTw !== selected.trap.tw || nTh !== selected.trap.th || nCol !== selected.col || nRow !== selected.row) {
+        if (!dragCommitted) { pushHistory(); dragCommitted = true; }
+        selected.trap.tw = nTw;
+        selected.trap.th = nTh;
+        selected.col = nCol;
+        selected.row = nRow;
+      }
+      requestRender();
+      return;
+    }
+
     if (dragging && selected) {
       // 拖动选中元素：按鼠标位移更新位置，吸附网格并做边界钳制
       var d = CAT.byId(selected.id);
@@ -3021,7 +3305,10 @@
         tw = ggi.count;
         th = (ggi.variant === 0) ? 2 : ggi.rows;
       }
-      if (d.id === '_trapzone') { tw = 1; th = 2; }
+      if (d.id === '_trapzone') {
+        var _tzd = trapDims(selected, d);
+        tw = _tzd.tw; th = _tzd.th;
+      }
       if (d.id === 'trap_event') { tw = d.w || 3; th = d.h || 3; }
       var nc = dragOrigCol + (cell.col - dragStartCol);
       var nr = dragOrigRow + (cell.row - dragStartRow);
@@ -3033,11 +3320,7 @@
         if (!dragCommitted) { pushHistory(); dragCommitted = true; }
         selected.col = nc;
         selected.row = nr;
-        // 陷阱触发区：拖动时同步世界坐标 sa/sb
-        if (selected.id === '_trapzone' && selected.trap) {
-          selected.trap.sa = nc * 2900;
-          selected.trap.sb = (nr * 29 - 12) * 100;
-        }
+        // 陷阱触发区：拖动后 sa/sb 由 col/row 运行时派生，无需同步存储
       }
       requestRender();
       return;
@@ -3063,6 +3346,12 @@
     painting = false;
     paintedCells = null;
     inStroke = false;
+    if (resizing) {
+      resizing = false;
+      resizeEdge = null;
+      if (dragCommitted) persist();   // resize 改尺寸后才自动保存
+      dragCommitted = false;
+    }
     if (dragging) {
       dragging = false;
       if (dragCommitted) persist();   // 仅真正移位后才自动保存
@@ -3433,10 +3722,16 @@
         if (p.sxtype === 1) _fb1Uid = puid;   // 记忆最近 sxtype=1 砖组（供 sxtype=2 接线）
       } else if (p.stype >= 100 && p.stype <= 104) {
         // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
-        // 以 _trapzone 元素保留原始世界坐标，画布以虚线框可视化，可编辑 stype/sxtype、可拖动，
-        // 试玩 convert 时 1:1 还原；刷新恢复、编辑其他元素都不会使其丢失
+        // 转换为双区域模型（触发区 tw/th 由旧 sc/sd 派生 + 生成区 dir/target/count），
+        // 画布以触发区虚线框+生成区预览可视化，可拖拽改触发区大小、编辑方向/对象/个数
+        var tzLegacy = legacyTrapToDirTarget(p.stype, p.sxtype || 0);
         add('_trapzone', col, row, {
-          trap: { stype: p.stype, sxtype: p.sxtype || 0, sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd }
+          trap: {
+            dir: tzLegacy.dir, target: tzLegacy.target,
+            tw: Math.max(1, Math.round(p.sc / 2900)),
+            th: Math.max(1, Math.round(p.sd / 2900)),
+            count: 1
+          }
         }, puid);
       } else if (p.stype === 52) {
         // stype=52 地面样式坠落砖组：sxtype=0 横排地面(顶+填充)、1 砖块矩阵、2 地面矩阵
@@ -3825,13 +4120,16 @@
           out.lengths = (ed.lengths || [1, 1]).slice();
         }
       }
-      // 内部陷阱触发区：原样保留 stype/sxtype + 世界坐标矩形（sa/sb/sc/sd）
+      // 内部陷阱触发区双区域：tw/th/dir/target/count（sa/sb/sc/sd 由 convert 运行时派生）
       if (e.id === '_trapzone' && e.trap && typeof e.trap === 'object') {
         var tz = e.trap;
+        var tzdSer = trapDims(e, ed);
         out.trap = {
-          stype: Math.max(100, Math.min(104, tz.stype | 0)),
-          sxtype: tz.sxtype | 0,
-          sa: tz.sa | 0, sb: tz.sb | 0, sc: tz.sc | 0, sd: tz.sd | 0
+          tw: tzdSer.tw,
+          th: tzdSer.th,
+          dir: tzdSer.dir,
+          target: tzdSer.target,
+          count: tzdSer.count
         };
       }
       // 事件触发器：trap_event 宽高(格) + 两者共用 events 动作列表
