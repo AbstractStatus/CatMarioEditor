@@ -503,33 +503,38 @@ body.dragging #dropTip { display: flex; }
           enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
         }
       } else if (id === '_trapzone') {
-        // 内部陷阱触发区双区域（stype=105 通用陷阱）：
+        // 内部陷阱触发区双区域（stype=106 通用陷阱；105 为原版方块移位机关，不可编辑）：
         // trap = { tw, th, dir, target, count }；sa/sb/sc/sd 由 col/row + tw/th 运行时派生
         // 兼容旧数据：无 tw/th 时由 sc/sd 派生；无 dir/target 时由 stype/sxtype 派生
         var tz = e.trap || {};
-        var tzDir = tz.dir, tzTarget = tz.target;
-        // 兼容旧数据：若无 dir/target 但有 stype/sxtype，转换后输出
+        var tzDir = tz.dir, tzTarget = tz.target, tzLegacyCount = null;
+        // 兼容旧数据：若无 dir/target 但有 stype/sxtype，按旧引擎 ayobi 行为转换
+        // （dir=运动方向：up=向上冒出，down=天降；与 editor.js legacyTrapToDirTarget 同表）
         if (!tzDir || !tzTarget) {
-          var legacyMap = {
-            '100': { dir: 'down',  target: 'enemy_ghost' },
-            '101': { dir: 'up',    target: 'enemy_ghost' },
-            '103': { dir: 'right', target: 'enemy_laser' },
-            '104': { dir: 'right', target: 'enemy_laser' }
-          };
-          var lk = legacyMap[String(tz.stype | 0)];
-          if (lk) { tzDir = tzDir || lk.dir; tzTarget = tzTarget || lk.target; }
-          if (String(tz.stype | 0) === '102') {
-            var sx = tz.sxtype | 0;
-            if (sx === 0)      { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_syobon'; }
-            else if (sx === 1) { tzDir = tzDir || 'down'; tzTarget = tzTarget || 'enemy_king'; }
-            else if (sx === 2 || sx === 4) { tzDir = tzDir || 'up'; tzTarget = tzTarget || 'enemy_tongue_cat'; }
-            else if (sx === 9) { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_ghost'; }
-            else if (sx === 12){ tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_flame'; }
-            else               { tzDir = tzDir || 'up';   tzTarget = tzTarget || 'enemy_syobon'; }
+          var sxLeg = tz.sxtype | 0;
+          var legacy = null;
+          if (String(tz.stype | 0) === '100') legacy = { dir: 'up', target: 'enemy_ghost', count: 1 };
+          else if (String(tz.stype | 0) === '101') legacy = { dir: 'down', target: 'enemy_ghost', count: 1 };
+          else if (String(tz.stype | 0) === '103') legacy = { dir: (sxLeg === 1 ? 'left' : 'right'), target: 'enemy_laser', count: 1 };
+          else if (String(tz.stype | 0) === '104') legacy = { dir: 'right', target: 'enemy_laser', count: 5 };
+          else if (String(tz.stype | 0) === '102') {
+            if (sxLeg === 0) legacy = { dir: 'down', target: 'enemy_syobon', count: 4 };
+            else if (sxLeg === 1) legacy = { dir: 'up', target: 'enemy_king', count: 1 };
+            else if (sxLeg === 2 || sxLeg === 4 || sxLeg === 8) legacy = { dir: 'up', target: 'enemy_tongue_cat', count: 1 };
+            else if (sxLeg === 9) legacy = { dir: 'up', target: 'enemy_ghost', count: 3 };
+            else if (sxLeg === 10) legacy = { dir: 'down', target: 'enemy_ghost', count: 1 };
+            else if (sxLeg === 12) legacy = { dir: 'up', target: 'enemy_flame', count: 3 };
+            // 102/7 消息、102/20 锁镜头、102/30 通关：非生成类，旧自定义关忽略
+          }
+          if (legacy) {
+            tzDir = tzDir || legacy.dir;
+            tzTarget = tzTarget || legacy.target;
+            tzLegacyCount = legacy.count;
           }
           tzDir = tzDir || 'down';
           tzTarget = tzTarget || 'enemy_ghost';
         }
+        if (tzLegacyCount == null) tzLegacyCount = 1;
         // 派生触发区世界坐标矩形（sa/sb/sc/sd）由 col/row + tw/th 计算
         var tzTw = tz.tw != null ? tz.tw : (tz.sc != null ? Math.max(1, Math.round(tz.sc / 2900)) : 3);
         var tzTh = tz.th != null ? tz.th : (tz.sd != null ? Math.max(1, Math.round(tz.sd / 2900)) : 4);
@@ -537,7 +542,7 @@ body.dragging #dropTip { display: flex; }
         var tzSb = (r * 29 - 12) * 100;
         // 生成区世界坐标矩形（gsa/gsb/gsc/gsd）：有独立 gcol/grow/gtw/gth 时用之，
         // 缺失时按 触发区 + dir + count 派生（兼容旧存档）
-        var tzCount = Math.max(1, Math.min(12, tz.count | 0 || 1));
+        var tzCount = Math.max(1, Math.min(12, tz.count | 0 || tzLegacyCount || 1));
         var tzGcol = tz.gcol, tzGrow = tz.grow, tzGtw = tz.gtw, tzGth = tz.gth;
         if (tzGcol == null || tzGrow == null || tzGtw == null || tzGth == null) {
           if (tzDir === 'up') {
@@ -555,7 +560,7 @@ body.dragging #dropTip { display: flex; }
           sc: tzTw * 2900, sd: tzTh * 2900,
           gsa: tzGcol * 2900, gsb: (tzGrow * 29 - 12) * 100,
           gsc: tzGtw * 2900, gsd: tzGth * 2900,
-          stype: 105, dir: tzDir, target: tzTarget,
+          stype: 106, dir: tzDir, target: tzTarget,
           count: tzCount,
           uid: e.uid || null
         });

@@ -369,15 +369,19 @@
     if (th == null && tz.sd != null) th = Math.max(1, Math.round(tz.sd / 2900));
     tw = Math.max(1, tw != null ? tw : (d.trapTw || 3));
     th = Math.max(1, th != null ? th : (d.trapTh || 4));
-    var dir = tz.dir, target = tz.target;
+    var dir = tz.dir, target = tz.target, legacyCount = null;
     if (!dir || !target) {
       var legacy = legacyTrapToDirTarget(tz.stype, tz.sxtype);
-      dir = dir || legacy.dir;
-      target = target || legacy.target;
+      if (legacy) {
+        dir = dir || legacy.dir;
+        target = target || legacy.target;
+        legacyCount = legacy.count;
+      }
     }
     dir = dir || d.trapDir || 'down';
     target = target || d.trapTarget || 'enemy_ghost';
-    var count = Math.max(1, Math.min(12, tz.count != null ? tz.count : (d.trapCount || 1)));
+    var count = Math.max(1, Math.min(12, tz.count != null ? tz.count
+      : (legacyCount != null ? legacyCount : (d.trapCount || 1))));
     // 生成区独立位置/尺寸：缺失时按 触发区 col/row + tw/th + dir + count 派生
     var gcol = tz.gcol, grow = tz.grow, gtw = tz.gtw, gth = tz.gth;
     if (gcol == null || grow == null || gtw == null || gth == null) {
@@ -713,23 +717,79 @@
   }
 
   // 兼容旧数据：原版 stype 100-104 → 新方向+对象模型映射
-  // 与 .trae/documents/trapzone_direction_model_plan.md 步骤 9 一致
+  // dir=对象「运动方向」：up=地面/地下向上冒出，down=天降，left/right=横向射出
+  // 依据旧引擎 main.cpp:2579-2654 ayobi 生成坐标逐项核对：
+  //   100   白幽灵 (sa+1000,32000) axtype0 向上飘           → up
+  //   101   白幽灵 (sa+6000,-4000) axtype1 向下飘           → down（天降）
+  //   102/0 4×馒头怪 (sa+i*3000,-3000) 天上落下             → down ×4
+  //   102/1 馒头怪王 (sa+1500,44000) vy=-2000 地下冲起      → up
+  //   102/2,4 长舌猫 (sa+4500,30000) vy=-1600 向上          → up
+  //   102/8 长舌猫 (sa-8000,26000) vy=-1600 向上            → up
+  //   102/9 3×白幽灵 (sa+3000+i*3000,48000) vy=-6000        → up ×3
+  //   102/10 移位后变 stype101 天降白幽灵                   → down
+  //   102/12 3×火柱 (sa+2000+i*3000,40000) vy=-2600         → up ×3
+  //   103/0 激光 (sa+9000,sb+2000) 向右                      → right
+  //   103/1 激光 (sa-12000,sb+2000) 向左                     → left
+  //   104   5×激光束 (sa+12000,sb+5000) axtype0..4 扇形     → right ×5
+  // 102/7(仅消息)、102/20(锁镜头)、102/30(通关) 不是生成类陷阱，返回 null（编辑器不暴露）
   function legacyTrapToDirTarget(st, sx) {
     sx = sx || 0;
     switch (st) {
-      case 100: return { dir: 'down',  target: 'enemy_ghost' };
-      case 101: return { dir: 'up',    target: 'enemy_ghost' };
+      case 100: return { dir: 'up',   target: 'enemy_ghost',      count: 1 };
+      case 101: return { dir: 'down', target: 'enemy_ghost',      count: 1 };
       case 102:
-        if (sx === 0)      return { dir: 'up',   target: 'enemy_syobon' };
-        else if (sx === 1) return { dir: 'down', target: 'enemy_king' };
-        else if (sx === 2 || sx === 4) return { dir: 'up', target: 'enemy_tongue_cat' };
-        else if (sx === 9) return { dir: 'up',   target: 'enemy_ghost' };
-        else if (sx === 12)return { dir: 'up',   target: 'enemy_flame' };
-        return { dir: 'up', target: 'enemy_syobon' };
-      case 103: return { dir: 'right', target: 'enemy_laser' };
-      case 104: return { dir: 'right', target: 'enemy_laser' };
-      default:  return { dir: 'up',    target: 'enemy_ghost' };
+        if (sx === 0)          return { dir: 'down', target: 'enemy_syobon',    count: 4 };
+        if (sx === 1)          return { dir: 'up',   target: 'enemy_king',      count: 1 };
+        if (sx === 2 || sx === 4) return { dir: 'up', target: 'enemy_tongue_cat', count: 1 };
+        if (sx === 8)          return { dir: 'up',   target: 'enemy_tongue_cat', count: 1 };
+        if (sx === 9)          return { dir: 'up',   target: 'enemy_ghost',     count: 3 };
+        if (sx === 10)         return { dir: 'down', target: 'enemy_ghost',     count: 1 };
+        if (sx === 12)         return { dir: 'up',   target: 'enemy_flame',     count: 3 };
+        return null;
+      case 103:
+        if (sx === 1) return { dir: 'left', target: 'enemy_laser', count: 1 };
+        return { dir: 'right', target: 'enemy_laser', count: 1 };
+      case 104: return { dir: 'right', target: 'enemy_laser', count: 5 };
+      default:  return null;
     }
+  }
+
+  // 兼容旧数据：按旧引擎 ayobi 生成坐标推导生成区格子矩形（gcol/grow/gtw/gth）
+  // 编辑器与引擎均以「格中心」为锚点摆放敌人，激光(atype79=120×15)半宽=6000/半高=750，
+  // 其余敌人半宽/半高=1500。坐标换算与 worldToElements 敌人锚点一致
+  function legacyTrapGenRect(p) {
+    var st = p.stype, sx = p.sxtype || 0;
+    var hw = 1500, vh = 1500, gx, gy, n = 1, vertical = false;
+    if (st === 100) { gx = p.sa + 1000; gy = 32000; }
+    else if (st === 101) { gx = p.sa + 6000; gy = -4000; }
+    else if (st === 102) {
+      if (sx === 0)      { gx = p.sa;            gy = -3000; n = 4; }
+      else if (sx === 1) { gx = p.sa + 1500;     gy = 44000; }
+      else if (sx === 2 || sx === 4) { gx = p.sa + 4500; gy = 30000; }
+      else if (sx === 8) { gx = p.sa - 8000;     gy = 26000; }
+      else if (sx === 9) { gx = p.sa + 3000;     gy = 48000; n = 3; }
+      else if (sx === 10){ gx = p.sa - 9000;     gy = -4000; }   // sa-=15000 后变 101：(sa-15000)+6000
+      else if (sx === 12){ gx = p.sa + 2000;     gy = 40000; n = 3; }
+      else return null;
+    } else if (st === 103) {
+      hw = 6000; vh = 750;
+      gx = p.sa + (sx === 1 ? -12000 : 9000);
+      gy = p.sb + 2000;
+    } else if (st === 104) {
+      hw = 6000; vh = 750;
+      gx = p.sa + 12000; gy = p.sb + 5000; n = 5; vertical = true;   // axtype0..4 竖向扇形
+    } else return null;
+    var gcol, grow;
+    if (vertical) {
+      // 竖向 n 格扇形：中心在生成区几何中点
+      gcol = Math.round((gx + hw - 1450) / 2900);
+      grow = Math.round(((gy + vh - (n - 1) * 1450) / 100 + 12) / 29);
+      return { gcol: gcol, grow: grow, gtw: 1, gth: n };
+    }
+    // 横向排列 n 个：每个格中心依次为 gsa+1450, gsa+4350,...
+    gcol = Math.round((gx + hw - 1450) / 2900);
+    grow = Math.round(((gy + vh - 1450) / 100 + 12) / 29);
+    return { gcol: gcol, grow: grow, gtw: n, gth: 1 };
   }
 
   // 陷阱触发区生成区预览：ax/ay/aw/ah = 生成区矩形（独立于触发区）
@@ -3930,18 +3990,25 @@
         }, puid);
         if (p.sxtype === 1) _fb1Uid = puid;   // 记忆最近 sxtype=1 砖组（供 sxtype=2 接线）
       } else if (p.stype >= 100 && p.stype <= 104) {
-        // 非实体陷阱触发区（100猫脸怪/101幽灵/102天降敌人/103激光/104光束）：
+        // 非实体陷阱触发区（100地面幽灵/101天降幽灵/102按sxtype/103激光/104光束）：
         // 转换为双区域模型（触发区 tw/th 由旧 sc/sd 派生 + 生成区 dir/target/count），
+        // 生成区坐标按旧引擎 ayobi 实际生成点推导（legacyTrapGenRect），
         // 画布以触发区虚线框+生成区预览可视化，可拖拽改触发区大小、编辑方向/对象/个数
         var tzLegacy = legacyTrapToDirTarget(p.stype, p.sxtype || 0);
-        add('_trapzone', col, row, {
-          trap: {
-            dir: tzLegacy.dir, target: tzLegacy.target,
-            tw: Math.max(1, Math.round(p.sc / 2900)),
-            th: Math.max(1, Math.round(p.sd / 2900)),
-            count: 1
-          }
-        }, puid);
+        if (!tzLegacy) { skip++; }   // 102/7 消息、102/20 锁镜头、102/30 通关等非生成类不暴露
+        else {
+          var tzGen = legacyTrapGenRect(p) || {};
+          add('_trapzone', col, row, {
+            trap: {
+              dir: tzLegacy.dir, target: tzLegacy.target,
+              tw: Math.max(1, Math.round(p.sc / 2900)),
+              th: Math.max(1, Math.round(p.sd / 2900)),
+              count: tzLegacy.count,
+              gcol: tzGen.gcol, grow: tzGen.grow,
+              gtw: tzGen.gtw, gth: tzGen.gth
+            }
+          }, puid);
+        }
       } else if (p.stype === 52) {
         // stype=52 地面样式坠落砖组：sxtype=0 横排地面(顶+填充)、1 砖块矩阵、2 地面矩阵
         var gVar = (p.sxtype === 1 || p.sxtype === 2) ? p.sxtype : 0;

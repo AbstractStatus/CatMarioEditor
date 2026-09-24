@@ -157,6 +157,18 @@
     var grid = def.grid;
     // 编辑器实例 uid 的平行网格（play.html convert 生成；原版 STAGES 无此数据时为 null）
     var guids = def.gridUid || null;
+    // 方块顺序必须与旧引擎一致：stagep() 的自定义 tyobi 块先注册（tco=0 起），
+    // main.cpp:4075 网格扫描块追加在后（main.cpp:4070 stagep() 在网格循环之前调用）。
+    // 旧陷阱按硬编码索引引用方块（stype=105 移 blocks[1]/blocks[2]；stype=103/1 判 blocks[6]），
+    // 顺序反了会指错方块。故先放 def.blocks，网格块收集后追加。
+    def.blocks.forEach(function (b) {
+      state.blocks.push({
+        ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
+        followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
+        uid: b.uid || null
+      });
+    });
+    var _gridBlocks = [];
     for (var tt = 0; tt <= 1000; tt++) {
       for (var t = 0; t <= 16; t++) {
         var v = grid[t][tt];
@@ -165,7 +177,7 @@
         var wy = (t * 29 - 12) * 100;
         var uid0 = guids ? (guids[t][tt] || null) : null;
         if (v >= 1 && v <= 19 && v !== 9) {
-          state.blocks.push({ ta: wx, tb: wy, ttype: v, txtype: 0, thp: 0, titem: 0, uid: uid0 });
+          _gridBlocks.push({ ta: wx, tb: wy, ttype: v, txtype: 0, thp: 0, titem: 0, uid: uid0 });
         } else if (v >= 20 && v <= 29) {
           state.lifts.push({ sra: wx, srb: wy, src: 3000, srtype: 0, sracttype: 0, sre: 0, srf: 0, srsp: 0, sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0, uid: uid0 });
         } else if (v === 30) {
@@ -183,31 +195,22 @@
         } else if (v >= 80 && v <= 89) {
           state.bg.push({ na: wx, nb: wy, ntype: v - 80, uid: uid0 });
         } else if (v === 9) {
-          state.blocks.push({ ta: wx, tb: wy, ttype: 800, txtype: 0, thp: 0, titem: 0, uid: uid0 });
+          _gridBlocks.push({ ta: wx, tb: wy, ttype: 800, txtype: 0, thp: 0, titem: 0, uid: uid0 });
         } else if (v === 99) {
           state.pipes.push({ sa: wx, sb: wy, sc: 3000, sd: (12 - t) * 3000, stype: 300, sxtype: 0, sgtype: 0, sr: 0, uid: uid0 });
         }
       }
     }
-
-    // 特殊方块
-    // followJump（跳跃跟随，解耦属性）：跟随逻辑见 collideBlocks，任何 ttype 均可配置；
-    // 显式 followJump 优先，原版 ttype=100/xt=0（1-1 b0 逃跑问号砖）未携带属性时自动迁移
-    def.blocks.forEach(function (b) {
-      state.blocks.push({
-        ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
-        followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
-        uid: b.uid || null
-      });
-    });
+    // 网格块追加在自定义块之后（索引与旧引擎 tyobi 顺序一致）
+    _gridBlocks.forEach(function (b) { state.blocks.push(b); });
 
     // 管道
     var _fbCreated = [];   // stype=51 砖组创建记录（原版连锁自动接线用）
     def.pipes.forEach(function (p) {
       var pipe = { sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd, stype: p.stype, sxtype: p.sxtype || 0, sgtype: 0, sr: 0, uid: p.uid || null };
       if (p.stype === 51) _fbCreated.push({ p: p, pipe: pipe });
-      // stype=105 通用陷阱：保留方向(dir) + 目标对象(target) + 生成个数(count) + 生成区 AABB(gsa/gsb/gsc/gsd)
-      if (p.stype === 105) {
+      // stype=106 通用陷阱：保留方向(dir) + 目标对象(target) + 生成个数(count) + 生成区 AABB(gsa/gsb/gsc/gsd)
+      if (p.stype === 106) {
         pipe.dir = p.dir || 'down'; pipe.target = p.target || 'enemy_ghost';
         pipe.count = Math.max(1, Math.min(12, p.count | 0 || 1));
         if (p.gsa != null) pipe.gsa = p.gsa | 0;
@@ -1281,7 +1284,13 @@
           }
           break;
         case 79:
+          // 激光（main.cpp:3163-3170）：axtype=0 水平速度1600；
+          // 1/2 速度1200 且每帧上飘/下沉200；3/4 速度900 且每帧上飘/下沉600
           e.azimentype = 0; xx[10] = 1600;
+          if (e.axtype === 1) { xx[10] = 1200; e.ab -= 200 * C._DT; }
+          if (e.axtype === 2) { xx[10] = 1200; e.ab += 200 * C._DT; }
+          if (e.axtype === 3) { xx[10] = 900; e.ab -= 600 * C._DT; }
+          if (e.axtype === 4) { xx[10] = 900; e.ab += 600 * C._DT; }
           break;
         case 80: case 81: case 82: case 83:
           e.azimentype = 0; break;

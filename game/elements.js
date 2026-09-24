@@ -559,15 +559,17 @@
     };
   }
 
-  // stype 100: 生成猫脸怪
+  // stype 100: 地面生成白幽灵（axtype=0 向上飘，y=32000 地面）
   PipeTypes[100] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
-    if (s.sxtype === 0 || (s.sxtype === 1)) {
+    // 原版条件：sxtype=0，或 sxtype=1 且 blocks[1] 类型 != 3（main.cpp:2580）
+    var b1 = state.blocks && state.blocks[1];
+    if (s.sxtype === 0 || (s.sxtype === 1 && (!b1 || b1.ttype !== 3))) {
       spawnEnemy(s.sa + 1000, 32000, 0, 0, 0, 3, 0);
       s.sa = -800000000; A.playSE(10);
     }
   });
 
-  // stype 101: 火焰管道（从上方喷出幽灵）
+  // stype 101: 天降白幽灵（axtype=1 向下飘，y=-4000 屏外天空）
   PipeTypes[101] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
     spawnEnemy(s.sa + 6000, -4000, 0, 0, 0, 3, 1);
     s.sa = -800000000; A.playSE(10);
@@ -612,11 +614,21 @@
     }
   });
 
-  // stype 103: 陷阱消息（生成消息 NPC）
+  // stype 103: 激光陷阱（sxtype=0 右侧 sa+9000；sxtype=1 左侧 sa-12000）
   PipeTypes[103] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
     if (s.sxtype === 0) {
       spawnEnemy(s.sa + 9000, s.sb + 2000, 0, 0, 0, 79, 0);
       s.sa = -800000000;
+    } else if (s.sxtype === 1) {
+      // 原版闸门：blocks[6] 为隐藏块(type7)被顶出后类型 ≤6 才发射（1-3）；
+      // 同时把 blocks[9] 的 txtype 置 500（main.cpp:2639-2642）
+      var bg = state.blocks && state.blocks[6];
+      if (!bg || bg.ttype <= 6) {
+        spawnEnemy(s.sa - 12000, s.sb + 2000, 0, 0, 0, 79, 0);
+        s.sa = -800000000;
+        var bx = state.blocks && state.blocks[9];
+        if (bx) bx.txtype = 500;
+      }
     }
   });
 
@@ -629,12 +641,28 @@
     }
   });
 
-  // ---- stype 105: 通用陷阱（双区域：触发区 AABB + 生成区独立 AABB）----
-  // dir=生成方向(up/down/left/right，down=天降)，target=元素 id，count=生成个数
+  // ---- stype 105: 原版方块移位机关（1-4 / 2-2-1）----
+  // 玩家「腾空（未站立 mzimen==0 且上升 md>=0）」进入触发区时：
+  //   blocks[1] 左移 1000、blocks[2] 右移 1000（脚下两块向两侧滑开，玩家坠落），
+  //   每次触发 sxtype++，满 3 次失效（main.cpp:2656）
+  // 注意：编辑器的通用「方向+对象」陷阱使用 stype=106，勿再占用 105
+  PipeTypes[105] = makeTrapType(function (p, s, xx, state) {
+    if (p.mzimen === 0 && p.md >= 0) {
+      var b1 = state.blocks && state.blocks[1];
+      var b2 = state.blocks && state.blocks[2];
+      if (b1) b1.ta -= 1000;
+      if (b2) b2.ta += 1000;
+      s.sxtype = (s.sxtype || 0) + 1;
+      if (s.sxtype >= 3) s.sa = -8000000;
+    }
+  });
+
+  // ---- stype 106: 通用陷阱（双区域：触发区 AABB + 生成区独立 AABB）----
+  // dir=对象运动方向(up=向上冒出/down=天降/left/right 横向射出)，target=元素 id，count=生成个数
   // 触发区 AABB = sa/sb/sc/sd（玩家进入触发）；生成区 AABB = gsa/gsb/gsc/gsd（对象生成位置）
-  // count 个对象在生成区内按方向均分排列：
-  //   up/down: 沿生成区宽度均分，y 取底/顶边
-  //   left/right: 沿生成区高度均分，x 取右/左边
+  // count 个对象的中心点在生成区内按方向均分（与编辑器 drawTrapPreview 预览位置 1:1）：
+  //   up/down: 沿生成区宽度均分，中心 y 取底/顶边
+  //   left/right: 沿生成区高度均分，中心 x 取右/左边
   // 兼容旧数据：无 gsa/gsb/gsc/gsd 时按触发区 + dir + count 派生（旧引擎数据兜底）
   // 元素 id → atype 映射；无映射的元素（方块/道具/背景/音乐）按馒头怪(atype=4)兜底动画
   var TRAP_TARGET_ATYPE = {
@@ -646,45 +674,47 @@
     enemy_spike_ball: 83, enemy_fireball: 84, fake_pole: 85,
     enemy_peach_cat: 86, firebar: 87, enemy_beam: 90
   };
-  PipeTypes[105] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
+  PipeTypes[106] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
     var dir = s.dir || 'down';
     var target = s.target || 'enemy_ghost';
     var count = Math.max(1, Math.min(12, s.count | 0 || 1));
     // 元素 id → atype；无映射的元素按馒头怪(atype=4)兜底
     var atype = TRAP_TARGET_ATYPE[target];
     if (atype == null) atype = 4;   // 馒头怪兜底动画
+    // 敌人半宽/半高：与 spawnEnemy 的 ENEMY_SIZE 一致，保证生成中心 = 生成区格中心（所见即所得）
+    var sz = (getC() && getC().ENEMY_SIZE && getC().ENEMY_SIZE[atype]) || [3000, 3000];
+    var hw = sz[0] / 2, vh = sz[1] / 2;
     // 生成区 AABB：优先用独立 gsa/gsb/gsc/gsd；缺失时按触发区 + dir 派生（兼容旧数据）
     var gsa = s.gsa, gsb = s.gsb, gsc = s.gsc, gsd = s.gsd;
     if (gsa == null || gsb == null || gsc == null || gsd == null) {
       gsa = s.sa; gsb = s.sb; gsc = s.sc; gsd = s.sd;
     }
-    var i, sx, sy, sac = 0, sad = 0, xxtype = 0;
+    var i, cx, cy, sac = 0, sad = 0, xxtype = 0;
     for (i = 0; i < count; i++) {
       sac = 0; sad = 0; xxtype = 0;
       if (dir === 'up') {
-        // 向上生成：第N个在生成区底边均分，向上运动
-        sx = gsa + (i + 0.5) * (gsc / count);
-        sy = gsb + gsd - 2000;
+        // 向上冒出：中心在生成区底边均分，初始向上；白幽灵 axtype=0 自行上飘
+        cx = gsa + (i + 0.5) * (gsc / count);
+        cy = gsb + gsd - 1450;
         sad = -1500;
-        if (atype === 3) xxtype = 1;        // 白幽灵：axtype=1 向下飘
       } else if (dir === 'down') {
-        // 向下生成（天降）：第N个在生成区顶边均分，向下运动
-        sx = gsa + (i + 0.5) * (gsc / count);
-        sy = gsb - 4000;
+        // 天降：中心在生成区顶边均分，初始向下；白幽灵 axtype=1 自行下飘
+        cx = gsa + (i + 0.5) * (gsc / count);
+        cy = gsb + 1450;
         sad = 1500;
-        if (atype === 3) { sad = 0; xxtype = 1; }   // 白幽灵：自带下飘
+        if (atype === 3) { sad = 0; xxtype = 1; }
       } else if (dir === 'left') {
-        // 向左生成：第N个在生成区右边均分，向左运动
-        sx = gsa + gsc - 4000;
-        sy = gsb + (i + 0.5) * (gsd / count);
+        // 向左射出：中心在生成区右边均分
+        cx = gsa + gsc - 1450;
+        cy = gsb + (i + 0.5) * (gsd / count);
         sac = -1500;
       } else { // right
-        // 向右生成：第N个在生成区左边均分，向右运动
-        sx = gsa + 1000;
-        sy = gsb + (i + 0.5) * (gsd / count);
+        // 向右射出：中心在生成区左边均分
+        cx = gsa + 1450;
+        cy = gsb + (i + 0.5) * (gsd / count);
         sac = 1500;
       }
-      spawnEnemy(sx, sy, sac, sad, 0, atype, xxtype);
+      spawnEnemy(cx - hw, cy - vh, sac, sad, 0, atype, xxtype);
     }
     // 专属音效仅白幽灵播放 SE10；火箭馒头怪(atype=7)的弹簧音由 spawnEnemy 内部自动播放
     if (atype === 3) A.playSE(10);
