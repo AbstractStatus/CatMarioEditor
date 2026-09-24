@@ -629,12 +629,13 @@
     }
   });
 
-  // ---- stype 105: 通用陷阱（双区域：触发区 AABB + 生成区方向/对象/个数）----
+  // ---- stype 105: 通用陷阱（双区域：触发区 AABB + 生成区独立 AABB）----
   // dir=生成方向(up/down/left/right，down=天降)，target=元素 id，count=生成个数
-  // 触发区 AABB = sa/sb/sc/sd；生成位置基于触发区边缘 + 方向 + count：
-  //   up/down(竖向生成→横向排列): 第N个在 (sa + N*2900, 锚点y)，锚点 up=sb+sd底 / down=sb顶
-  //   left/right(横向生成→竖向排列): 第N个在 (锚点x, sb+sd - N*2900)，锚点 left=sa+sc右 / right=sa左
-  // 第1个出生锚点: up=左下 down=左上 left=右下 right=左下
+  // 触发区 AABB = sa/sb/sc/sd（玩家进入触发）；生成区 AABB = gsa/gsb/gsc/gsd（对象生成位置）
+  // count 个对象在生成区内按方向均分排列：
+  //   up/down: 沿生成区宽度均分，y 取底/顶边
+  //   left/right: 沿生成区高度均分，x 取右/左边
+  // 兼容旧数据：无 gsa/gsb/gsc/gsd 时按触发区 + dir + count 派生（旧引擎数据兜底）
   // 元素 id → atype 映射；无映射的元素（方块/道具/背景/音乐）按馒头怪(atype=4)兜底动画
   var TRAP_TARGET_ATYPE = {
     enemy_syobon: 0, enemy_turtle: 1, enemy_shell: 2, enemy_ghost: 3,
@@ -652,30 +653,35 @@
     // 元素 id → atype；无映射的元素按馒头怪(atype=4)兜底
     var atype = TRAP_TARGET_ATYPE[target];
     if (atype == null) atype = 4;   // 馒头怪兜底动画
+    // 生成区 AABB：优先用独立 gsa/gsb/gsc/gsd；缺失时按触发区 + dir 派生（兼容旧数据）
+    var gsa = s.gsa, gsb = s.gsb, gsc = s.gsc, gsd = s.gsd;
+    if (gsa == null || gsb == null || gsc == null || gsd == null) {
+      gsa = s.sa; gsb = s.sb; gsc = s.sc; gsd = s.sd;
+    }
     var i, sx, sy, sac = 0, sad = 0, xxtype = 0;
     for (i = 0; i < count; i++) {
       sac = 0; sad = 0; xxtype = 0;
       if (dir === 'up') {
-        // 向上生成：第N个在触发区底边左起第N格，向上运动
-        sx = s.sa + i * 2900 + 1000;
-        sy = s.sb + s.sd - 2000;
+        // 向上生成：第N个在生成区底边均分，向上运动
+        sx = gsa + (i + 0.5) * (gsc / count);
+        sy = gsb + gsd - 2000;
         sad = -1500;
         if (atype === 3) xxtype = 1;        // 白幽灵：axtype=1 向下飘
       } else if (dir === 'down') {
-        // 向下生成（天降）：第N个在触发区顶边左起第N格，向下运动
-        sx = s.sa + i * 2900 + 1000;
-        sy = s.sb - 4000;
+        // 向下生成（天降）：第N个在生成区顶边均分，向下运动
+        sx = gsa + (i + 0.5) * (gsc / count);
+        sy = gsb - 4000;
         sad = 1500;
         if (atype === 3) { sad = 0; xxtype = 1; }   // 白幽灵：自带下飘
       } else if (dir === 'left') {
-        // 向左生成：第N个在触发区右边下起第N格，向左运动
-        sx = s.sa + s.sc - 4000;
-        sy = s.sb + s.sd - i * 2900 - 2000;
+        // 向左生成：第N个在生成区右边均分，向左运动
+        sx = gsa + gsc - 4000;
+        sy = gsb + (i + 0.5) * (gsd / count);
         sac = -1500;
       } else { // right
-        // 向右生成：第N个在触发区左边下起第N格，向右运动
-        sx = s.sa + 1000;
-        sy = s.sb + s.sd - i * 2900 - 2000;
+        // 向右生成：第N个在生成区左边均分，向右运动
+        sx = gsa + 1000;
+        sy = gsb + (i + 0.5) * (gsd / count);
         sac = 1500;
       }
       spawnEnemy(sx, sy, sac, sad, 0, atype, xxtype);

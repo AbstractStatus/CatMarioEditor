@@ -535,11 +535,28 @@ body.dragging #dropTip { display: flex; }
         var tzTh = tz.th != null ? tz.th : (tz.sd != null ? Math.max(1, Math.round(tz.sd / 2900)) : 4);
         var tzSa = c * 2900;
         var tzSb = (r * 29 - 12) * 100;
+        // 生成区世界坐标矩形（gsa/gsb/gsc/gsd）：有独立 gcol/grow/gtw/gth 时用之，
+        // 缺失时按 触发区 + dir + count 派生（兼容旧存档）
+        var tzCount = Math.max(1, Math.min(12, tz.count | 0 || 1));
+        var tzGcol = tz.gcol, tzGrow = tz.grow, tzGtw = tz.gtw, tzGth = tz.gth;
+        if (tzGcol == null || tzGrow == null || tzGtw == null || tzGth == null) {
+          if (tzDir === 'up') {
+            tzGcol = c;             tzGrow = r + tzTh - 1;    tzGtw = tzCount; tzGth = 1;
+          } else if (tzDir === 'down') {
+            tzGcol = c;             tzGrow = r;               tzGtw = tzCount; tzGth = 1;
+          } else if (tzDir === 'left') {
+            tzGcol = c + tzTw - 1;  tzGrow = r + tzTh - tzCount; tzGtw = 1;   tzGth = tzCount;
+          } else { // right
+            tzGcol = c;             tzGrow = r + tzTh - tzCount; tzGtw = 1;   tzGth = tzCount;
+          }
+        }
         pipes.push({
           sa: tzSa, sb: tzSb,
           sc: tzTw * 2900, sd: tzTh * 2900,
+          gsa: tzGcol * 2900, gsb: (tzGrow * 29 - 12) * 100,
+          gsc: tzGtw * 2900, gsd: tzGth * 2900,
           stype: 105, dir: tzDir, target: tzTarget,
-          count: Math.max(1, Math.min(12, tz.count | 0 || 1)),
+          count: tzCount,
           uid: e.uid || null
         });
         used++;
