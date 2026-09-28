@@ -732,7 +732,7 @@
   //   102/12 3×火柱 (sa+2000+i*3000,40000) vy=-2600         → up ×3
   //   103/0 激光 (sa+9000,sb+2000) 向右                      → right
   //   103/1 激光 (sa-12000,sb+2000) 向左                     → left
-  //   104   5×激光束 (sa+12000,sb+5000) axtype0..4 扇形     → right ×5
+  //   104   五重激光 (sa+12000,sb+5000) 合并为单一对象      → right ×1 (enemy_laser5)
   // 102/7(仅消息)、102/20(锁镜头)、102/30(通关) 不是生成类陷阱，返回 null（编辑器不暴露）
   function legacyTrapToDirTarget(st, sx) {
     sx = sx || 0;
@@ -751,7 +751,7 @@
       case 103:
         if (sx === 1) return { dir: 'left', target: 'enemy_laser', count: 1 };
         return { dir: 'right', target: 'enemy_laser', count: 1 };
-      case 104: return { dir: 'right', target: 'enemy_laser', count: 5 };
+      case 104: return { dir: 'right', target: 'enemy_laser5', count: 1 };
       default:  return null;
     }
   }
@@ -779,7 +779,7 @@
       gy = p.sb + 2000;
     } else if (st === 104) {
       hw = 6000; vh = 750;
-      gx = p.sa + 12000; gy = p.sb + 5000; n = 5; vertical = true;   // axtype0..4 竖向扇形
+      gx = p.sa + 12000; gy = p.sb + 5000; n = 1;   // 五重激光合并为单一对象
     } else return null;
     var gcol, grow;
     if (vertical) {
@@ -839,7 +839,7 @@
 
       // 对象图标
       if (tdef) {
-        if (target === 'enemy_laser') {
+        if (target === 'enemy_laser' || target === 'enemy_laser5') {
           var lw = 120 * WPX, lh = 15 * WPX;
           ctx.fillStyle = 'rgb(250, 250, 0)';
           ctx.fillRect(gx - lw / 2, gy - lh / 2, lw, lh);

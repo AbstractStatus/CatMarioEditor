@@ -1383,6 +1383,12 @@
           if (e.atm < 0) e.atm += 720;
           break;
         case 90: xx[10] = 160; break;
+        case 91:
+          // 五重激光：主对象以中间激光速度(1600)右移，atm 记录经过时间
+          // 5 道子激光位置由 drawEnemy/collision 按 atm 相对主对象计算：
+          //   sub i 的 x = e.aa + amukiSign*(speed[i]-1600)*atm, y = e.ab + vspeed[i]*atm
+          // 旧引擎 main.cpp:3163-3170 速度表：0→1600, 1→1200↑200, 2→1200↓200, 3→900↑600, 4→900↓600
+          e.azimentype = 0; xx[10] = 1600; e.atm += C._DT; break;
         case 100:
           e.azimentype = 1; xx[10] = 100;
           // 巨大化：红蘑菇(axtype=2)碰到馒头怪系(atype=0/1/4/7)→变巨型馒头怪(atype=90)
@@ -1470,6 +1476,23 @@
         }
       }
 
+      // 五重激光碰撞：5 道子激光逐条检测（与 atype=79 单激光使用同一碰撞窗口）
+      if (e.atype === 91 && p.mmutekitm <= 0 && p.mtype !== C.MTYPE.DEAD) {
+        var amukiSign91 = e.amuki === 0 ? -1 : 1;
+        var sp91 = [1600, 1200, 1200, 900, 900];
+        var vs91 = [0, -200, 200, -600, 600];
+        for (var li = 0; li < 5; li++) {
+          var lx91 = e.aa + amukiSign91 * (sp91[li] - 1600) * e.atm;
+          var ly91 = e.ab + vs91[li] * e.atm;
+          if (p.ma + p.mnobia > lx91 + 500 && p.ma < lx91 + e.anobia - 500 &&
+              p.mb < ly91 + e.anobib - 500 && p.mb + p.mnobib > ly91 + e.anobib - 250) {
+            markHurt('laser5', e.uid);
+            p.mhp -= 1;
+            break;
+          }
+        }
+      }
+
       if (p.ma + p.mnobia > xx[8] + xx[0] * 2 && p.ma < xx[8] + e.anobia - xx[0] * 2 &&
           p.mb + p.mnobib > xx[9] - xx[5] && p.mb + p.mnobib < xx[9] + xx[1] + xx[12] &&
           p.mmutekitm <= 0 && e.abrocktm <= 0) {
@@ -1516,7 +1539,7 @@
       if (p.ma + p.mnobia > xx[8] + 500 && p.ma < xx[8] + e.anobia - 500 &&
           p.mb < xx[9] + e.anobib + xx[15] && p.mb + p.mnobib > xx[9] + e.anobib - xx[0] + xx[16] &&
           e.anotm <= 0 && e.abrocktm <= 0) {
-        if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200)) {
+        if (p.mmutekitm <= 0 && (e.atype <= 99 || e.atype >= 200) && e.atype !== 91) {
           if (p.mmutekion !== 1 && p.mtype !== C.MTYPE.DEAD) {
             if ((e.atype !== 2 || e.axtype !== 0) && p.mhp >= 1) {
               // 方块机器人(atype=6)接触不造成伤害：改为抓住玩家并抛投（原版 main.cpp:3586-3597）
@@ -1721,7 +1744,7 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 91 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
@@ -1760,6 +1783,23 @@
       ctx.fillRect(dx79, dy79, w79, h79);
       ctx.strokeStyle = '#000';
       ctx.strokeRect(dx79, dy79, w79, h79);
+    } else if (e.atype === 91) {
+      // 五重激光：5 道子激光合并为单一对象。主对象以中间激光速度(1600)移动，
+      // 其余 4 道按 atm 计算偏移（旧引擎 main.cpp:3163-3170 速度表）
+      var amukiSign91r = e.amuki === 0 ? -1 : 1;
+      var sp91r = [1600, 1200, 1200, 900, 900];
+      var vs91r = [0, -200, 200, -600, 600];
+      var w91 = Math.floor(e.anobia / 100), h91 = Math.floor(e.anobib / 100);
+      for (var li = 0; li < 5; li++) {
+        var dxoff = amukiSign91r * (sp91r[li] - 1600) * e.atm;
+        var dyoff = vs91r[li] * e.atm;
+        var dx91 = Math.floor((xx[0] + dxoff) / 100);
+        var dy91 = Math.floor((xx[1] + dyoff) / 100);
+        ctx.fillStyle = 'rgb(250, 250, 0)';
+        ctx.fillRect(dx91, dy91, w91, h91);
+        ctx.strokeStyle = '#000';
+        ctx.strokeRect(dx91, dy91, w91, h91);
+      }
     } else if (e.atype === 6) {
       if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
         S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));

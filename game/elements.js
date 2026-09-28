@@ -632,11 +632,11 @@
     }
   });
 
-  // stype 104: 光束陷阱（生成多个消息 NPC）
+  // stype 104: 五重激光陷阱（原版 5 道激光合并为单一 atype=91 对象）
+  // 旧引擎 ayobi 生成 5 个 atype=79(axtype0..4)；现合并为 1 个 atype=91，由引擎内部计算 5 道子激光
   PipeTypes[104] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
     if (s.sxtype === 0) {
-      for (var i = 0; i <= 4; i++)
-        spawnEnemy(s.sa + 12000, s.sb + 5000, 0, 0, 0, 79, i);
+      spawnEnemy(s.sa + 12000, s.sb + 5000, 0, 0, 0, 91, 0);
       s.sa = -800000000;
     }
   });
@@ -670,7 +670,7 @@
     enemy_king: 4, enemy_tongue_cat: 5, enemy_robot: 6, enemy_syobon_pad: 7,
     enemy_runner: 8, enemy_flame: 9, enemy_flame_h: 10,
     enemy_moralar: 30, enemy_chicken: 31,
-    enemy_laser: 79, enemy_cloud_face: 80, enemy_cloud_plain: 81,
+    enemy_laser: 79, enemy_laser5: 91, enemy_cloud_face: 80, enemy_cloud_plain: 81,
     enemy_spike_ball: 83, enemy_fireball: 84, fake_pole: 85,
     enemy_peach_cat: 86, firebar: 87, enemy_beam: 90
   };

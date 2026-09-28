@@ -526,7 +526,7 @@ body.dragging #dropTip { display: flex; }
           if (String(tz.stype | 0) === '100') legacy = { dir: 'up', target: 'enemy_ghost', count: 1 };
           else if (String(tz.stype | 0) === '101') legacy = { dir: 'down', target: 'enemy_ghost', count: 1 };
           else if (String(tz.stype | 0) === '103') legacy = { dir: (sxLeg === 1 ? 'left' : 'right'), target: 'enemy_laser', count: 1 };
-          else if (String(tz.stype | 0) === '104') legacy = { dir: 'right', target: 'enemy_laser', count: 5 };
+          else if (String(tz.stype | 0) === '104') legacy = { dir: 'right', target: 'enemy_laser5', count: 1 };
           else if (String(tz.stype | 0) === '102') {
             if (sxLeg === 0) legacy = { dir: 'down', target: 'enemy_syobon', count: 4 };
             else if (sxLeg === 1) legacy = { dir: 'up', target: 'enemy_king', count: 1 };
