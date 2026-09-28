@@ -846,6 +846,26 @@
 
   // ==================== 注册接口 ====================
 
+  // 陷阱管道（stype=50 sxtype=0）抖动动画默认参数（原版 main.cpp 写死值）。
+  // 管道实例可通过 trapAnim 属性覆盖任意字段（编辑器属性面板 → play.html convert 透传）。
+  //   nudge:  玩家离屏后管道左移一格的时刻与位移 {tm, dx}
+  //   shakes: 三段抖动 [{from, to, amp}]（amp 为偶数帧向右/奇数帧向左的位移）
+  //   rise:   上升段 {tm 起始帧, accel 每帧加速度, max 速度上限}
+  //   end:    结束帧（玩家弹出）
+  var TRAP_PIPE_ANIM_DEFAULT = {
+    nudge: { tm: 23, dx: -100 },
+    shakes: [
+      { from: 44, to: 60, amp: 200 },
+      { from: 61, to: 77, amp: 400 },
+      { from: 78, to: 94, amp: 600 }
+    ],
+    rise: { tm: 110, accel: 80, max: 1600 },
+    end: 160
+  };
+  PipeTypes.trapPipeAnimDefault = function () {
+    return JSON.parse(JSON.stringify(TRAP_PIPE_ANIM_DEFAULT));
+  };
+
   // 注册新的管道类型（供编辑器使用）
   PipeTypes.register = function (id, config) {
     PipeTypes[id] = config;
@@ -876,4 +896,111 @@
   };
 
   global.PipeTypes = PipeTypes;
+
+  // ===================================================================
+  // 方块行为注册表 (BlockTypes)
+  // 原版 main.cpp 中按 ttype 硬编码的方块交互参数，解耦为可配置默认值；
+  // 方块实例可通过 bhv 属性覆盖任意字段（编辑器属性面板 → play.html convert 透传）。
+  // 引擎碰撞逻辑只读取 resolve() 合并结果，不再写死数值。
+  // ===================================================================
+  var BlockTypes = {};
+
+  // 碎裂粒子默认参数（ttype=1 顶碎砖 / ttype=115 站碎台共用结构）
+  //   parts: 粒子数（2=左右两片，4=四散）
+  //   vx/vy: 粒子初速（±vx, vy）
+  //   grav:  粒子重力
+  //   w/h:   粒子尺寸（碰撞盒宽/高）
+  //   life:  粒子存活帧数
+  //   sound: 碎裂音效ID（-1=不播）
+  var BLOCK_BREAK_DEFAULT = { parts: 2, vx: 300, vy: -1000, grav: 160, w: 1000, h: 1000, life: 120, sound: 3 };
+  // 敌人撞碎方块（桃色方块猫86/光束90）默认参数（四散粒子）
+  var CRUSH_DEFAULT = { parts: 4, vx: 300, vy: -1000, vx2: 240, vy2: -1400, grav: 160, w: 1000, h: 1000, life: 120, sound: 3 };
+  // 金币弹出默认参数（ttype=2/7/100 等）
+  var COIN_POP_DEFAULT = { vx: 0, vy: -800, grav: 40, w: 3000, h: 3000, life: 16, sound: 4 };
+
+  // 每个 ttype 的默认行为参数（数值 = 原版 main.cpp 硬编码值）
+  var BLOCK_DEFAULTS = {
+    // ttype=1 普通砖：从下方顶碎
+    1:   { buttBreak: true, breakCfg: BLOCK_BREAK_DEFAULT },
+    // ttype=2 问号块：顶出金币后变已用块(3)；coinNoStand=站在块上时顶不出
+    2:   { buttCoin: true, coinCfg: COIN_POP_DEFAULT, usedType: 3, coinNoStand: true },
+    // ttype=7 隐藏块（顶出金币）：隐形，仅从下方顶到（不检查站立状态）
+    7:   { buttCoin: true, coinCfg: COIN_POP_DEFAULT, usedType: 3 },
+    // ttype=10 尖刺块：触碰扣血（原：顶到时 markHurt+hp--）
+    10:  { damage: 1, msgTm: 30, msgType: 3 },
+    // ttype=115 易碎砖：站上去碎裂（1-3 g13_61 左边的三块砖即此类型）
+    115: { standBreak: true, breakCfg: BLOCK_BREAK_DEFAULT },
+    // ttype=117 音符块：站上弹跳
+    117: { bounceMd: -1500, bounceSound: 14, mtype: 6 },
+    // ttype=120 弹簧跳台：站上弹跳
+    120: { bounceMd: -2400, bounceSound: 14, mtype: 7 },
+    // ttype=400 P开关：站上去全体砖块变金币
+    400: { pswitch: true, sound: 13, targetType: 800 }
+  };
+
+  // 敌人撞碎方块的默认参数（atype → 撞碎配置）
+  var ENEMY_CRUSH_DEFAULTS = {
+    86: CRUSH_DEFAULT,
+    90: CRUSH_DEFAULT
+  };
+
+  // 解析方块行为：默认值 + 实例 bhv 覆盖
+  BlockTypes.resolve = function (b) {
+    var d = BLOCK_DEFAULTS[b.ttype];
+    if (!d && !b.bhv) return null;
+    var out = {};
+    if (d) { for (var k in d) out[k] = d[k]; }
+    if (b.bhv) { for (var k2 in b.bhv) out[k2] = b.bhv[k2]; }
+    return out;
+  };
+
+  // 解析敌人撞碎行为：默认值 + 实例 bhv 覆盖
+  BlockTypes.resolveCrush = function (e) {
+    var d = ENEMY_CRUSH_DEFAULTS[e.atype];
+    if (!d && !e.bhv) return null;
+    var out = {};
+    if (d) { for (var k in d) out[k] = d[k]; }
+    if (e.bhv) { for (var k2 in e.bhv) out[k2] = e.bhv[k2]; }
+    return out;
+  };
+
+  // 注册/覆盖某 ttype 的默认行为（供编辑器扩展）
+  BlockTypes.register = function (ttype, cfg) { BLOCK_DEFAULTS[ttype] = cfg; };
+  BlockTypes.registerCrush = function (atype, cfg) { ENEMY_CRUSH_DEFAULTS[atype] = cfg; };
+  BlockTypes.getDefaults = function () { return BLOCK_DEFAULTS; };
+
+  global.BlockTypes = BlockTypes;
+
+  // ===================================================================
+  // 升降台行为注册表 (LiftTypes)
+  // 原版 main.cpp 中按 srsp 硬编码的升降台行为参数，解耦为可配置默认值；
+  // 升降台实例可通过 bhv 属性覆盖任意字段。
+  // ===================================================================
+  var LiftTypes = {};
+
+  var LIFT_DEFAULTS = {
+    // srsp=1 易碎台：站上去碎裂（粒子±240/-1400，尺寸4500，寿命120）
+    1:  { standBreak: true, breakCfg: { parts: 2, vx: 240, vy: -1400, grav: 160, w: 4500, h: 4500, life: 120, sound: 3 } },
+    // srsp=2 绿台（疲劳台）：站上去弹飞玩家(mc=-2400)，100帧后台子碎裂
+    2:  { launchMc: -2400, fatigueFrames: 100, breakCfg: { parts: 2, vx: 240, vy: -1400, grav: 160, w: 4500, h: 4500, life: 120, sound: 3 } },
+    // srsp=11 靠近触发台：玩家靠近 -1500 距离触发下坠，加速度 60
+    11: { proxDist: -1500, accel: 60 },
+    // srsp=12 打滑台：站上去打滑速度 -800
+    12: { slipMd: -800 }
+  };
+
+  // 解析升降台行为：默认值 + 实例 bhv 覆盖
+  LiftTypes.resolve = function (l) {
+    var d = LIFT_DEFAULTS[l.srsp];
+    if (!d && !l.bhv) return null;
+    var out = {};
+    if (d) { for (var k in d) out[k] = d[k]; }
+    if (l.bhv) { for (var k2 in l.bhv) out[k2] = l.bhv[k2]; }
+    return out;
+  };
+
+  LiftTypes.register = function (srsp, cfg) { LIFT_DEFAULTS[srsp] = cfg; };
+  LiftTypes.getDefaults = function () { return LIFT_DEFAULTS; };
+
+  global.LiftTypes = LiftTypes;
 })(window);

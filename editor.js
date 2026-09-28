@@ -207,6 +207,8 @@
         if (e.delay != null) o.delay = e.delay;
         if (e.chain) o.chain = e.chain;   // 坠落砖组链式触发目标 uid
         if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
+        if (e.bhv) o.bhv = JSON.parse(JSON.stringify(e.bhv));   // 行为属性覆盖（BlockTypes/LiftTypes）
+        if (e.trapAnim) o.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));   // 陷阱管道抖动动画覆盖
         if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
         return o;
       })
@@ -1891,6 +1893,9 @@
     var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
     var fBmOri = null, fBmCount = null;
     var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
+    var fBhvBounce = null, fBhvDamage = null, fBhvParts = null, fBhvLife = null;
+    var fBhvLaunchMc = null, fBhvFatigue = null;
+    var fTrapAnimAmp = null, fTrapAnimRiseMax = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
       // rot=-1 表示随机初相（每次进关/复活随机 -45°~+44°），对应引擎 bxtype<10000
@@ -2246,6 +2251,45 @@
       fFollow.value = (selected.follow || d.follow) ? 'yes' : 'no';
       propBody.appendChild(propRow('跳跃跟随', fFollow, '玩家从下方靠近起跳时方块跟着上移躲开（原版 1-1 第一块问号砖的行为）'));
     }
+    // 易碎砖/音符块/弹簧跳台/尖刺块/疲劳台：行为参数覆盖（BlockTypes/LiftTypes bhv）
+    if (d.id === 'block_breakable') {
+      var bb0 = selected.bhv || {};
+      fBhvParts = numInput(2, 4, (bb0.breakCfg && bb0.breakCfg.parts) || 2);
+      propBody.appendChild(propRow('碎裂粒子数', fBhvParts, '2=两片碎块，4=四散碎块'));
+      fBhvLife = numInput(1, 999, (bb0.breakCfg && bb0.breakCfg.life) || 120);
+      propBody.appendChild(propRow('碎裂寿命(帧)', fBhvLife, '碎块粒子存活帧数'));
+    }
+    if (d.id === 'b2_note_peach' || d.id === 'b2_note_white') {
+      var nb0 = selected.bhv || {};
+      fBhvBounce = numInput(-9999, 0, nb0.bounceMd != null ? nb0.bounceMd : -1500);
+      propBody.appendChild(propRow('弹跳力度', fBhvBounce, '负值=向上弹起，-1500 为原版默认'));
+    }
+    if (d.id === 'item_jumppad') {
+      var jb0 = selected.bhv || {};
+      fBhvBounce = numInput(-9999, 0, jb0.bounceMd != null ? jb0.bounceMd : -2400);
+      propBody.appendChild(propRow('弹跳力度', fBhvBounce, '负值=向上弹起，-2400 为原版默认'));
+    }
+    if (d.id === 'block_spike') {
+      var sb0 = selected.bhv || {};
+      fBhvDamage = numInput(1, 999, sb0.damage != null ? sb0.damage : 1);
+      propBody.appendChild(propRow('伤害值', fBhvDamage, '每次触碰扣除的 HP 数（原版默认 1）'));
+    }
+    if (d.id === 'lift_green') {
+      var lg0 = selected.bhv || {};
+      fBhvLaunchMc = numInput(-9999, 0, lg0.launchMc != null ? lg0.launchMc : -2400);
+      propBody.appendChild(propRow('弹飞力度', fBhvLaunchMc, '站上去时玩家水平弹飞速度（原版默认 -2400）'));
+      fBhvFatigue = numInput(1, 999, lg0.fatigueFrames != null ? lg0.fatigueFrames : 100);
+      propBody.appendChild(propRow('疲劳帧数', fBhvFatigue, '连续站立多少帧后玩家阵亡（原版默认 100）'));
+    }
+    // 陷阱管道：抖动动画参数覆盖（pipe_mouth entry=trap 时生效）
+    if (d.id === 'pipe_mouth' && (selected.entry || d.entry) === 'trap') {
+      var ta0 = selected.trapAnim || {};
+      var sh0 = (ta0.shakes && ta0.shakes[0]) || {};
+      fTrapAnimAmp = numInput(0, 9999, sh0.amp != null ? sh0.amp : 200);
+      propBody.appendChild(propRow('抖动幅度', fTrapAnimAmp, '第一段抖动像素幅度（原版默认 200）'));
+      fTrapAnimRiseMax = numInput(0, 9999, (ta0.rise && ta0.rise.max) || 1600);
+      propBody.appendChild(propRow('上升速度上限', fTrapAnimRiseMax, '管道上升阶段最大速度（原版默认 1600）'));
+    }
     // 敌人跳跃跟随（解耦属性）：普通馒头怪/龟壳馒头怪/尖刺馒头怪 可配置玩家起跳时同步起跳
     // （尖刺馒头怪原版硬编码为 axtype=1，现独立为 follow 属性；另两个原版无此行为）
     var fEnemyFollow = null;
@@ -2442,6 +2486,49 @@
         selected.w = nTeW; selected.h = nTeH;
         selected.col = Math.min(selected.col, state.cols - nTeW);
         selected.row = Math.min(selected.row, ROWS - nTeH);
+      }
+      // bhv / trapAnim 写回（稀疏存储：与默认值相同时清空避免冗余落盘）
+      if (d.id === 'block_breakable') {
+        var nParts = parseInt(fBhvParts.value, 10) || 2;
+        var nLife = parseInt(fBhvLife.value, 10) || 120;
+        if (nParts !== 2 || nLife !== 120) {
+          selected.bhv = { breakCfg: { parts: nParts, life: nLife } };
+        } else { delete selected.bhv; }
+      }
+      if (d.id === 'b2_note_peach' || d.id === 'b2_note_white') {
+        var nBounce = parseInt(fBhvBounce.value, 10);
+        if (nBounce !== -1500) selected.bhv = { bounceMd: nBounce };
+        else delete selected.bhv;
+      }
+      if (d.id === 'item_jumppad') {
+        var nBounce2 = parseInt(fBhvBounce.value, 10);
+        if (nBounce2 !== -2400) selected.bhv = { bounceMd: nBounce2 };
+        else delete selected.bhv;
+      }
+      if (d.id === 'block_spike') {
+        var nDmg = parseInt(fBhvDamage.value, 10) || 1;
+        if (nDmg !== 1) selected.bhv = { damage: nDmg };
+        else delete selected.bhv;
+      }
+      if (d.id === 'lift_green') {
+        var nLaunch = parseInt(fBhvLaunchMc.value, 10);
+        var nFat = parseInt(fBhvFatigue.value, 10) || 100;
+        var changed = false;
+        if (nLaunch !== -2400) { if (!selected.bhv) selected.bhv = {}; selected.bhv.launchMc = nLaunch; changed = true; }
+        if (nFat !== 100) { if (!selected.bhv) selected.bhv = {}; selected.bhv.fatigueFrames = nFat; changed = true; }
+        if (!changed) delete selected.bhv;
+      }
+      if (d.id === 'pipe_mouth' && (selected.entry || d.entry) === 'trap') {
+        var nAmp = parseInt(fTrapAnimAmp.value, 10) || 200;
+        var nRiseMax = parseInt(fTrapAnimRiseMax.value, 10) || 1600;
+        if (nAmp !== 200 || nRiseMax !== 1600) {
+          selected.trapAnim = {
+            nudge: { tm: 23, dx: -100 },
+            shakes: [{ from: 44, to: 60, amp: nAmp }, { from: 61, to: 77, amp: nAmp * 2 }, { from: 78, to: 94, amp: nAmp * 3 }],
+            rise: { tm: 110, accel: 80, max: nRiseMax },
+            end: 160
+          };
+        } else { delete selected.trapAnim; }
       }
       if (evWork) {
         var evClean = evWork.filter(function (a) { return a && typeof a.act === 'string'; });
@@ -3825,6 +3912,7 @@
       var hS = { 0: 'poison', 2: 'coin', 4: 'mushroom', 6: 'enemy', 8: 'flower', 10: 'pswitch', 11: 'badstar' };
       return { id: 'block_hidden', extra: { pop: hS[xt] || 'poison' } };
     }
+    if (type === 115) return { id: 'block_breakable' };
     if (type === 117) return { id: xt === 1 ? 'b2_note_peach' : 'b2_note_white' };
     if (type === 120) return { id: 'item_jumppad' };
     if (type === 130) return { id: 'b2_on' };
@@ -4397,6 +4485,10 @@
         if (e.count != null) out.count = e.count | 0;
         if (e.rows != null && (e.variant === 1 || e.variant === 2)) out.rows = e.rows | 0;
       }
+      // 行为属性覆盖（BlockTypes/LiftTypes 注册表实例级覆盖；稀疏存储，空对象不落盘）
+      if (e.bhv && typeof e.bhv === 'object' && Object.keys(e.bhv).length) out.bhv = JSON.parse(JSON.stringify(e.bhv));
+      // 陷阱管道抖动动画覆盖（pipe_mouth entry=trap 时生效）
+      if (e.trapAnim && typeof e.trapAnim === 'object' && Object.keys(e.trapAnim).length) out.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));
       // 连接管字段放行：rot + lengths 数组
       if (e.id === 'pipe_cross' || e.id === 'pipe_tee' || e.id === 'pipe_L_a' || e.id === 'pipe_L_b') {
         if (e.rot != null) out.rot = ((e.rot | 0) % 360 + 360) % 360;

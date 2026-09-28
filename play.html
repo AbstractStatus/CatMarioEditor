@@ -261,9 +261,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd3"></script>
 <script src="audio.js?v=custom8"></script>
 <script src="input.js?v=custom5"></script>
-<script src="elements.js?v=evlog23"></script>
+<script src="elements.js?v=evlog24"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd47"></script>
+<script src="engine.js?v=hd48"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -389,6 +389,12 @@ body.dragging #dropTip { display: flex; }
           uid: e.uid || null
         });
         used++;
+      } else if (id === 'block_breakable') {
+        // 易碎砖 ttype=115：站上去即碎裂（bhv 可覆盖默认粒子/音效参数）
+        var bb = { x: x, y: y, type: 115, xt: e.xt || 0, uid: e.uid || null };
+        if (e.bhv) bb.bhv = JSON.parse(JSON.stringify(e.bhv));
+        blocks.push(bb);
+        used++;
       } else if (id === 'block_question') {
         // 统一问号块：pop=弹出对象、mass=量产（默认金币/否走字节2，其余走 tyobi blocks）
         // 弹出对象与隐藏块取并集：金币/红蘑菇/毒蘑菇/白猫怪/火焰花/坏星/P开关
@@ -447,12 +453,14 @@ body.dragging #dropTip { display: flex; }
         }
       } else if (LIFT_SRSP[id] !== undefined) {
         var len = Math.max(1, Math.min(e.len | 0 || 3, 50));
-        lifts.push({
+        var liftObj = {
           sra: x * 100, srb: y * 100, src: len * 3000,
           srtype: 0, sracttype: 0, sre: 0, srf: 0,
           srsp: LIFT_SRSP[id], sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
           uid: e.uid || null
-        });
+        };
+        if (e.bhv) liftObj.bhv = JSON.parse(JSON.stringify(e.bhv));
+        lifts.push(liftObj);
         used++;
       } else if (id === 'platform_hang') {
         // 悬挂站台 srsp=10：绿色台面(30px)+棕色吊柱；srh=自定义柱高(世界单位，原版写死48000)；
@@ -480,7 +488,9 @@ body.dragging #dropTip { display: flex; }
         }
         // 隐藏块(114)：hv=0 紫毒蘑菇(默认) / 2 金币 / 10 P开关联动
         if (id === 'block_hidden_poison') xt = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
-        blocks.push({ x: x, y: y, type: sp.type, xt: xt, followJump: !!e.follow, uid: e.uid || null });
+        var eb = { x: x, y: y, type: sp.type, xt: xt, followJump: !!e.follow, uid: e.uid || null };
+        if (e.bhv) eb.bhv = JSON.parse(JSON.stringify(e.bhv));
+        blocks.push(eb);
       } else if (EX_TRIGGER[id] !== undefined) {
         var tg = EX_TRIGGER[id];
         if (id === 'firebar') {
@@ -598,6 +608,8 @@ body.dragging #dropTip { display: flex; }
               : { end: true, id: null };
           } else { pmStype = 50; pmSxtype = 1; }
           var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
+          // 陷阱管道抖动动画覆盖（编辑器属性面板 → 引擎 tp.trapAnim）
+          if (e.trapAnim && typeof e.trapAnim === 'object') pmPipe.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));
           if (pmDir === 'up') {
             pmPipe.sa = c * 2900 + 500;
             pmPipe.sb = (r * 29 - 12) * 100;

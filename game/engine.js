@@ -12,6 +12,8 @@
   var IN = global.Input;
   var Lv = global.Levels;
   var PT = global.PipeTypes;
+  var BlockTypes = global.BlockTypes;
+  var LiftTypes = global.LiftTypes;
 
   var Engine = {};
 
@@ -165,7 +167,9 @@
       state.blocks.push({
         ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
         followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
-        uid: b.uid || null
+        uid: b.uid || null,
+        // 行为属性覆盖（BlockTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
+        bhv: b.bhv ? JSON.parse(JSON.stringify(b.bhv)) : null
       });
     });
     var _gridBlocks = [];
@@ -238,6 +242,8 @@
       if (p.dirs) pipe.dirs = p.dirs.slice();
       // connector 单臂 pipe（stype 75）：保留 dir 给渲染用
       if (p.dir) pipe.dir = p.dir;
+      // 陷阱管道（stype=50 sxtype=0）：抖动动画参数覆盖（默认=PipeTypes.trapPipeAnimDefault）
+      if (p.trapAnim) pipe.trapAnim = JSON.parse(JSON.stringify(p.trapAnim));
       state.pipes.push(pipe);
     });
 
@@ -321,7 +327,9 @@
         sre: l.sre || 0, srf: l.srf || 0, srsp: l.srsp || 0,
         sron: l.sron || 0, srmuki: l.srmuki || 0, srsok: l.srsok || 0,
         srmove: l.srmove || 0, srmovep: l.srmovep || 0,
-        srh: l.srh || 48000, uid: l.uid || null
+        srh: l.srh || 48000, uid: l.uid || null,
+        // 行为属性覆盖（LiftTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
+        bhv: l.bhv ? JSON.parse(JSON.stringify(l.bhv)) : null
       });
     });
 
@@ -565,22 +573,25 @@
           if (p.mtm <= 16) { p.ma += sinkDx * C._DT; p.mb += sinkDy * C._DT; p.mzz = 100; }
           if (p.mtm === 17) p.mb = -80000000;
           // 陷阱管道动画：玩家已离屏，此时驱动管道本体（对应原版 main.cpp 的 sa/sb[28]）
+          // 参数由 PipeTypes.trapPipeAnimDefault() 提供，管道实例可用 trapAnim 覆盖
           if (tp) {
-            if (p.mtm === 23) tp.sa -= 100;
+            var tpa = tp.trapAnim || PipeTypes.trapPipeAnimDefault();
+            if (tpa.nudge && p.mtm === tpa.nudge.tm) tp.sa += tpa.nudge.dx;
             // 60Hz 下 mtm 按 _DT=0.5 递增，半整数帧会让 % 2 奇偶判定恒走 - 分支，
             // 导致抖动期间管道整体向左漂移。仅整数帧应用抖动，行为与原版 30Hz 一致。
-            if (p.mtm % 1 === 0) {
-              if (p.mtm >= 44 && p.mtm <= 60) tp.sa += (p.mtm % 2 === 0) ? 200 : -200;
-              if (p.mtm >= 61 && p.mtm <= 77) tp.sa += (p.mtm % 2 === 0) ? 400 : -400;
-              if (p.mtm >= 78 && p.mtm <= 94) tp.sa += (p.mtm % 2 === 0) ? 600 : -600;
+            if (p.mtm % 1 === 0 && Array.isArray(tpa.shakes)) {
+              for (var si = 0; si < tpa.shakes.length; si++) {
+                var sh = tpa.shakes[si];
+                if (p.mtm >= sh.from && p.mtm <= sh.to) tp.sa += (p.mtm % 2 === 0) ? sh.amp : -sh.amp;
+              }
             }
-            if (p.mtm >= 110) {
+            if (tpa.rise && p.mtm >= tpa.rise.tm) {
               tp.sb -= p.mzz * C._DT;
-              p.mzz += 80 * C._DT;
-              if (p.mzz > 1600) p.mzz = 1600;
+              p.mzz += (tpa.rise.accel != null ? tpa.rise.accel : 80) * C._DT;
+              if (p.mzz > (tpa.rise.max != null ? tpa.rise.max : 1600)) p.mzz = tpa.rise.max;
             }
           }
-          if (p.mtm === 160) {
+          if (p.mtm === (tp && tp.trapAnim && tp.trapAnim.end != null ? tp.trapAnim.end : 160)) {
             markHurt('trap-pipe', p._trapPipe ? p._trapPipe.uid : null);
             p._trapPipe = null; p.mtype = 0; p.mhp--;
             _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit', uid: state._lastHurt ? state._lastHurt.uid : null });
@@ -698,22 +709,40 @@
           if (b.ttype !== 7 && b.ttype !== 110 && b.ttype !== 114) {
             if (p.ma + p.mnobia > xx[8] + xx[0] * 2 + 100 && p.ma < xx[8] + xx[1] - xx[0] * 2 - 100 &&
                 p.mb + p.mnobib > xx[9] && p.mb + p.mnobib < xx[9] + xx[1] && p.md >= -100) {
-              if (b.ttype !== 115 && b.ttype !== 400 && b.ttype !== 117 && b.ttype !== 120) {
+              // 特殊行为块（115 易碎砖/400 P开关/117 音符块/120 弹簧台）不参与普通站立，
+              // 由 BlockTypes 注册表驱动；bhv 属性可覆盖默认参数
+              var bhvStand = BlockTypes.resolve(b);
+              var isSpecial = bhvStand && (bhvStand.standBreak || bhvStand.pswitch || bhvStand.bounceMd != null);
+              if (!isSpecial) {
                 _debugCollideTop++;
                 p.mb = xx[9] - p.mnobib + 100; p.md = 0; p.mzimen = 1; xx[16] = 1;
-              } else if (b.ttype === 115) {
-                A.playSE(C.SE.BLOCK_BREAK);
-                spawnParticle(b.ta + 1200, b.tb + 1200, 300, -1000, 0, 160, 1000, 1000, 1, 120);
-                spawnParticle(b.ta + 1200, b.tb + 1200, -300, -1000, 0, 160, 1000, 1000, 1, 120);
+              } else if (bhvStand.standBreak) {
+                var bc = bhvStand.breakCfg || {};
+                if (bc.sound != null && bc.sound >= 0) A.playSE(bc.sound);
+                var parts = bc.parts != null ? bc.parts : 2;
+                var vx = bc.vx != null ? bc.vx : 300;
+                var vy = bc.vy != null ? bc.vy : -1000;
+                var grav = bc.grav != null ? bc.grav : 160;
+                var bw = bc.w != null ? bc.w : 1000;
+                var bh = bc.h != null ? bc.h : 1000;
+                var bl = bc.life != null ? bc.life : 120;
+                if (parts >= 2) {
+                  spawnParticle(b.ta + 1200, b.tb + 1200, vx, vy, 0, grav, bw, bh, 1, bl);
+                  spawnParticle(b.ta + 1200, b.tb + 1200, -vx, vy, 0, grav, bw, bh, 1, bl);
+                }
+                if (parts >= 4) {
+                  spawnParticle(b.ta + 1200, b.tb + 1200, vx * 0.8, vy * 0.7, 0, grav, bw, bh, 1, bl);
+                  spawnParticle(b.ta + 1200, b.tb + 1200, -vx * 0.8, vy * 0.7, 0, grav, bw, bh, 1, bl);
+                }
                 b.ta = -800000;
-              } else if (b.ttype === 400) {
-                p.md = 0; b.ta = -8000000; A.playSE(13);
-                state.blocks.forEach(function (bb) { if (bb.ttype !== 7) bb.ttype = 800; });
+              } else if (bhvStand.pswitch) {
+                p.md = 0; b.ta = -8000000; A.playSE(bhvStand.sound != null ? bhvStand.sound : 13);
+                var tgt = bhvStand.targetType != null ? bhvStand.targetType : 800;
+                state.blocks.forEach(function (bb) { if (bb.ttype !== 7) bb.ttype = tgt; });
                 A.bgmStop();
-              } else if (b.ttype === 117) {
-                A.playSE(14); p.md = -1500; p.mtype = C.MTYPE.NOTE; p.mtm = 0;
-              } else if (b.ttype === 120) {
-                p.md = -2400; p.mtype = C.MTYPE.JUMP_PAD; p.mtm = 0;
+              } else if (bhvStand.bounceMd != null) {
+                if (bhvStand.bounceSound != null) A.playSE(bhvStand.bounceSound);
+                p.md = bhvStand.bounceMd; p.mtype = bhvStand.mtype != null ? bhvStand.mtype : C.MTYPE.NOTE; p.mtm = 0;
               }
             }
           }
@@ -728,24 +757,41 @@
                 xx[16] = 1; xx[17] = 1;
                 p.mb = xx[9] + xx[1] + xx[0];
                 if (p.md < 0) p.md = -p.md * 2 / 3;
-                if (b.ttype === 1 && p.mzimen === 0) {
-                  A.playSE(C.SE.BLOCK_BREAK);
-                  spawnParticle(b.ta + 1200, b.tb + 1200, 300, -1000, 0, 160, 1000, 1000, 1, 120);
-                  spawnParticle(b.ta + 1200, b.tb + 1200, -300, -1000, 0, 160, 1000, 1000, 1, 120);
+                // 顶方块行为：由 BlockTypes 注册表驱动（bhv 属性可覆盖默认参数）
+                var bhvButt = BlockTypes.resolve(b);
+                if (bhvButt && bhvButt.buttBreak && p.mzimen === 0) {
+                  var bc2 = bhvButt.breakCfg || {};
+                  if (bc2.sound != null && bc2.sound >= 0) A.playSE(bc2.sound);
+                  var parts2 = bc2.parts != null ? bc2.parts : 2;
+                  var vx2 = bc2.vx != null ? bc2.vx : 300;
+                  var vy2 = bc2.vy != null ? bc2.vy : -1000;
+                  var grav2 = bc2.grav != null ? bc2.grav : 160;
+                  var bw2 = bc2.w != null ? bc2.w : 1000;
+                  var bh2 = bc2.h != null ? bc2.h : 1000;
+                  var bl2 = bc2.life != null ? bc2.life : 120;
+                  if (parts2 >= 2) {
+                    spawnParticle(b.ta + 1200, b.tb + 1200, vx2, vy2, 0, grav2, bw2, bh2, 1, bl2);
+                    spawnParticle(b.ta + 1200, b.tb + 1200, -vx2, vy2, 0, grav2, bw2, bh2, 1, bl2);
+                  }
+                  if (parts2 >= 4) {
+                    spawnParticle(b.ta + 1200, b.tb + 1200, vx2 * 0.8, vy2 * 0.7, 0, grav2, bw2, bh2, 1, bl2);
+                    spawnParticle(b.ta + 1200, b.tb + 1200, -vx2 * 0.8, vy2 * 0.7, 0, grav2, bw2, bh2, 1, bl2);
+                  }
                   b.ta = -800000;
                 }
-                if (b.ttype === 2 && p.mzimen === 0) {
-                  A.playSE(C.SE.COIN);
-                  spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
-                  b.ttype = 3;
+                if (bhvButt && bhvButt.buttCoin && (!bhvButt.coinNoStand || p.mzimen === 0)) {
+                  var cc = bhvButt.coinCfg || {};
+                  if (cc.sound != null && cc.sound >= 0) A.playSE(cc.sound);
+                  spawnParticle(b.ta + 10, b.tb, cc.vx != null ? cc.vx : 0, cc.vy != null ? cc.vy : -800, 0, cc.grav != null ? cc.grav : 40, cc.w != null ? cc.w : 3000, cc.h != null ? cc.h : 3000, 0, cc.life != null ? cc.life : 16);
+                  b.ttype = bhvButt.usedType != null ? bhvButt.usedType : 3;
                 }
-                if (b.ttype === 7) {
-                  A.playSE(C.SE.COIN);
-                  spawnParticle(b.ta + 10, b.tb, 0, -800, 0, 40, 3000, 3000, 0, 16);
-                  p.mb = xx[9] + xx[1] + xx[0]; b.ttype = 3;
-                  if (p.md < 0) p.md = -p.md * 2 / 3;
+                if (bhvButt && bhvButt.damage > 0) {
+                  p.mmsgtm = bhvButt.msgTm != null ? bhvButt.msgTm : 30;
+                  p.mmsgtype = bhvButt.msgType != null ? bhvButt.msgType : 3;
+                  markHurt('spike', b.uid);
+                  p.mhp -= bhvButt.damage;
+                  _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'ttype10', uid: b.uid, ta: b.ta, tb: b.tb });
                 }
-                if (b.ttype === 10) { p.mmsgtm = 30; p.mmsgtype = 3; markHurt('spike', b.uid); p.mhp--; _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'ttype10', uid: b.uid, ta: b.ta, tb: b.tb }); }
               }
             }
             // 左右碰撞
@@ -1001,8 +1047,9 @@
             p.mb + p.mnobib > oldSrb && p.mb + p.mnobib < oldSrb + win && p.md >= -100) {
           // 先吸附到旧台底（脚=旧台底+100），再随台移动 sre → 脚=新台底+100，紧贴不嵌入
           p.mb = oldSrb - p.mnobib + 100;
-          if (l.srsp !== 12) { p.mzimen = 1; p.md = 0; }
-          else { p.md = -800; }                               // srsp=12 打滑台
+          var lb = LiftTypes.resolve(l);
+          if (lb && lb.slipMd != null) { p.md = lb.slipMd; }
+          else { p.mzimen = 1; p.md = 0; }
 
           // 踩上触发下坠
           if (l.sracttype === 1 && l.sron === 0) l.sron = 1;
@@ -1011,30 +1058,43 @@
             p.mb += oldSre * C._DT;
           }
 
-          if (l.srsp === 1) {
-            // 易碎台：音效 + 两片碎块 + 消失
-            A.playSE(3);
-            spawnParticle(l.sra + 200, l.srb - 1000, -240, -1400, 0, 160, 4500, 4500, 1, 120);
-            spawnParticle(l.sra + l.src - 200, l.srb - 1000, 240, -1400, 0, 160, 4500, 4500, 1, 120);
-            l.sra = -70000000;
-          }
-
-          if (l.srsp === 2) {
-            // 绿色疲劳台：弹飞玩家，连续站立 100 帧阵亡
-            p.mc = -2400;
-            l.srmove += C._DT;
-            if (l.srmove >= 100) { markHurt('fatigue-lift', l.uid); p.mhp = 0; l.srmove = -5000; }
+          // LiftTypes 驱动：站碎台 / 疲劳台
+          if (lb) {
+            if (lb.standBreak && lb.breakCfg) {
+              var lbc = lb.breakCfg;
+              if (lbc.sound != null && lbc.sound >= 0) A.playSE(lbc.sound);
+              var lbp = lbc.parts != null ? lbc.parts : 2;
+              var lbx = lbc.vx != null ? lbc.vx : 240;
+              var lby = lbc.vy != null ? lbc.vy : -1400;
+              var lbg = lbc.grav != null ? lbc.grav : 160;
+              var lbw = lbc.w != null ? lbc.w : 4500;
+              var lbh = lbc.h != null ? lbc.h : 4500;
+              var lbl = lbc.life != null ? lbc.life : 120;
+              if (lbp >= 2) {
+                spawnParticle(l.sra + 200, l.srb - 1000, -lbx, lby, 0, lbg, lbw, lbh, 1, lbl);
+                spawnParticle(l.sra + l.src - 200, l.srb - 1000, lbx, lby, 0, lbg, lbw, lbh, 1, lbl);
+              }
+              if (lbp >= 4) {
+                spawnParticle(l.sra + 200, l.srb - 1000, -lbx * 0.8, lby * 0.7, 0, lbg, lbw, lbh, 1, lbl);
+                spawnParticle(l.sra + l.src - 200, l.srb - 1000, lbx * 0.8, lby * 0.7, 0, lbg, lbw, lbh, 1, lbl);
+              }
+              l.sra = -70000000;
+            }
+            if (lb.launchMc != null) {
+              p.mc = lb.launchMc;
+              l.srmove += C._DT;
+              var fat = lb.fatigueFrames != null ? lb.fatigueFrames : 100;
+              if (l.srmove >= fat) { markHurt('fatigue-lift', l.uid); p.mhp = 0; l.srmove = -5000; }
+            }
+            if (lb.proxDist != null) {
+              if (p.ma + p.mnobia > l.sra + lb.proxDist && p.ma < l.sra + l.src - 500) l.sron = 1;
+              if (l.sron === 1) { l.srf = lb.accel != null ? lb.accel : 60; l.srb += l.sre * C._DT; }
+            }
           }
         }
 
-        // 疲劳计时：未被弹飞且不在台上时逐帧回退
+        // 疲劳计时：未被弹飞且不在台上时逐帧回退（仅当 resolve 含 launchMc 时）
         if (l.srsp === 2 && p.mc !== -2400 && l.srmove > 0) l.srmove -= C._DT;
-
-        // srsp=11：靠近即自动下坠（无原版数据，编辑器也不产生，保留行为一致）
-        if (l.srsp === 11) {
-          if (p.ma + p.mnobia > l.sra - 1500 && p.ma < l.sra + l.src - 500) l.sron = 1;
-          if (l.sron === 1) { l.srf = 60; l.srb += l.sre * C._DT; }
-        }
         // sracttype=6：横向经过即触发下坠
         if (l.sracttype === 6) {
           if (p.ma + p.mnobia > l.sra + 500 && p.ma < l.sra + l.src - 500) l.sron = 1;
@@ -1534,16 +1594,30 @@
       xx[0] = 200; xx[1] = 3000; xx[2] = 1000;
       xx[8] = b.ta; xx[9] = b.tb;
       // 桃色方块猫(86)/光束(90)：不与方块做阻挡反弹，只要 AABB 重叠就立刻把方块撞碎
+      // 桃色方块猫(86)/光束(90)：不与方块做阻挡反弹，只要 AABB 重叠就立刻把方块撞碎
       // （原版 main.cpp tekizimen：soundplay(3) + 4 方向碎片 eyobi + brockbreak）；
       // 管道/墙体仍在上方管道循环中正常阻挡它们。
-      if (e.atype === 86 || e.atype === 90) {
+      // 撞碎粒子参数由 BlockTypes.resolveCrush(e) 驱动（bhv 可覆盖默认）
+      var crushCfg = BlockTypes.resolveCrush(e);
+      if (crushCfg) {
         if (e.aa + e.anobia > xx[8] && e.aa < xx[8] + xx[1] &&
             e.ab + e.anobib > xx[9] && e.ab < xx[9] + xx[1]) {
-          A.playSE(C.SE.BLOCK_BREAK);
-          spawnParticle(b.ta + 1200, b.tb + 1200, 300, -1000, 0, 160, 1000, 1000, 1, 120);
-          spawnParticle(b.ta + 1200, b.tb + 1200, -300, -1000, 0, 160, 1000, 1000, 1, 120);
-          spawnParticle(b.ta + 1200, b.tb + 1200, 240, -1400, 0, 160, 1000, 1000, 1, 120);
-          spawnParticle(b.ta + 1200, b.tb + 1200, -240, -1400, 0, 160, 1000, 1000, 1, 120);
+          if (crushCfg.sound != null && crushCfg.sound >= 0) A.playSE(crushCfg.sound);
+          var cp = crushCfg.parts != null ? crushCfg.parts : 4;
+          var cvx = crushCfg.vx != null ? crushCfg.vx : 300;
+          var cvy = crushCfg.vy != null ? crushCfg.vy : -1000;
+          var cvx2 = crushCfg.vx2 != null ? crushCfg.vx2 : 240;
+          var cvy2 = crushCfg.vy2 != null ? crushCfg.vy2 : -1400;
+          var cg = crushCfg.grav != null ? crushCfg.grav : 160;
+          var cw = crushCfg.w != null ? crushCfg.w : 1000;
+          var ch = crushCfg.h != null ? crushCfg.h : 1000;
+          var cl = crushCfg.life != null ? crushCfg.life : 120;
+          spawnParticle(b.ta + 1200, b.tb + 1200, cvx, cvy, 0, cg, cw, ch, 1, cl);
+          spawnParticle(b.ta + 1200, b.tb + 1200, -cvx, cvy, 0, cg, cw, ch, 1, cl);
+          if (cp >= 4) {
+            spawnParticle(b.ta + 1200, b.tb + 1200, cvx2, cvy2, 0, cg, cw, ch, 1, cl);
+            spawnParticle(b.ta + 1200, b.tb + 1200, -cvx2, cvy2, 0, cg, cw, ch, 1, cl);
+          }
           b.ta = -800000;
         }
         continue;
