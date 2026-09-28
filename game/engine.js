@@ -361,6 +361,8 @@
       state.blocks.push({
         ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
         followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
+        // showQ：ttype=110 隐藏量产块的"可见问号块"扩展（编辑器问号块+量产），原版 110 不绘制
+        showQ: !!b.showQ,
         uid: b.uid || null,
         // 行为属性覆盖（BlockTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
         bhv: b.bhv ? JSON.parse(JSON.stringify(b.bhv)) : null
@@ -2277,8 +2279,12 @@
         S.draw(ctx, 2, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 100 || b.ttype === 101 || b.ttype === 102 || b.ttype === 103 || b.ttype === 104 || b.ttype === 105) {
         S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
-      } else if (b.ttype === 110 || b.ttype === 112) {
-        // 量产问号块未顶过：显示问号块外观（与编辑器统一模型一致，原为砖块/硬块外观）
+      } else if (b.ttype === 110) {
+        // 隐藏量产块（原版 main.cpp:1077-1087 无 110 绘制分支：1-1 b3 毒蘑菇量产即此类型）：
+        // 默认隐形不绘制；showQ（编辑器"问号块+量产"的可见量产扩展）时显示问号块外观
+        if (b.showQ) S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === 112) {
+        // 金币量产块未顶过：显示问号块外观（编辑器统一模型；原版为砖块外观）
         S.draw(ctx, 2 + (state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0)), 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 111 || b.ttype === 113 || (b.ttype === 115 && b.txtype !== 1 && b.txtype !== 3)) {
         // 顶过后（量产中/已用）：已用块外观

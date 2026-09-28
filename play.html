@@ -263,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog24"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd48"></script>
+<script src="engine.js?v=hd49"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -317,7 +317,7 @@ body.dragging #dropTip { display: flex; }
     block_q_mushroom:    { type: 102, xt: 0 },  // 顶出红蘑菇（おいしいきのこ）
     block_q_enemy:       { type: 101, xt: 0 },  // 顶出白猫怪
     block_q_poison:      { type: 103, xt: 0 },  // 顶出棕毒蘑菇（まずいきのこ）
-    block_q_poison_mass: { type: 110, xt: 0 },  // 毒蘑菇量产（110→111 周期生成）
+    block_q_poison_mass: { type: 110, xt: 0, showQ: true },  // 可见毒蘑菇量产问号块（110→111 周期生成；showQ=显示问号块外观）
     block_q_coin_mass:   { type: 112, xt: 0 },  // 金币量产（112→113）
     block_q_badstar:     { type: 104, xt: 0 },  // 顶出坏星（悪スター）
     block_hidden_poison: { type: 114, xt: 0 }   // 隠し毒きのこ：游戏中隐形，顶到才现形（xt 由 hv 覆盖）
@@ -400,8 +400,9 @@ body.dragging #dropTip { display: flex; }
         // 统一问号块：pop=弹出对象、mass=量产（默认金币/否走字节2，其余走 tyobi blocks）
         // 弹出对象与隐藏块取并集：金币/红蘑菇/毒蘑菇/白猫怪/火焰花/坏星/P开关
         // 单发：coin=字节2 / mushroom=102 / poison=103 / enemy=101xt0 / flower=101xt3 / badstar=104 / pswitch=105
-        // 量产：coin=112（连出20枚）；其余=110+xt（引擎111循环按txtype选对象：
+        // 量产：coin=112（连出20枚）；其余=110+xt+showQ（引擎111循环按txtype选对象：
         //       0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星）；P开关无量产按单发
+        //       注：110 在原版是隐藏量产块（不绘制），showQ 是"可见问号量产块"的新引擎扩展
         var qp = e.pop || 'coin', qm = !!e.mass;
         var qSingle = { coin: [2, 0], mushroom: [102, 0], poison: [103, 0], enemy: [101, 0], flower: [101, 3], badstar: [104, 0], pswitch: [105, 0] };
         var qMass = { coin: [112, 0], mushroom: [110, 2], poison: [110, 0], enemy: [110, 1], flower: [110, 3], badstar: [110, 4] };
@@ -411,23 +412,29 @@ body.dragging #dropTip { display: flex; }
         if (qv[0] === 2 && !e.follow) {
           if (put(r, c, 2, e.uid)) used++;
         } else {
-          blocks.push({ x: x, y: y, type: qv[0], xt: qv[1], followJump: !!e.follow, uid: e.uid || null });
+          var qb2 = { x: x, y: y, type: qv[0], xt: qv[1], followJump: !!e.follow, uid: e.uid || null };
+          if (qv[0] === 110) qb2.showQ = true;   // 可见量产问号块（原版 110 为隐藏块，需显式声明可见）
+          blocks.push(qb2);
           used++;
         }
       } else if (id === 'block_hidden') {
-        // 统一隐藏块：pop=弹出对象、mass=量产（默认金币/否走字节7，其余走 ttype=114）
-        // txtype（与问号块弹出对象取并集）：
-        //   单发 0=毒蘑菇 2=金币 4=红蘑菇 6=白猫怪 8=火焰花 10=P开关 11=坏星
-        //   量产 12=金币 20=毒蘑菇 22=红蘑菇 26=白猫怪 28=火焰花 30=坏星；P开关无量产按单发
+        // 统一隐藏块：pop=弹出对象、mass=量产（默认金币/否走字节7）
+        // 单发（ttype=114 txtype，与问号块弹出对象取并集）：
+        //   0=毒蘑菇 2=金币 4=红蘑菇 6=白猫怪 8=火焰花 10=P开关 11=坏星；P开关无量产按单发
+        // 量产：金币=114 xt12（变113连出20枚）；其余=110+xt（原版隐藏量产块，变111循环，
+        //   xt 0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星 —— 与原版 1-1 b3 等同型）
         var hp = e.pop || 'coin', hm = !!e.mass;
         var hSingle = { coin: 7, poison: 0, mushroom: 4, enemy: 6, flower: 8, badstar: 11, pswitch: 10 };
-        var hMass = { coin: 12, poison: 20, mushroom: 22, enemy: 26, flower: 28, badstar: 30 };
+        var hMass110 = { poison: 0, enemy: 1, mushroom: 2, flower: 3, badstar: 4 };
         // follow（跳跃跟随）时金币单发也不能走字节网格，改走 tyobi blocks（ttype=7 行为等价）
         if (hp === 'coin' && !hm && !e.follow) {
           if (put(r, c, 7, e.uid)) used++;
+        } else if (hm && hMass110[hp] != null) {
+          blocks.push({ x: x, y: y, type: 110, xt: hMass110[hp], followJump: !!e.follow, uid: e.uid || null });
+          used++;
         } else {
-          var hxt = hm && hMass[hp] != null ? hMass[hp] : (hSingle[hp] != null ? hSingle[hp] : 0);
-          // 金币单发+跟随 → ttype=7（隐形、顶出金币）；其余 → ttype=114 + followJump
+          // 金币单发+跟随 → ttype=7（隐形、顶出金币）；金币量产 → 114 xt12；其余单发 → 114 + followJump
+          var hxt = hm ? 12 : (hSingle[hp] != null ? hSingle[hp] : 0);
           blocks.push({
             x: x, y: y, type: (hp === 'coin' && !hm) ? 7 : 114,
             xt: (hp === 'coin' && !hm) ? 0 : hxt,
@@ -490,6 +497,7 @@ body.dragging #dropTip { display: flex; }
         // 隐藏块(114)：hv=0 紫毒蘑菇(默认) / 2 金币 / 10 P开关联动
         if (id === 'block_hidden_poison') xt = (e.hv === 2 || e.hv === 10) ? e.hv : 0;
         var eb = { x: x, y: y, type: sp.type, xt: xt, followJump: !!e.follow, uid: e.uid || null };
+        if (sp.showQ) eb.showQ = true;   // 110 可见量产问号块扩展
         if (e.bhv) eb.bhv = JSON.parse(JSON.stringify(e.bhv));
         blocks.push(eb);
       } else if (EX_TRIGGER[id] !== undefined) {

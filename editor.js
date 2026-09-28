@@ -3917,11 +3917,14 @@
     if (type === 104) return { id: 'block_question', extra: { pop: 'badstar' } };
     // 问号块出P开关（引擎新增 ttype=105：顶出后原地变P开关块400）
     if (type === 105) return { id: 'block_question', extra: { pop: 'pswitch' } };
-    // 量产块（110→111）：xt 选择量产对象 0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星
-    if (type === 110 || type === 111) return {
-      id: 'block_question',
+    // 隐藏量产块（110→111）：原版不绘制（隐形陷阱，如 1-1 b3 毒蘑菇量产）；
+    // xt 选择量产对象 0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星
+    if (type === 110) return {
+      id: 'block_hidden',
       extra: { pop: ({ 1: 'enemy', 2: 'mushroom', 3: 'flower', 4: 'badstar' })[xt] || 'poison', mass: true }
     };
+    // 111=量产中状态（原版画已用块外观；关卡 def 不会出现，仅运行时由 110/114 转换而来）
+    if (type === 111) return { id: 'block_hard' };
     if (type === 112 || type === 113) return { id: 'block_question', extra: { pop: 'coin', mass: true } };
     // 隐藏块 txtype（弹出对象与问号块取并集）：
     //   单发 0=毒蘑菇 2=金币 4=红蘑菇 6=白猫怪 8=火焰花 10=P开关 11=坏星
