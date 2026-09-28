@@ -1551,6 +1551,19 @@
             }
             if (e.atype === 6) e.atm = 10;
 
+            // 伪装方块(atype=82)致命接触瞬间「开花」（旧引擎 main.cpp:3642-3645，
+            // 位于 mhp==0 分支）：82→83 露出四周白尖；本体左上移(-1000,-900)，
+            // 使 83 形态在(+10,+9)叠加的 30×30 方块仍贴在原格位置。
+            // anobia/anobib 保持 3000（碰撞盒不随形态放大，与旧引擎一致）；
+            // 巨大化(mhp≫0)接触不致死则不变形（旧引擎 mhp!=0 不进本分支）
+            if (e.atype === 82 && p.mhp <= 0) {
+              e.amsgtm = 20;
+              e.amsgtype = 31 + ((Math.random() * 2) | 0);  // 31「不带这么玩的..」/32「我来了」
+              e.atype = 83;
+              e.aa -= 1000;
+              e.ab -= 900;
+            }
+
             // こうら踢效果（原版 main.cpp:3665-3677）：
             // 玩家水平触碰静止龟壳(atype=2,axtype=0) → 启动滑动并把壳瞬移到玩家旁，
             // 给玩家5帧无敌防止本帧/下帧重复触发；滑动中壳(axtype>=1)撞玩家已由上面 markHurt 扣血分支处理
@@ -1744,7 +1757,7 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 91 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 91 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82 && e.atype !== 83) {
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
@@ -1769,11 +1782,23 @@
     } else if (e.atype === 30) {
       S.draw(ctx, e.axtype === 0 ? 30 : 155, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 82) {
-      // 伪装成方块的敌人（原版 main.cpp:985-1001）：axtype=0 画地面顶、1 画硬块、2 画 grap[1][5]，
+      // 伪装成方块的敌人（原版 main.cpp:985-1001）：axtype=0 画地面顶(grap5)、
+      // axtype=1 画楼梯块/内框块(grap4)、axtype=2 画 grap[1][5]，
       // 贴图随主题偏移（地下+30/城堡+60）；碰撞盒 30×30（ENEMY_SIZE[82]）
       var off82 = state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0);
       if (e.axtype === 2) S.draw(ctx, 1, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       else S.draw(ctx, (e.axtype === 1 ? 4 : 5) + off82, 1, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+    } else if (e.atype === 83) {
+      // 开花形态（原版 main.cpp:948 通用层 + 1002-1014 叠加层）：
+      // ① 49×48 omake 白尖刺球(grap83,3)；② (x+10,y+9) 再盖一块 30×30 伪装方块，
+      //    axtype=0→地面顶(grap5)、axtype=1→楼梯块(grap4)，主题偏移地下+30/城堡+60；
+      //    刺球中心的紫/橙区域被方块盖住，仅四周白尖露出（1-2-1 e0「墙上长刺」）。
+      //    82 致命接触变形时本体已左上移(-1000,-900)，叠加方块正好落在原格。
+      var dx83 = Math.floor(xx[0] / 100), dy83 = Math.floor(xx[1] / 100);
+      S.draw(ctx, 83, 3, dx83, dy83);
+      var off83 = state.stagecolor === 2 ? 30 : (state.stagecolor === 4 ? 60 : 0);
+      if (e.axtype === 0) S.draw(ctx, 5 + off83, 1, dx83 + 10, dy83 + 9);
+      else if (e.axtype === 1) S.draw(ctx, 4 + off83, 1, dx83 + 10, dy83 + 9);
     } else if (e.atype === 79) {
       // 激光炮（stype103/104 隐形陷阱带生成的横向扁矩形，anobia×anobib≈120×15）：
       // 旧引擎 main.cpp:978-983 — 黄色填充矩形 + 黑色描边
@@ -2486,7 +2511,7 @@
     5: '吐舌猫', 6: '机器人', 7: '弹簧白猫', 8: '奔跑怪', 9: '弹跳火焰',
     10: '横向火焰', 30: '小猫咪', 31: '肌肉鸡',
     79: '大脸怪',
-    80: '脸云怪', 81: '普通云怪', 82: '隐形云怪', 83: '刺球', 84: '火球',
+    80: '脸云怪', 81: '普通云怪', 82: '伪装方块怪', 83: '刺球', 84: '火球',
     85: '假旗杆', 86: '桃色方块猫', 87: '火焰棒', 90: '黄色光束',
     101: '火花', 102: '紫毒蘑菇', 105: '绿问号球', 110: '恶星'
   };

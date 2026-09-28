@@ -1444,6 +1444,26 @@
       ctx.globalAlpha = 1;
       return;
     }
+    // 伪装方块怪（atype=82）：按 xt 变体画对应方块贴图（0=地面顶、1=硬块、2=问号方块）。
+    // 与游戏内 engine.js atype=82 渲染一致：xt=0/1 走主题偏移（地下 d_/城堡 c_），xt=2 固定普通问号块（无主题偏移）
+    if (d.id === 'enemy_block_mimic') {
+      var _mimicXt = (e.xt != null) ? (e.xt | 0) : 1;
+      var _mimicId;
+      if (_mimicXt === 2) {
+        _mimicId = 'block_question';   // 原版 grap[1][5]，无主题偏移
+      } else {
+        var _mimicBase = _mimicXt === 0 ? 'block_ground_top' : 'block_hard';
+        var _mimicSuffix = state.theme === 'dungeon' ? 'block_d_' : (state.theme === 'castle' ? 'block_c_' : 'block_');
+        _mimicId = _mimicBase.replace(/^block_/, _mimicSuffix);
+      }
+      var _mimicImg = getImg(CAT.byId(_mimicId)) || getImg(d);
+      if (_mimicImg && _mimicImg.complete && _mimicImg.naturalWidth) {
+        ctx.globalAlpha = a;
+        drawImg(_mimicImg, x, y, TILE, TILE);
+        ctx.globalAlpha = 1;
+      }
+      return;
+    }
     var im2 = getImg(d);
     if (im2 && im2.complete && im2.naturalWidth) {
       ctx.globalAlpha = a;
@@ -3929,7 +3949,8 @@
     if (t >= 0 && t <= 9) return W_ENEMY0[t];
     var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
       105: 'item_green_question', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
-      31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 83: 'enemy_spike_ball',
+      31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 82: 'enemy_block_mimic',
+      83: 'enemy_spike_ball',
       84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 88: 'firebar', 90: 'enemy_beam' };
     return m[t] || null;
   }
@@ -4149,6 +4170,9 @@
             : (eid === 'enemy_king' && en.btype === 4 && (en.bxtype || 0) === 1);
           if (fj) ekExtra = { follow: true };
         }
+        // 透传 bxtype（伪装方块怪 atype=82 的外观变体等触发器类敌人的变体值），
+        // 避免编辑器导入→保存链路丢失；无值/0 时不写以保持存档简洁
+        if (en.bxtype) (ekExtra = ekExtra || {}).xt = en.bxtype;
         add(eid, col, row, ekExtra, euid);
       }
     });

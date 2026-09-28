@@ -336,6 +336,7 @@ body.dragging #dropTip { display: flex; }
     enemy_chicken:        { t: 31,  xt: 0 },
     enemy_cloud_face:     { t: 80,  xt: 0 },
     enemy_cloud_plain:    { t: 81,  xt: 0 },
+    enemy_block_mimic:    { t: 82,  xt: 1 },
     enemy_spike_ball:     { t: 83,  xt: 0 },
     enemy_fireball:       { t: 84,  xt: 0 },
     fake_pole:            { t: 85,  xt: 0 },
@@ -510,7 +511,9 @@ body.dragging #dropTip { display: flex; }
             enemies.push({ ba: x * 100 + 1450, bb: y * 100 + 1450, btype: btype, bxtype: cnt + (rot + 100) * 100, bdir: bdir, uid: e.uid || null });
           }
         } else {
-          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: tg.xt, uid: e.uid || null });
+          // bxtype 优先取元素保存的 xt（编辑器导入时透传的旧引擎变体值，如伪装方块怪 82 的外观），缺省用表值
+          var bxt = (e.xt != null) ? e.xt : tg.xt;
+          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: bxt, uid: e.uid || null });
         }
       } else if (id === '_trapzone') {
         // 内部陷阱触发区双区域（stype=106 通用陷阱；105 为原版方块移位机关，不可编辑）：
