@@ -3296,22 +3296,21 @@
 
     // 双击手势第一下（detail===1）按下时，记录该格“已存在”的元素；
     // 供 dblclick 判定，避免空白处双击先触发放置、再误弹属性框
-    // hitTest 只看触发区(footprintOf)，若未命中再扫 _trapzone 生成区
+    // _trapzone 生成区可被管道等实体覆盖，先扫生成区，未命中再走 hitTest
     if (ev.button === 0 && ev.detail === 1) {
-      var _seedHit = hitTest(cell.col, cell.row);
-      if (!_seedHit) {
-        for (var _si = 0; _si < state.elements.length; _si++) {
-          var _se = state.elements[_si];
-          if (_se.id !== '_trapzone') continue;
-          var _sd3 = CAT.byId(_se.id);
-          var _sdz3 = trapDims(_se, _sd3);
-          if (cell.col >= _sdz3.gcol && cell.col < _sdz3.gcol + _sdz3.gtw &&
-              cell.row >= _sdz3.grow && cell.row < _sdz3.grow + _sdz3.gth) {
-            _seedHit = _se;
-            break;
-          }
+      var _seedHit = null;
+      for (var _si = 0; _si < state.elements.length; _si++) {
+        var _se = state.elements[_si];
+        if (_se.id !== '_trapzone') continue;
+        var _sd3 = CAT.byId(_se.id);
+        var _sdz3 = trapDims(_se, _sd3);
+        if (cell.col >= _sdz3.gcol && cell.col < _sdz3.gcol + _sdz3.gtw &&
+            cell.row >= _sdz3.grow && cell.row < _sdz3.grow + _sdz3.gth) {
+          _seedHit = _se;
+          break;
         }
       }
+      if (!_seedHit) _seedHit = hitTest(cell.col, cell.row);
       dblSeedUid = _seedHit ? _seedHit.uid : null;
     }
 
@@ -3388,21 +3387,20 @@
       eraseAt(cell.col, cell.row);
       selected = null;
     } else {
-      var hit = hitTest(cell.col, cell.row);
-      // hitTest 只看触发区(footprintOf)；若未命中触发区，检查是否命中某个 _trapzone 的生成区
-      if (!hit) {
-        for (var _ti = 0; _ti < state.elements.length; _ti++) {
-          var _te = state.elements[_ti];
-          if (_te.id !== '_trapzone') continue;
-          var _td2 = CAT.byId(_te.id);
-          var _tdz2 = trapDims(_te, _td2);
-          if (cell.col >= _tdz2.gcol && cell.col < _tdz2.gcol + _tdz2.gtw &&
-              cell.row >= _tdz2.grow && cell.row < _tdz2.grow + _tdz2.gth) {
-            hit = _te;
-            break;
-          }
+      // _trapzone 生成区可被管道等实体覆盖，先扫生成区，未命中再走 hitTest（看触发区/其它元素）
+      var hit = null;
+      for (var _ti = 0; _ti < state.elements.length; _ti++) {
+        var _te = state.elements[_ti];
+        if (_te.id !== '_trapzone') continue;
+        var _td2 = CAT.byId(_te.id);
+        var _tdz2 = trapDims(_te, _td2);
+        if (cell.col >= _tdz2.gcol && cell.col < _tdz2.gcol + _tdz2.gtw &&
+            cell.row >= _tdz2.grow && cell.row < _tdz2.grow + _tdz2.gth) {
+          hit = _te;
+          break;
         }
       }
+      if (!hit) hit = hitTest(cell.col, cell.row);
       if (hit) {
         // 命中已有元素：仅选中；单击/双击不产生编辑历史（避免误清空原版世界高保真 def），
         // 真正发生拖动移位时才在 mousemove 中把拖动前状态压入撤销栈
@@ -3457,7 +3455,20 @@
     var cell = evtCell(ev);
     hover = cell;
     // 悬停的元素实例（带 uid，调试复现时可据此精确定位）
-    var hovHit = hitTest(cell.col, cell.row);
+    // _trapzone 生成区可被管道等实体覆盖，先扫生成区，未命中再走 hitTest
+    var hovHit = null;
+    for (var _hi = 0; _hi < state.elements.length; _hi++) {
+      var _he = state.elements[_hi];
+      if (_he.id !== '_trapzone') continue;
+      var _hd3 = CAT.byId(_he.id);
+      var _hdz3 = trapDims(_he, _hd3);
+      if (cell.col >= _hdz3.gcol && cell.col < _hdz3.gcol + _hdz3.gtw &&
+          cell.row >= _hdz3.grow && cell.row < _hdz3.grow + _hdz3.gth) {
+        hovHit = _he;
+        break;
+      }
+    }
+    if (!hovHit) hovHit = hitTest(cell.col, cell.row);
     var statusTxt = '位置：列 ' + cell.col + ' / 行 ' + cell.row +
       '（共 ' + state.elements.length + ' 个元素，画布 ' + state.cols + ' 列）';
     if (hovHit) {
@@ -3619,21 +3630,20 @@
   canvas.addEventListener('dblclick', function (ev) {
     ev.preventDefault();
     var cell = evtCell(ev);
-    var hit = hitTest(cell.col, cell.row);
-    // hitTest 只看触发区；若未命中，检查是否命中 _trapzone 生成区
-    if (!hit) {
-      for (var _di = 0; _di < state.elements.length; _di++) {
-        var _de = state.elements[_di];
-        if (_de.id !== '_trapzone') continue;
-        var _dd = CAT.byId(_de.id);
-        var _ddz = trapDims(_de, _dd);
-        if (cell.col >= _ddz.gcol && cell.col < _ddz.gcol + _ddz.gtw &&
-            cell.row >= _ddz.grow && cell.row < _ddz.grow + _ddz.gth) {
-          hit = _de;
-          break;
-        }
+    // _trapzone 生成区可被管道覆盖，先扫生成区，未命中再走 hitTest
+    var hit = null;
+    for (var _di = 0; _di < state.elements.length; _di++) {
+      var _de = state.elements[_di];
+      if (_de.id !== '_trapzone') continue;
+      var _dd = CAT.byId(_de.id);
+      var _ddz = trapDims(_de, _dd);
+      if (cell.col >= _ddz.gcol && cell.col < _ddz.gcol + _ddz.gtw &&
+          cell.row >= _ddz.grow && cell.row < _ddz.grow + _ddz.gth) {
+        hit = _de;
+        break;
       }
     }
+    if (!hit) hit = hitTest(cell.col, cell.row);
     // 仅当双击起始时该位置已有同一元素才弹窗（空白处双击放置元素不弹、橡皮擦除后不弹）
     if (!hit || !dblSeedUid || hit.uid !== dblSeedUid) return;
     selected = hit;
