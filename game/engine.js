@@ -1659,7 +1659,10 @@
     for (var li = 0; li < state.lifts.length; li++) {
       var lf = state.lifts[li];
       if (lf.sra < -8000000) continue;
-      if (lf.sra + lf.src < -12000 || lf.sra > C.FXMAX + 12000) continue;
+      // 水平剔除：sra 是世界坐标，必须先减镜头 fx 再与屏宽 FXMAX 比较
+      // （与 collideLifts 玩家分支一致；原实现漏减 fx，导致 x>FXMAX+120 的
+      //   升降台/悬挂台对敌人永远失效——敌人站不上任何远处站台）
+      if (lf.sra - state.fx + lf.src < -12000 || lf.sra - state.fx > C.FXMAX + 12000) continue;
       var lOld = lf._oldSrb != null ? lf._oldSrb : lf.srb;
       if (e.aa + e.anobia > lf.sra + 500 && e.aa < lf.sra + lf.src - 500 &&
           e.ab + e.anobib > lOld && e.ab + e.anobib < lOld + 1200 && e.ad >= -100) {
