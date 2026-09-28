@@ -615,16 +615,19 @@
   });
 
   // stype 103: 激光陷阱（sxtype=0 右侧 sa+9000；sxtype=1 左侧 sa-12000）
+  // 旧 main.cpp:2636/2640：激光生成瞬间自带 10 帧台词「波動砲!!」(amsgtype=50)
   PipeTypes[103] = makeTrapType(function (p, s, xx, state, A, spawnEnemy) {
     if (s.sxtype === 0) {
-      spawnEnemy(s.sa + 9000, s.sb + 2000, 0, 0, 0, 79, 0);
+      var le0 = spawnEnemy(s.sa + 9000, s.sb + 2000, 0, 0, 0, 79, 0);
+      if (le0) { le0.amsgtm = 10; le0.amsgtype = 50; le0._amsgmax = 10; }
       s.sa = -800000000;
     } else if (s.sxtype === 1) {
       // 原版闸门：blocks[6] 为隐藏块(type7)被顶出后类型 ≤6 才发射（1-3）；
       // 同时把 blocks[9] 的 txtype 置 500（main.cpp:2639-2642）
       var bg = state.blocks && state.blocks[6];
       if (!bg || bg.ttype <= 6) {
-        spawnEnemy(s.sa - 12000, s.sb + 2000, 0, 0, 0, 79, 0);
+        var le1 = spawnEnemy(s.sa - 12000, s.sb + 2000, 0, 0, 0, 79, 0);
+        if (le1) { le1.amsgtm = 10; le1.amsgtype = 50; le1._amsgmax = 10; }
         s.sa = -800000000;
         var bx = state.blocks && state.blocks[9];
         if (bx) bx.txtype = 500;

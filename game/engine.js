@@ -96,6 +96,198 @@
           "                          "]
   };
 
+  // ==================== 台词气泡系统 ====================
+  // 文本来源：旧引擎 src/str.h 官中版（IDS_MSG_* 玩家台词 / IDS_AMSG_* 敌人台词）。
+  // 触发点与旧引擎 main.cpp 一致：
+  //   玩家台词在受伤/拾取现场触发（main.cpp:3685-3717、3224 等）；
+  //   敌人嘲讽在接触击杀分支触发（main.cpp:3601-3659）。
+  // 气泡用世界坐标锚定（随镜头与实体移动），倒计时按 C._DT 缩放，时长沿用旧帧值。
+
+  // 玩家台词（原版 mmsgtype，气泡跟随玩家头顶）
+  var PLAYER_LINES = {
+    1: '好吃!!',                        // 碰到脸云(atype100/axtype0) main.cpp:3685
+    2: '虽然没有毒...',                  // 碰到普通云(atype100/axtype1) main.cpp:3687
+    3: '被刺死了!!',                     // 尖刺块(ttype10) main.cpp:2170 / 恶星(atype110) :3717
+    10: '吃蘑菇才不会变大呢..',           // 毒蘑菇(atype102) main.cpp:3690
+    11: '肚子里有火球，烫死了!!',         // 火焰花(atype101) main.cpp:3689
+    50: '身体烧着了……',                  // 火球(atype84) main.cpp:3648
+    51: '这...!!',                       // 火焰棒(87/88) main.cpp:3224/3250 / 机关陷阱 :1920
+    52: '死路一条',                      // 陷阱管道（旧 mxtype=5 main.cpp:1921）
+    53: '我的脚、我的脚啊!!',             // 疲劳升降台 main.cpp:2828
+    54: '不愧是摄氏800度!!',             // 弹跳/横向火焰(atype9/10) main.cpp:3628
+    55: '烫死了……'                       // 城堡岩浆 main.cpp:2073（stagecolor==4）
+  };
+
+  // 敌人台词（原版 amsgtype，气泡跟随对应敌人）
+  // 1001-1008 / 1011-1018 / 1021-1028 / 1031-1038：第 1~4 大关普通怪
+  // （白猫0/弹簧白猫7/皇冠4）的随机嘲讽池
+  var ENEMY_LINES = {
+    1001: 'Yeah!!', 1002: '恩？这样就赢了？', 1003: '简直是不堪一击!',
+    1004: '你确定你会打游戏？', 1005: '我是最强的!!', 1006: '没见过这么笨的!!',
+    1007: '冲啊!!', 1008: '哈哈!!',
+    1011: '...', 1012: '完全不是我的对手', 1013: '这里就是你的归宿!',
+    1014: '你这个不知天高地厚的家伙……', 1015: '少看不起我了', 1016: '菜鸟一个',
+    1017: '笨死了!!', 1018: '太乱来了……',
+    1021: 'Yes!!', 1022: '我就这么赢了吗?', 1023: '你还是放弃吧',
+    1024: '就你也敢跟我斗？', 1025: '我是不会输的!!', 1026: '我这招是不会被你识破的',
+    1027: '去死吧!!', 1028: '任務完成!!',
+    1031: 'Yahoo!!', 1032: '就这么赢了?', 1033: '今天就是您的死期了!',
+    1034: '居然敢碰我……', 1035: '大意了吧', 1036: '你也没那么厉害么',
+    1037: '笨蛋!', 1038: '太乱来了……',
+    15: '我有壳，我是无敌的!!', 16: '你就这身垃圾装备还想赢我?',
+    17: '巴里!!', 18: '这是你自找的',
+    20: 'Zzz', 21: '好、好吃', 24: '?',
+    25: '不应该吃它的!!',                 // 小猫咪(30)吃到毒蘑菇时 main.cpp:3151
+    30: '哎呀，不好意思!!', 31: '不带这么玩的..', 32: '我来了',
+    50: '波動砲!!',                       // 激光陷阱(stype103)发射瞬间 main.cpp:2636
+    85: '你觉得被出卖了吗?', 86: '超级攻击!!'
+  };
+
+  var BUBBLE_FADE_IN = 3, BUBBLE_FADE_OUT = 6;   // 淡入淡出帧数（30Hz 帧单位）
+
+  // 玩家说台词（time 为旧引擎帧值，30≈1 秒；内部按 C._DT 倒计时）
+  function sayPlayer(type, time) {
+    var p = state.player;
+    if (!p || !PLAYER_LINES[type]) return;
+    p.mmsgtm = time; p.mmsgtype = type; p._mmsgmax = time;
+  }
+  // 敌人说台词
+  function sayEnemy(e, type, time) {
+    if (!e || !ENEMY_LINES[type]) return;
+    e.amsgtm = time; e.amsgtype = type; e._amsgmax = time;
+  }
+  // 旧引擎 getrand(n)=floor(rand*n)，取值 0..n-1（lib.js:384，上界不含）
+  function oldRand(n) { return (Math.random() * n) | 0; }
+
+  // 玩家被敌人接触击杀时的台词分派（对应旧 main.cpp:3601-3659 的 mhp==0 分支）
+  function dispatchContactLine(e) {
+    switch (e.atype) {
+      case 0: case 7: case 4: {
+        // 旧：getrand(7)+1+1000+(stb-1)*10 → 每大关只能取到 1001..1007（1008 永远抽不到）
+        var grp = state.stb < 1 ? 1 : (state.stb > 4 ? 4 : state.stb);
+        sayEnemy(e, 1000 + (grp - 1) * 10 + 1 + oldRand(7), 60);
+        break;
+      }
+      case 1: sayEnemy(e, 15 + oldRand(2), 60); break;       // 绿龟：15/16（17 抽不到）
+      case 2: if (e.axtype >= 1) sayEnemy(e, 18, 60); break; // 滑动中的龟壳
+      case 3: sayEnemy(e, 20, 60); break;                    // 幽灵
+      case 5: sayEnemy(e, 21, 60); break;                    // 吐舌猫
+      case 9: case 10: sayPlayer(54, 30); break;             // 火焰
+      case 31: sayEnemy(e, 24, 30); break;                   // 肌肉鸡
+      case 80: case 81: sayEnemy(e, 30, 60); break;          // 云怪
+      case 84: sayPlayer(50, 30); break;                     // 火球
+      case 85: sayEnemy(e, 85 + oldRand(1), 60); break;      // 假旗杆（旧只抽得到 85）
+      // 82(伪装方块) 由变形专属分支处理（31）；79(激光) 台词在发射瞬间播放；
+      // 6(机器人)不造成伤害；8(奔跑怪)/86/90 等敌人旧版无台词
+    }
+  }
+
+  // 台词计时（frame() 内调用；提示块面板暂停游戏时气泡仍可自然消散）
+  function tickBubbles() {
+    var p = state.player;
+    if (p && p.mmsgtm > 0) {
+      p.mmsgtm -= C._DT;
+      if (p.mmsgtm <= 0) { p.mmsgtm = 0; p.mmsgtype = 0; }
+    }
+    var es = state.enemies;
+    for (var i = 0; i < es.length; i++) {
+      var e = es[i];
+      if (e.amsgtm > 0) {
+        e.amsgtm -= C._DT;
+        if (e.amsgtm <= 0) { e.amsgtm = 0; e.amsgtype = 0; }
+      }
+    }
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    var rr = r > h / 2 ? h / 2 : r;
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  // 绘制单个气泡。cx/ay 为屏幕虚拟像素，ay = 角色头顶（气泡尾巴尖指向处）
+  function drawSpeechBubble(ctx, cx, ay, text, tm, maxTm, fill) {
+    if (tm <= 0) return;
+    var alpha = 1;
+    if (maxTm - tm < BUBBLE_FADE_IN) alpha = (maxTm - tm) / BUBBLE_FADE_IN;
+    if (tm < BUBBLE_FADE_OUT) alpha = Math.min(alpha, tm / BUBBLE_FADE_OUT);
+    if (alpha <= 0) return;
+
+    var padX = 7, bh = 20, tailH = 5, tailW = 8;
+    var tw = ctx.measureText(text).width;
+    var bw = tw + padX * 2;
+    if (bw < 34) bw = 34;
+    var bx = cx - bw / 2;
+    if (bx < 3) bx = 3;
+    if (bx > C.CANVAS_W - 3 - bw) bx = C.CANVAS_W - 3 - bw;
+    var by = ay - tailH - bh;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = fill;
+    // 尾巴
+    var tx = cx;
+    if (tx < bx + 7) tx = bx + 7;
+    if (tx > bx + bw - 7) tx = bx + bw - 7;
+    ctx.beginPath();
+    ctx.moveTo(tx - tailW / 2, by + bh);
+    ctx.lineTo(tx + tailW / 2, by + bh);
+    ctx.lineTo(tx, ay);
+    ctx.closePath();
+    ctx.fill();
+    // 气泡框
+    roundRectPath(ctx, bx, by, bw, bh, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 尾巴斜边描边
+    ctx.beginPath();
+    ctx.moveTo(tx - tailW / 2, by + bh - 0.5);
+    ctx.lineTo(tx, ay - 1);
+    ctx.lineTo(tx + tailW / 2, by + bh - 0.5);
+    ctx.stroke();
+    // 文字
+    ctx.fillStyle = '#000';
+    ctx.fillText(text, bx + bw / 2, by + bh / 2 + 0.5);
+    ctx.restore();
+  }
+
+  // 渲染全部台词气泡（在实体/管道之后、提示块面板之前调用）
+  function renderBubbles(ctx) {
+    if (state.proc !== C.PROC.GAME || !state.player) return;
+    var p = state.player;
+    ctx.save();
+    ctx.font = '12px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    if (p.mmsgtm > 0 && PLAYER_LINES[p.mmsgtype]) {
+      var cx = (p.ma + p.mnobia / 2 - state.fx) / 100;
+      var ay = (p.mb - state.fy) / 100 - 4;
+      if (cx > -80 && cx < C.FXMAX / 100 + 80 && ay > -60 && ay < C.FYMAX / 100 + 40) {
+        drawSpeechBubble(ctx, cx, ay, PLAYER_LINES[p.mmsgtype],
+          p.mmsgtm, p._mmsgmax || p.mmsgtm, '#ffffff');
+      }
+    }
+    for (var i = 0; i < state.enemies.length; i++) {
+      var e = state.enemies[i];
+      if (e.amsgtm <= 0 || !ENEMY_LINES[e.amsgtype]) continue;
+      var ecx = (e.aa + e.anobia / 2 - state.fx) / 100;
+      var eay = (e.ab - state.fy) / 100 - 4;
+      if (ecx > -120 && ecx < C.FXMAX / 100 + 120 && eay > -60 && eay < C.FYMAX / 100 + 40) {
+        drawSpeechBubble(ctx, ecx, eay, ENEMY_LINES[e.amsgtype],
+          e.amsgtm, e._amsgmax || e.amsgtm, '#fff39a');
+      }
+    }
+    ctx.restore();
+  }
+
   // 临时变量（仿原版 xx[]）
   var xx = {};
 
@@ -119,6 +311,8 @@
       mact: 0, mactp: 0,
       mzz: 0,
       mmutekitm: 0, mmutekion: 0,
+      // 台词气泡（原版 mmsgtm/mmsgtype；_mmsgmax 记录初始时长用于淡入淡出）
+      mmsgtm: 0, mmsgtype: 0, _mmsgmax: 0,
       actaon: [0, 0, 0, 0, 0]      // [左右, 跳, 跳按住, 下, 左右方向]
     };
   }
@@ -384,7 +578,7 @@
       azimentype: 1,
       axzimen: 0,
       aacta: 0, aactb: 0,
-      amsgtm: 0, amsgtype: 0,
+      amsgtm: 0, amsgtype: 0, _amsgmax: 0,
       af: 0, ae: 0
     };
     if (e.aa <= state.player.ma + state.player.mnobia / 2) e.amuki = 1;
@@ -593,6 +787,7 @@
           }
           if (p.mtm === (tp && tp.trapAnim && tp.trapAnim.end != null ? tp.trapAnim.end : 160)) {
             markHurt('trap-pipe', p._trapPipe ? p._trapPipe.uid : null);
+            sayPlayer(52, 30);   // 「死路一条」（旧 mxtype=5 为入管即死，新引擎陷阱管道统一在抬升终结时说）
             p._trapPipe = null; p.mtype = 0; p.mhp--;
             _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit', uid: state._lastHurt ? state._lastHurt.uid : null });
           }
@@ -682,7 +877,13 @@
       if (p.ma < 100) { p.ma = 100; p.mc = 0; }
       if (p.ma + p.mnobia > state.scrollx + C.FXMAX) { p.ma = state.scrollx + C.FXMAX - p.mnobia; p.mc = 0; }
     }
-    if (p.mb >= 52000 && p.mhp >= 0) { markHurt('out-of-world', null); p.mhp = -2; }
+    if (p.mb >= 52000 && p.mhp >= 0) {
+      markHurt('out-of-world', null);
+      // 旧 main.cpp:2073：城堡关(stagecolor==4) y>=38000 即岩浆，台词「烫死了……」；
+      // 新引擎统一在 52000 击杀面判定，城堡主题沿用岩浆台词
+      if (state.stagecolor === 4) sayPlayer(55, 30);
+      p.mhp = -2;
+    }
 
     // 行走动画
     if (p.mactp >= 2000) { p.mactp -= 2000; p.mact = p.mact === 0 ? 1 : 0; }
@@ -786,8 +987,9 @@
                   b.ttype = bhvButt.usedType != null ? bhvButt.usedType : 3;
                 }
                 if (bhvButt && bhvButt.damage > 0) {
-                  p.mmsgtm = bhvButt.msgTm != null ? bhvButt.msgTm : 30;
-                  p.mmsgtype = bhvButt.msgType != null ? bhvButt.msgType : 3;
+                  // 原版 main.cpp:2170 顶到尖刺块(ttype10)：「被刺死了!!」
+                  sayPlayer(bhvButt.msgType != null ? bhvButt.msgType : 3,
+                            bhvButt.msgTm != null ? bhvButt.msgTm : 30);
                   markHurt('spike', b.uid);
                   p.mhp -= bhvButt.damage;
                   _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'ttype10', uid: b.uid, ta: b.ta, tb: b.tb });
@@ -1084,7 +1286,7 @@
               p.mc = lb.launchMc;
               l.srmove += C._DT;
               var fat = lb.fatigueFrames != null ? lb.fatigueFrames : 100;
-              if (l.srmove >= fat) { markHurt('fatigue-lift', l.uid); p.mhp = 0; l.srmove = -5000; }
+              if (l.srmove >= fat) { markHurt('fatigue-lift', l.uid); sayPlayer(53, 30); p.mhp = 0; l.srmove = -5000; }
             }
             if (lb.proxDist != null) {
               if (p.ma + p.mnobia > l.sra + lb.proxDist && p.ma < l.sra + l.src - 500) l.sron = 1;
@@ -1470,6 +1672,7 @@
           if (p.ma + p.mnobia > fbx - fbHalf && p.ma < fbx + fbHalf &&
               p.mb + p.mnobib > fby - fbHalf && p.mb < fby + fbHalf) {
             markHurt('firebar', e.uid);
+            sayPlayer(51, 30);   // 原版 main.cpp:3224/3250：被火焰棒烧到「这...!!」
             p.mhp -= 1;
             break;
           }
@@ -1487,6 +1690,7 @@
           if (p.ma + p.mnobia > lx91 + 500 && p.ma < lx91 + e.anobia - 500 &&
               p.mb < ly91 + e.anobib - 500 && p.mb + p.mnobib > ly91 + e.anobib - 250) {
             markHurt('laser5', e.uid);
+            sayPlayer(51, 30);   // 五重激光为新引擎合并机关，沿用旧机关致死台词
             p.mhp -= 1;
             break;
           }
@@ -1546,6 +1750,8 @@
               if (e.atype !== 6) {
                 markHurt('enemy', e.uid, { atype: e.atype, axtype: e.axtype, aa: e.aa, ab: e.ab });
                 p.mhp -= 1;
+                // 击杀成立：按旧 main.cpp:3601-3659 mhp==0 分支播放敌人/玩家台词
+                if (p.mhp <= 0) dispatchContactLine(e);
                 _debugLog.push({ f: _debugFrame, key: _debugKey, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'enemy', uid: e.uid, atype: e.atype, aa: e.aa, ab: e.ab });
               }
             }
@@ -1557,8 +1763,8 @@
             // anobia/anobib 保持 3000（碰撞盒不随形态放大，与旧引擎一致）；
             // 巨大化(mhp≫0)接触不致死则不变形（旧引擎 mhp!=0 不进本分支）
             if (e.atype === 82 && p.mhp <= 0) {
-              e.amsgtm = 20;
-              e.amsgtype = 31 + ((Math.random() * 2) | 0);  // 31「不带这么玩的..」/32「我来了」
+              // 旧 main.cpp:3642-3645：getrand(1)+31 → getrand 上界不含，只会抽到 31
+              sayEnemy(e, 31 + oldRand(1), 20);
               e.atype = 83;
               e.aa -= 1000;
               e.ab -= 900;
@@ -1585,16 +1791,17 @@
         }
         // 道具拾取
         if (e.atype >= 100 && e.atype <= 199) {
-          if (e.atype === 100 && e.axtype === 0) { A.playSE(C.SE.POWERUP); }
-          if (e.atype === 100 && e.axtype === 1) { A.playSE(C.SE.POWERUP); }
+          // 旧 main.cpp:3685-3717：云/花/毒蘑菇/恶星拾取台词（与是否致死无关）
+          if (e.atype === 100 && e.axtype === 0) { sayPlayer(1, 30); A.playSE(C.SE.POWERUP); }
+          if (e.atype === 100 && e.axtype === 1) { sayPlayer(2, 30); A.playSE(C.SE.POWERUP); }
           if (e.atype === 100 && e.axtype === 2) {
             // 巨大蘑菇：玩家变大
             p.mnobia = C.PLAYER_GIANT_W; p.mnobib = C.PLAYER_GIANT_H;
             A.playSE(C.SE.POWERUP); p.ma -= 1100; p.mb -= 4000; p.mtype = 1; p.mhp = 50000000;
           }
-          if (e.atype === 101) { markHurt('flower', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'flower', uid: e.uid }); }
-          if (e.atype === 102) { markHurt('poison-mushroom', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'poison-mushroom', uid: e.uid }); }
-          if (e.atype === 110) { markHurt('bad-star', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'bad-star', uid: e.uid }); }
+          if (e.atype === 101) { sayPlayer(11, 30); markHurt('flower', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'flower', uid: e.uid }); }
+          if (e.atype === 102) { sayPlayer(10, 30); markHurt('poison-mushroom', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'poison-mushroom', uid: e.uid }); }
+          if (e.atype === 110) { sayPlayer(3, 30); markHurt('bad-star', e.uid); p.mhp -= 1; _debugLog.push({ f: _debugFrame, key: _debugKey, mhpDmg: true, reason: 'bad-star', uid: e.uid }); }
           e.aa = -90000000;
         }
       }
@@ -2137,6 +2344,9 @@
       }
     });
 
+    // 台词气泡（玩家/敌人；居中提示块消息框在其后绘制）
+    renderBubbles(ctx);
+
     // 调试状态文字（仅 CHEAT 模式显示，不显示 SCORE/POS）
     if (state.cheat) {
       ctx.fillStyle = '#ff4040';
@@ -2208,6 +2418,8 @@
     _debugFrame++;
 
     if (state.proc === C.PROC.GAME) {
+      // 台词气泡计时（不随提示块面板暂停而冻结，保证触发后可自然消散）
+      tickBubbles();
       // 提示块消息状态机（原版 main.cpp 1450-1469）
       // tmsgtype: 0=隐藏, 1=展开中, 2=等待按键, 3=收起中
       if (state.tmsgtype > 0) {
