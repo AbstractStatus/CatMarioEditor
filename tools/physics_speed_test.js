@@ -147,8 +147,8 @@ const SCENARIOS = [
   // ---- 玩家 ----
   {
     name: 'player.walk.right',
-    desc: '步行右行终点速度（main.cpp:1759 xx[9]=700 → 终点 mc=701/帧）',
-    checks: [{ key: 'v', ref: 701 * 30, tol: 0.001 }],
+    desc: '步行右行终点速度（main.cpp:1759 xx[9]=700 + L1782 超速助推；L2021 位移先于 L2031 钳制 → 稳态位移=800+4·DT/帧）',
+    checks: [{ key: 'v', ref: function (fps) { return (800 + 4 * 30 / fps) * 30; }, tol: 0.001 }],
     run(fps) {
       boot(makeDef(), fps);
       step30(60);
@@ -162,8 +162,8 @@ const SCENARIOS = [
   },
   {
     name: 'player.walk.left',
-    desc: '步行左行终点速度（先右移远离世界左边界 ma<100）',
-    checks: [{ key: 'v', ref: -701 * 30, tol: 0.001 }],
+    desc: '步行左行终点速度（先右移远离世界左边界 ma<100；同右行，稳态位移=-(800+4·DT)/帧）',
+    checks: [{ key: 'v', ref: function (fps) { return -(800 + 4 * 30 / fps) * 30; }, tol: 0.001 }],
     run(fps) {
       boot(makeDef(), fps);
       step30(60);

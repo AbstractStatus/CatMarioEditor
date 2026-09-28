@@ -661,6 +661,9 @@
     if (p.actaon[0] === -1) {
       if (!(p.mzimen === 0 && p.mc < -xx[8])) {
         if (p.mc >= -xx[9]) { p.mc -= xx[0] * C._DT; if (p.mc < -xx[9]) p.mc = -xx[9] - 1; }
+        // 超速助推（main.cpp:1770）：超过700后每帧再 -xx[0]/10，配合800上限使稳态=800
+        // 原版条件 atktm<=0 恒真（atktm 仅声明从未赋值），故省略
+        if (p.mc < -xx[9]) p.mc -= xx[0] / 10 * C._DT;
       }
       if (p.mrzimen !== 1) {
         if (p.mc > 100 && p.mzimen === 0) p.mc -= xx[0] * 2 / 3 * C._DT;
@@ -671,6 +674,8 @@
     if (p.actaon[0] === 1) {
       if (!(p.mzimen === 0 && p.mc > xx[8])) {
         if (p.mc <= xx[9]) { p.mc += xx[0] * C._DT; if (p.mc > xx[9]) p.mc = xx[9] + 1; }
+        // 超速助推（main.cpp:1782）：超过700后每帧再 +xx[0]/10，配合800上限使稳态=800
+        if (p.mc > xx[9]) p.mc += xx[0] / 10 * C._DT;
       }
       if (p.mrzimen !== 1) {
         if (p.mc < -100 && p.mzimen === 0) p.mc += xx[0] * 2 / 3 * C._DT;
