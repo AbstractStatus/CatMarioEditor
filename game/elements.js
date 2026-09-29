@@ -366,6 +366,8 @@
       // 延时倒计时：保持原位（实体可踩），归零后开始加速坠落
       if (s.sdelay > 0) { s.sdelay -= C._DT; return false; }
 
+      // 原版在本帧移动前先快照位置（main.cpp xx[8]/xx[9]），致死判定基于移动前的位置
+      var hitSa = s.sa, hitSb = s.sb;
       // 加速运动（原版 30fps：每帧 +120，上限 1600）
       s.sr = Math.min((s.sr || 0) + 120 * C._DT, 1600);
       if (s.mov) {
@@ -392,9 +394,10 @@
       }
       if (out) { s.sa = -80000000; return false; }
 
-      // 运动中与玩家相交即致死（头顶被砸/身体触碰同理；不用无敌帧，与原版 mhp-- 一致）
-      if (p.ma + p.mnobia > s.sa + 200 && p.ma < s.sa + s.sc - 200 &&
-          p.mb + p.mnobib > s.sb && p.mb < s.sb + s.sd + 200) {
+      // 运动中与玩家相交即致死。使用本帧移动前的位置（hitSa/hitSb）判定，与原版一致，
+      // 避免用移动后最靠前的边缘导致“距离还很远就死亡”（头顶被砸/身体触碰同理；不用无敌帧）
+      if (p.ma + p.mnobia > hitSa + 200 && p.ma < hitSa + s.sc - 200 &&
+          p.mb + p.mnobib > hitSb && p.mb < hitSb + s.sd + 200) {
         // 调试：记录伤害来源实例 uid（state._lastHurt 由 engine 在玩家死亡时输出）
         state._lastHurt = { reason: 'fall-brick', uid: s.uid || null };
         p.mhp--;
