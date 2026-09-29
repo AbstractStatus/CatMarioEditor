@@ -500,6 +500,11 @@
 
     // 敌人触发器
     def.enemies.forEach(function (e) {
+      // btype=105 绿色问号球：可见形态与触碰事件完全由 eventTriggers 承载
+      // （play.html _worldDef 分支 step5 已为每个 btype=105 注入对应 trigger，
+      // 含 img/repeat/events）。此处不再生成普通敌人触发器，否则同一位置
+      // drawEnemy(sprite 105/3) 与 eventTrigger 各画一个绿问号球 → 显示 2 个。
+      if (e.btype === 105) return;
       // followJump（跳跃跟随，解耦属性）：显式优先；原版 atype=4/axtype=1（尖刺馒头怪跟随跳）
       // 未携带属性时自动迁移，保持原版行为不变
       var followJump = (e.followJump != null) ? !!e.followJump : (e.btype === 4 && (e.bxtype || 0) === 1);
