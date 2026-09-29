@@ -1828,27 +1828,33 @@
         }
       }
     }
-    // 清理死亡敌人
-    state.enemies = state.enemies.filter(function (e) { return e.aa >= -800000; });
+    // 清理死亡敌人；喷火管火球坠入深渊（y 超过玩家击杀面 52000）也移除
+    // （旧引擎离开处理窗口 main.cpp:2970 即不再参与）
+    state.enemies = state.enemies.filter(function (e) { return e.aa >= -800000 && !(e.atype === 84 && e.ab > 52000); });
   }
 
   function enemyGroundCollide(e) {
+    // 喷火管火球（atype=84）：旧引擎 azimentype=2 跳过全部地形判定（main.cpp:3480），
+    // 火球坠穿地形后因离开处理窗口而消失；这里按「落地即消失」还原——
+    // 落到管道/方块/升降台顶面的瞬间移除，不做墙面反弹
+    var isFireball = e.atype === 84;
     // 与管道碰撞
     for (var i = 0; i < state.pipes.length; i++) {
       var s = state.pipes[i];
       if (s.sa < -8000000 || !PT.isSolid(s.stype)) continue;
       xx[0] = 200; xx[2] = 1000; xx[1] = 2000;
       xx[8] = s.sa; xx[9] = s.sb;
-      if (e.aa + e.anobia > xx[8] - xx[0] && e.aa < xx[8] + xx[2] &&
+      if (!isFireball && e.aa + e.anobia > xx[8] - xx[0] && e.aa < xx[8] + xx[2] &&
           e.ab + e.anobib > xx[9] + xx[1] * 3 / 4 && e.ab < xx[9] + s.sd - xx[2]) {
         e.aa = xx[8] - xx[0] - e.anobia; e.amuki = 0;
       }
-      if (e.aa + e.anobia > xx[8] + s.sc - xx[0] && e.aa < xx[8] + s.sc + xx[0] &&
+      if (!isFireball && e.aa + e.anobia > xx[8] + s.sc - xx[0] && e.aa < xx[8] + s.sc + xx[0] &&
           e.ab + e.anobib > xx[9] + xx[1] * 3 / 4 && e.ab < xx[9] + s.sd - xx[2]) {
         e.aa = xx[8] + s.sc + xx[0]; e.amuki = 1;
       }
       if (e.aa + e.anobia > xx[8] + xx[0] && e.aa < xx[8] + s.sc - xx[0] &&
           e.ab + e.anobib > xx[9] && e.ab + e.anobib < xx[9] + s.sd - xx[1] && e.ad >= -100) {
+        if (isFireball) { e.aa = -90000000; return; }   // 落到管顶即消失
         e.ab = s.sb - e.anobib + 100; e.ad = 0; e.axzimen = 1;
       }
     }
@@ -1891,6 +1897,7 @@
       if (b.ttype !== 7 && b.ttype !== 117) {
         if (e.aa + e.anobia > xx[8] + xx[0] && e.aa < xx[8] + xx[1] - xx[0] &&
             e.ab + e.anobib > xx[9] && e.ab + e.anobib < xx[9] + xx[1] && e.ad >= -100) {
+          if (isFireball) { e.aa = -90000000; return; }   // 落到方块顶即消失
           e.ab = xx[9] - e.anobib + 100; e.ad = 0; e.axzimen = 1;
         }
       }
@@ -1898,7 +1905,7 @@
       // atype!==2)连侧面也不存在，敌人可横穿/坠落穿过；道具敌人(atype>=100)与滑动
       // 龟壳(atype=2)除外。此前只排除117导致敌人坠落时被侧面解析反复向左瞬移
       // （2-1 尖刺馒头怪离开 g10_11 时瞬移到 g10_7 的根因）
-      if ((e.atype >= 100 || b.ttype !== 7 || e.atype === 2) && b.ttype !== 117) {
+      if (!isFireball && (e.atype >= 100 || b.ttype !== 7 || e.atype === 2) && b.ttype !== 117) {
         var sideHit = false;
         if (e.aa + e.anobia > xx[8] && e.aa < xx[8] + xx[2] &&
             e.ab + e.anobib > xx[9] + xx[1] / 2 - xx[0] && e.ab < xx[9] + xx[2]) {
@@ -1931,6 +1938,7 @@
       var lOld = lf._oldSrb != null ? lf._oldSrb : lf.srb;
       if (e.aa + e.anobia > lf.sra + 500 && e.aa < lf.sra + lf.src - 500 &&
           e.ab + e.anobib > lOld && e.ab + e.anobib < lOld + 1200 && e.ad >= -100) {
+        if (isFireball) { e.aa = -90000000; return; }   // 落到台面即消失
         e.ab = lOld - e.anobib + 100;
         // 随台移动（用旧 sre×DT=台本帧实际位移，与玩家一致；需存到 lift 上）
         if ((lf.sracttype === 1 && lf.sron === 1) || lf.sracttype === 3 || lf.sracttype === 5) {
