@@ -148,12 +148,12 @@
     GOAL: 300,        // 终点杆
     MIDFLAG: 500,     // 中间旗
     SPAWN_CAT: 100,   // 猫脸怪出现区域
-    FIRE_PIPE: 101,   // 火焰管道
+    GHOST_SKY: 101,   // 天降白幽灵陷阱（PipeTypes[101]；旧名 FIRE_PIPE 系误称）
     TRAP: 102,        // 陷阱管道
     TRAP_MSG: 103,    // 陷阱消息
     BEAM_TRAP: 104,   // 光束陷阱
     LIFT_SWITCH: 105,
-    FIRE_SPAWNER: 180
+    FIRE_SPAWNER: 180 // 喷火管周期喷射生成器（无实体，PipeTypes[180].tick 每帧驱动）
   };
 
   // ---- 升降台 srsp ----

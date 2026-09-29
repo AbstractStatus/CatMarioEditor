@@ -644,6 +644,33 @@ body.dragging #dropTip { display: flex; }
           }
           pipes.push(pmPipe);
         }
+        // 喷火管：额外生成一条独立的非实体 stype=180 记录（原版 1-2-1「ファイアー土管」）。
+        // 引擎每 sgtype 帧（48 物理帧≈1.6秒）从管口朝 dir 喷出一个 target（默认火球 atype84）。
+        // 锚点约定（与 PipeTypes[180].tick 对应）：生成点中心=管口边沿中点，sb/sa 预留 2000/1000 偏移。
+        if (e.spray === true) {
+          var fpSa, fpSb;
+          if (e._origStype === 40) {
+            fpSa = c * 2900 - 2000;
+            fpSb = (r * 29 - 12) * 100 + 5800 / 2 - 1500;
+          } else if (pmDir === 'up') {
+            fpSa = pmPipe.sa + pmPipe.sc / 2 - 1500;
+            fpSb = pmPipe.sb - 2000;
+          } else if (pmDir === 'down') {
+            fpSa = pmPipe.sa + pmPipe.sc / 2 - 1500;
+            fpSb = pmPipe.sb + pmPipe.sd - 1000;
+          } else if (pmDir === 'left') {
+            fpSa = pmPipe.sa - 2000;
+            fpSb = pmPipe.sb + pmPipe.sd / 2 - 1500;
+          } else { // right
+            fpSa = pmPipe.sa + pmPipe.sc - 1000;
+            fpSb = pmPipe.sb + pmPipe.sd / 2 - 1500;
+          }
+          pipes.push({
+            sa: fpSa, sb: fpSb, sc: 3000, sd: 3000,
+            stype: 180, sxtype: 0, sgtype: 48, sr: 0,
+            dir: pmDir, target: e.sprayTarget || 'enemy_fireball', uid: null
+          });
+        }
       } else if (id === 'pipe_cross' || id === 'pipe_tee' || id === 'pipe_L_a' || id === 'pipe_L_b') {
         // 准备 lengths 数组（规范化到基础方向 [up,down,left,right]，范围 1-4）
         var _clen = e.lengths || d.lengths || [1, 1, 1, 1];

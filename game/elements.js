@@ -708,6 +708,51 @@
     s.sa = -800000000;
   });
 
+  // ==================== stype 180: 喷火管（周期喷射生成器）====================
+  // 原版 1-2-1「ファイアー土管」（main.cpp:4328-4330 初始化、main.cpp:2671-2677 每帧逻辑）：
+  // 无可见实体、无碰撞；每 sgtype 个物理帧（原版 48≈1.6 秒）从管口喷出一个 target
+  // （默认 enemy_fireball=火球 atype84）。火球 azimentype=2：水平漂移+重力抛物弹跳。
+  // 与 100-106 陷阱不同，本类型不依赖玩家 AABB，由引擎每帧无条件调用 tick。
+  // 锚点约定（play.html convert 与编辑器反推一致）：
+  //   up:    生成点上沿 y = sb+7100、x = sa（原版数据下 y=30000，与硬编码一致）
+  //   down:  y = sb-7100；水平两方向 x 沿管口镜像，初速方向随之反转
+  PipeTypes[180] = {
+    solid: false,
+    debugColor: '#ff6a00',
+    render: function (ctx, s, x, y, w, h, state) {
+      if (state && state._showTraps) {
+        ctx.strokeStyle = this.debugColor;
+        ctx.strokeRect(x, y, w, h);
+      }
+    },
+    tick: function (p, s, xx, state, A, spawnEnemy) {
+      var C = getC();
+      var DT = C && C._DT != null ? C._DT : 0.5;
+      s.sr = (s.sr || 0) + DT;
+      if (s.sr < (s.sgtype || 48)) return;
+      s.sr = 0;
+      var atype = TRAP_TARGET_ATYPE[s.target || 'enemy_fireball'];
+      if (atype == null) atype = 84;   // 兜底火球（喷火）
+      var dir = s.dir || 'up';
+      var rnd = function (n) { return Math.floor(Math.random() * n); };
+      var sx, sy, svx, svy;
+      if (dir === 'down') {
+        sx = s.sa; sy = s.sb - 7100;
+        svx = rnd(600) - 300; svy = 1600 + rnd(900);
+      } else if (dir === 'left') {
+        sx = s.sa + 7100; sy = s.sb;
+        svx = -(1600 + rnd(900)); svy = rnd(600) - 300;
+      } else if (dir === 'right') {
+        sx = s.sa - 7100; sy = s.sb;
+        svx = 1600 + rnd(900); svy = rnd(600) - 300;
+      } else { // up：与旧引擎 ayobi(sa,30000,±300,-1600-rand900,0,84,0) 等价
+        sx = s.sa; sy = s.sb + 7100;
+        svx = rnd(600) - 300; svy = -1600 - rnd(900);
+      }
+      spawnEnemy(sx, sy, svx, svy, 0, atype, 0);
+    }
+  };
+
   // ==================== 连接管道（精确碰撞 + 统一边框）====================
   // 拆分策略：play.html convert 时每个 connector 生成 1+N 条碰撞 pipe + 1 条边框 pipe
   //   stype 74: 中心块 2×2 tile — 只 fillRect（碰撞）

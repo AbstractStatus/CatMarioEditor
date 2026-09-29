@@ -418,6 +418,12 @@
         if (p.gsc != null) pipe.gsc = p.gsc | 0;
         if (p.gsd != null) pipe.gsd = p.gsd | 0;
       }
+      // stype=180 喷火管：保留喷射周期 sgtype（物理帧，默认48≈1.6秒）+ 喷射对象 target；
+      // dir 由下方通用逻辑保留；sr 帧计数每次载入从 0 开始
+      if (p.stype === 180) {
+        pipe.sgtype = Math.max(1, p.sgtype | 0 || 48);
+        pipe.target = p.target || 'enemy_fireball';
+      }
       // stype=60 传送管道口：保留传送目标 {end,id}
       if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
@@ -1169,6 +1175,10 @@
       xx[0] = 200; xx[1] = 2400; xx[2] = 1000; xx[7] = 0;
       xx[8] = s.sa; xx[9] = s.sb;
       if (s.sa - state.fx + s.sc < -12000 || s.sa - state.fx > C.FXMAX) continue;
+
+      // 每帧驱动（不依赖玩家 AABB）：stype=180 喷火管周期喷射（原版 main.cpp:2671-2677 位置）
+      var ptTick = PT.get(s.stype);
+      if (ptTick && ptTick.tick) ptTick.tick(p, s, xx, state, A, spawnEnemy);
 
       // 通过注册表查询该类型的实体性
       if (PT.isSolid(s.stype) && p.mtype < 10) {
