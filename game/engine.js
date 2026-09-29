@@ -443,21 +443,26 @@
       state.pipes.push(pipe);
     });
 
-    // 原版 1-2-1 连锁崩塌桥自动接线（无显式 chain 的 sxtype=1/2）：
-    // 按管线顺序（=旧引擎 sa[] 数组顺序）sxtype=1 → 首个 sxtype=0 砖组、sxtype=2 → 首个 sxtype=1 砖组。
-    // 接线后走旧引擎连锁语义（监视目标绝对高度 sb>=25000/48000 + 玩家位置/存活条件），
-    // 未找到目标则保持 delay 兜底（靠近触发）。
+    // 1-2-1 连锁崩塌桥自动接线（无显式 chain 的 sxtype=0/1）：
+    // 按管线顺序（=旧引擎 sa[] 数组顺序）sxtype=0 → 首个 sxtype=1 砖组、sxtype=1 → 首个 sxtype=2 砖组。
+    // 接线后走通用联动语义：sxtype=0 触发时调 triggerFallChain 沿 chain 向下递归触发目标，
+    // 各目标按自身 delay 倒计时后坠落（原版 1-2-1：p6→p7 0.5s、p7→p8 1.0s）。
+    // sxtype=1/2 自身不靠近触发（physics 分支仅在无 chain 时退化靠近触发）。
     (function () {
+      // 先给所有 stype=51 砖组补 uid（原版数据无 uid，链源/目标都可能被引用）
+      for (var ui = 0; ui < _fbCreated.length; ui++) {
+        var u = _fbCreated[ui];
+        if (!u.pipe.uid) u.pipe.uid = '_fb' + ui;
+      }
       for (var wi = 0; wi < _fbCreated.length; wi++) {
         var w = _fbCreated[wi];
         if (w.p.chain) continue;
         var sx = w.p.sxtype || 0;
-        if (sx !== 1 && sx !== 2) continue;
-        var want = (sx === 1) ? 0 : 1;
+        if (sx !== 0 && sx !== 1) continue;        // sxtype=0/1 才向下接线
+        var want = sx + 1;                          // sxtype=0→1, sxtype=1→2
         for (var wj = 0; wj < _fbCreated.length; wj++) {
           var c = _fbCreated[wj];
           if (c === w || (c.p.sxtype || 0) !== want) continue;
-          if (!c.pipe.uid) c.pipe.uid = '_fb' + wj;   // 原版数据无 uid，补内部编号
           w.pipe.chain = c.pipe.uid;
           break;
         }

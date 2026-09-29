@@ -334,28 +334,9 @@
           if (p.ma + p.mnobia > s.sa + margin && p.ma + p.mnobia < s.sa + s.sc - 200 &&
               p.mb + p.mnobib > s.sb + 3000) triggered = true;
         } else if (s.sxtype === 1 || s.sxtype === 2) {
-          if (s.chain) {
-            // 旧引擎连锁崩塌桥（main.cpp:2484-2488，1-2-1）：不自触发（无靠近检测），
-            // 仅当链式监视目标坠落到位后触发，延时无效、立即坠落：
-            //   sxtype=1：目标坠落至绝对高度 sb>=25000 且玩家右缘在目标左侧（回头陷阱）
-            //   sxtype=2：目标坠落至绝对高度 sb>=48000 且玩家存活
-            var tgt = null;
-            for (var fi = 0; fi < state.pipes.length; fi++) {
-              var fp = state.pipes[fi];
-              if (fp !== s && fp.uid && fp.uid === s.chain) { tgt = fp; break; }
-            }
-            if (tgt && tgt.stype === 51) {
-              var th = s.sxtype === 1 ? 25000 : 48000;
-              if (tgt.sb >= th) {
-                if (s.sxtype === 1) { if (tgt.sa > p.ma + p.mnobia) { triggered = true; chainTrig = true; } }
-                else if (p.mhp >= 1) { triggered = true; chainTrig = true; }
-              }
-            }
-          } else {
-            // 兜底：未接线（编辑器单独放置的地下砖组）→ 退化为靠近触发（同 sxtype=0），延时有效
-            if (p.ma + p.mnobia > s.sa + 3200 && p.ma + p.mnobia < s.sa + s.sc - 200 &&
-                p.mb + p.mnobib > s.sb + 3000) triggered = true;
-          }
+          // 1-2-1 连锁崩塌桥地下砖：sxtype=1/2 永不靠近触发，完全依赖 chain 链源
+          // 通过 triggerFallChain 触发（按自身 delay 倒计时后坠落）。
+          // 无 chain 时保持静止（编辑器单独放置的 sxtype=1/2 不合理，应用 sxtype=0）。
         } else if (s.sxtype === 3 || s.sxtype === 4) {
           // 城堡二维砖块阵：玩家到达固定高度且水平进入时坠落（sxtype4 带 100 初速）
           var hmin = s.sxtype === 3 ? 30000 : 25000;
