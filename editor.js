@@ -1770,8 +1770,7 @@
   var EV_ACTS = [
     ['se', '播音效'],
     ['spawn', '生成敌人'],
-    ['setprop', '改属性'],
-    ['move', '移动元素']
+    ['setprop', '改属性']
   ];
   function evTargetSelect(cur, self) {
     var sel = document.createElement('select');
@@ -2003,7 +2002,6 @@
           if (a.act === 'se') a.id = 4;
           if (a.act === 'spawn') { a.atype = 110; a.axtype = 0; a.dx = 0; a.dy = 0; }
           if (a.act === 'setprop') { a.target = ''; a.field = 'col'; a.value = 0; }
-          if (a.act === 'move') { a.target = ''; a.dx = 0; a.dy = 0; }
           renderRows();
         });
         line.appendChild(actSel);
@@ -2061,12 +2059,6 @@
           // 当前选中字段描述
           var curFd = flds.filter(function (fd) { return fd.field === curFld; })[0] || flds[0];
           line.appendChild(buildSetpropValueInput(curFd, a));
-        } else if (a.act === 'move') {
-          var tm = evTargetSelect(a.target, self);
-          tm.addEventListener('change', function () { a.target = tm.value; });
-          line.appendChild(tm);
-          mkNum('dx', -200000, 200000, 100, 'X偏移（世界单位）', 70);
-          mkNum('dy', -200000, 200000, 100, 'Y偏移（正=向下）', 70);
         }
         var del = document.createElement('button');
         del.textContent = '✕';
@@ -2086,7 +2078,7 @@
     addBtn.addEventListener('click', function () { evWork.push({ act: 'se', id: 4 }); renderRows(); });
     var tplBtn = document.createElement('button');
     tplBtn.textContent = '填入1-3整蛊模板';
-    tplBtn.title = '金币音效+提示块变空白框(txtype=80)+天降7颗恶星(atype=110)+脆弱砖下移3格；setprop/move 的目标需手动选择';
+    tplBtn.title = '金币音效+提示块变空白框(txtype=80)+天降7颗恶星(atype=110)+脆弱砖改行(row 3→6)；setprop 的目标需手动选择';
     tplBtn.style.cssText = 'background:#3a3040;color:#e0b0e0;border:1px solid #6b5070;border-radius:4px;cursor:pointer;padding:2px 8px;font-size:12px';
     tplBtn.addEventListener('click', function () {
       evWork.length = 0;
@@ -2095,7 +2087,7 @@
       [-29000, -25000, 13000, 14000, 19000, 20000, 25000].forEach(function (dx) {
         evWork.push({ act: 'spawn', atype: 110, axtype: 0, dx: dx, dy: -42000 });
       });
-      evWork.push({ act: 'move', target: '', dx: 0, dy: 9000 });
+      evWork.push({ act: 'setprop', target: '', field: 'row', value: 6 });
       renderRows();
     });
     btns.appendChild(addBtn);
@@ -4294,7 +4286,7 @@
       var col = Math.round(b.x / 29), row = Math.round((b.y + 12) / 29);
       note(col);
       // 1-3 的 tyobi 普通砖(22列3行, main.cpp:4480)：旧引擎整蛊事件的移动对象，
-      // 还原为可移动砖块 block_brick_m（静态不自动坠落，问号球事件 move 平移），
+      // 还原为可移动砖块 block_brick_m（静态不自动坠落，问号球事件 setprop 行/列平移），
       // 固定 uid 便于事件动作直接引用
       if (def.id === '1-3' && b.type === 1 && col === 22 && row === 3) {
         add('block_brick_m', col, row, { ori: 'h', count: 1 }, 'bm_1_3');
@@ -4475,7 +4467,7 @@
         if (en.bxtype) (ekExtra = ekExtra || {}).xt = en.bxtype;
         // 绿色问号球（btype=105）：根据原版 main.cpp:3695-3714 的硬编码事件还原
         // bxtype=0 (1-2-1 地下)：金币音效 + 喷管 sgtype 48→6（喷射周期 1.6s→0.2s）
-        // bxtype=1 (1-3 地上)：金币音效 + 提示块 txtype=80（空白框整蛊）+ 7 颗恶星天降 + 脆弱砖下移 3 格
+        // bxtype=1 (1-3 地上)：金币音效 + 提示块 txtype=80（空白框整蛊）+ 7 颗恶星天降 + 脆弱砖下移 3 格（setprop 行 3→6）
         if (eid === 'block_qball' && en.btype === 105) {
           var evs = [];
           if (def.id === '1-3' && en.bxtype === 1) {
@@ -4494,7 +4486,9 @@
             for (var si = 0; si < sp7.length; si++) {
               evs.push({ act: 'spawn', atype: 110, axtype: 0, dx: sp7[si].dx, dy: sp7[si].dy });
             }
-            evs.push({ act: 'move', target: 'bm_1_3', dx: 0, dy: 9000 });
+            // 脆弱砖下移 3 格：原 move dy:9000（世界单位偏移，落点 row≈6.1 不对齐网格）
+            // 改为 setprop 行号平移，网格精确对齐（bm_1_3 原始 row=3 → 6）
+            evs.push({ act: 'setprop', target: 'bm_1_3', field: 'row', value: 6 });
           } else if (def.id === '1-2-1' && en.bxtype === 0) {
             evs.push({ act: 'se', id: 4 });
             // 旧引擎 sgtype[26]=6：把 1-2-1 喷火土管 sgtype 48→6（喷射周期 1.6s→0.2s）

@@ -1069,7 +1069,7 @@ body.dragging #dropTip { display: flex; }
         // 加载示例世界时才注入这些字段。但当本页直接从 STAGES 取 _worldDef 加载
         // （未经过编辑器），events/uid 全部缺失，问号球触发器 events=[] 碰了没反应。
         // 此处复制 editor.js loadWorld 的注入逻辑，让 _worldDef 自带 uid/events：
-        // 1) blocks 注入 uid（'b'+bi；1-3 脆弱砖特殊 uid 'bm_1_3'，move 动作 target）
+        // 1) blocks 注入 uid（'b'+bi；1-3 脆弱砖特殊 uid 'bm_1_3'，setprop 动作 target）
         (conv.blocks || []).forEach(function (b, bi) {
           if (!b.uid) b.uid = 'b' + bi;
           if (conv.id === '1-3' && b.type === 1 &&
@@ -1104,7 +1104,8 @@ body.dragging #dropTip { display: flex; }
               for (var si = 0; si < sp7.length; si++) {
                 evs.push({ act: 'spawn', atype: 110, axtype: 0, dx: sp7[si].dx, dy: sp7[si].dy });
               }
-              evs.push({ act: 'move', target: 'bm_1_3', dx: 0, dy: 9000 });
+              // 脆弱砖下移 3 格：原 move dy:9000 改为 setprop 行号平移（row 3→6，网格对齐）
+              evs.push({ act: 'setprop', target: 'bm_1_3', field: 'row', value: 6 });
             } else if (conv.id === '1-2-1' && en.bxtype === 0) {
               evs.push({ act: 'se', id: 4 });
               // 查找 stype=180 喷火生成器配对的最近管口，target 用其 uid + '#spray'
