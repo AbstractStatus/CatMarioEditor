@@ -1798,6 +1798,154 @@
     if (cur) sel.value = cur;
     return sel;
   }
+  // 改属性动作的字段目录：按目标元素类型返回 [{field,label,kind,opts?}]
+  // kind: 'num'=数字 / 'enum'=下拉(string) / 'bool'=是否 / 'ref'=元素id引用
+  function setpropFieldsFor(targetEl) {
+    var f = [
+      { field: 'col', label: '列(col)', kind: 'num', min: 0, max: 999, tip: '目标元素左上列号（格）' },
+      { field: 'row', label: '行(row)', kind: 'num', min: -50, max: 999, tip: '目标元素左上行号（格）' }
+    ];
+    if (!targetEl) {
+      // 悬空目标：兜底显示旧的 txtype/ttype/sxtype，避免空面板
+      f.push({ field: 'txtype', label: 'txtype（提示/子类型）', kind: 'num', min: -99999, max: 99999, tip: '目标未选或悬空，兜底数字字段' });
+      f.push({ field: 'ttype', label: 'ttype（方块类型）', kind: 'num', min: -99999, max: 99999, tip: '' });
+      f.push({ field: 'sxtype', label: 'sxtype（管道子类型）', kind: 'num', min: -99999, max: 99999, tip: '' });
+      return f;
+    }
+    var id = targetEl.id;
+    var def = CAT.byId(id) || {};
+    function push(p) { f.push(p); }
+    if (id === 'pipe_mouth') {
+      push({ field: 'length', label: '管身长度', kind: 'num', min: 1, max: 20, tip: '格；引擎按方向重算尺寸' });
+      push({ field: 'dir', label: '开口方向', kind: 'enum', opts: [['up', '↑ 向上'], ['down', '↓ 向下'], ['left', '← 向左'], ['right', '→ 向右']], tip: '' });
+      push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['trap', '陷阱管道'], ['warp', '传送管道']], tip: '' });
+      push({ field: 'spray', label: '是否喷射', kind: 'bool', tip: '运行时仅标记，不动态创建喷射生成器' });
+      push({ field: 'sprayTarget', label: '喷射对象', kind: 'ref', cat: 'enemy', tip: '从管口喷出的敌人' });
+    } else if (id === 'block_question' || id === 'block_hidden') {
+      push({ field: 'pop', label: '弹出对象', kind: 'enum', opts: [['coin', '金币'], ['mushroom', '红蘑菇'], ['poison', '毒蘑菇'], ['enemy', '白猫怪'], ['flower', '火焰花'], ['badstar', '坏星星'], ['pswitch', 'P开关']], tip: '' });
+      push({ field: 'mass', label: '是否量产', kind: 'bool', tip: '' });
+      push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '' });
+    } else if (id === 'firebar') {
+      push({ field: 'xt', label: '火球总数', kind: 'num', min: 1, max: 21, tip: '含圆心' });
+      push({ field: 'rot', label: '初始角度', kind: 'num', min: -1, max: 359, tip: '-1=随机初相' });
+      push({ field: 'dir', label: '旋转方向', kind: 'enum', opts: [['cw', '顺时针'], ['ccw', '逆时针']], tip: '' });
+      push({ field: 'mirror', label: '水平镜像', kind: 'bool', tip: '' });
+    } else if (id === 'platform_hang') {
+      push({ field: 'w', label: '站台宽度', kind: 'num', min: 1, max: 50, tip: '格' });
+      push({ field: 'h', label: '吊柱高度', kind: 'num', min: 1, max: 30, tip: '格' });
+      push({ field: 'drop', label: '可下降', kind: 'bool', tip: '' });
+    } else if (id === 'block_fall' || id === 'block_fall_d') {
+      push({ field: 'ori', label: '排列方向', kind: 'enum', opts: [['h', '横向'], ['v', '竖向']], tip: '' });
+      push({ field: 'count', label: '块数', kind: 'num', min: 1, max: 12, tip: '' });
+      push({ field: 'dir', label: '生成方向', kind: 'enum', opts: [['up', '↑'], ['down', '↓'], ['left', '←'], ['right', '→']], tip: '' });
+      push({ field: 'delay', label: '延迟', kind: 'num', min: 0, max: 9999, tip: '' });
+    } else if (id === 'block_fall_g') {
+      push({ field: 'variant', label: '变体', kind: 'enum', opts: [['0', '横排地面'], ['1', '砖块矩阵'], ['2', '地面矩阵']], tip: '' });
+      push({ field: 'count', label: '列数', kind: 'num', min: 1, max: 12, tip: '' });
+      push({ field: 'rows', label: '行数', kind: 'num', min: 1, max: 12, tip: '矩阵变体用' });
+    } else if (id === 'block_brick_m') {
+      push({ field: 'ori', label: '排列方向', kind: 'enum', opts: [['h', '横向'], ['v', '竖向']], tip: '' });
+      push({ field: 'count', label: '块数', kind: 'num', min: 1, max: 12, tip: '' });
+    } else if (id === '_trapzone' && targetEl.trap) {
+      push({ field: 'trap.dir', label: '生成方向', kind: 'enum', opts: [['up', '从下生成'], ['down', '天降'], ['left', '从右生成'], ['right', '从左生成']], tip: '' });
+      push({ field: 'trap.target', label: '生成对象', kind: 'ref', cat: 'enemy', tip: '改对象类型' });
+      push({ field: 'trap.count', label: '生成个数', kind: 'num', min: 1, max: 12, tip: '' });
+      push({ field: 'trap.tw', label: '触发区宽', kind: 'num', min: 1, max: 50, tip: '' });
+      push({ field: 'trap.th', label: '触发区高', kind: 'num', min: 1, max: 50, tip: '' });
+    } else if (id === 'pipe_cross' || id === 'pipe_tee' || id === 'pipe_L_a' || id === 'pipe_L_b') {
+      push({ field: 'rot', label: '旋转角度', kind: 'num', min: 0, max: 270, tip: '0/90/180/270' });
+      push({ field: 'lengths.0', label: '端口1长', kind: 'num', min: 1, max: 4, tip: '' });
+      push({ field: 'lengths.1', label: '端口2长', kind: 'num', min: 1, max: 4, tip: '' });
+      push({ field: 'lengths.2', label: '端口3长', kind: 'num', min: 1, max: 4, tip: '' });
+      push({ field: 'lengths.3', label: '端口4长', kind: 'num', min: 1, max: 4, tip: '' });
+    }
+    // 通用 block 类：跳跃跟随
+    if (def.cat === 'block' && id !== 'block_question' && id !== 'block_hidden') {
+      push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '逃跑方块行为' });
+    }
+    // 敌人跳跃跟随（馒头怪系）
+    if (id === 'enemy_syobon' || id === 'enemy_turtle' || id === 'enemy_king') {
+      push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '' });
+    }
+    // 升降台长度
+    if (id.indexOf('lift_') === 0) {
+      push({ field: 'len', label: '平台长度', kind: 'num', min: 1, max: 50, tip: '格' });
+    }
+    // 传送目标
+    if (def.warpable) {
+      push({ field: 'warp', label: '传送目标', kind: 'enum', opts: (window.STAGES || []).map(function (s) { return [s.id, s.id + ' ' + s.name]; }).concat([['__end__', '游戏结束（通关）']]), tip: '进入管道后前往' });
+    }
+    return f;
+  }
+  // 按字段 kind 返回默认值
+  function setpropDefault(fd) {
+    if (!fd) return 0;
+    if (fd.kind === 'enum' && fd.opts && fd.opts.length) return fd.opts[0][0];
+    if (fd.kind === 'bool') return 'no';
+    if (fd.kind === 'ref') return '';
+    return 0;
+  }
+  // 按字段 kind 渲染值输入控件，变化写回 a.value
+  function buildSetpropValueInput(fd, a) {
+    if (fd.kind === 'enum') {
+      var sel = document.createElement('select');
+      fd.opts.forEach(function (op) {
+        var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+        if (String(a.value) === op[0]) o.selected = true;
+        sel.appendChild(o);
+      });
+      if (a.value == null) a.value = setpropDefault(fd);
+      sel.title = fd.tip || '';
+      sel.addEventListener('change', function () { a.value = sel.value; });
+      return sel;
+    }
+    if (fd.kind === 'bool') {
+      var bs = document.createElement('select');
+      [['no', '否'], ['yes', '是']].forEach(function (op) {
+        var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+        bs.appendChild(o);
+      });
+      var bv = (a.value === 'yes' || a.value === true || a.value === 1) ? 'yes' : 'no';
+      if (a.value == null) a.value = 'no';
+      bs.value = bv;
+      bs.title = fd.tip || '';
+      bs.addEventListener('change', function () { a.value = bs.value; });
+      return bs;
+    }
+    if (fd.kind === 'ref') {
+      var rs = document.createElement('select');
+      var ro = document.createElement('option'); ro.value = ''; ro.textContent = '(未选)'; rs.appendChild(ro);
+      var refCat = fd.cat || 'enemy';
+      CAT.ELEMENTS.forEach(function (ed) {
+        if (ed.cat !== refCat || ed.internal) return;
+        var o = document.createElement('option'); o.value = ed.id; o.textContent = ed.name || ed.id;
+        if (String(a.value) === ed.id) o.selected = true;
+        rs.appendChild(o);
+      });
+      // 自定义元素也加入
+      (CAT.listCustom && CAT.listCustom() || []).forEach(function (ed) {
+        if (ed.cat !== refCat) return;
+        var o = document.createElement('option'); o.value = ed.id; o.textContent = ed.name || ed.id;
+        if (String(a.value) === ed.id) o.selected = true;
+        rs.appendChild(o);
+      });
+      if (a.value == null) a.value = '';
+      rs.title = fd.tip || '';
+      rs.addEventListener('change', function () { a.value = rs.value; });
+      return rs;
+    }
+    // num
+    var cur = a.value != null ? a.value : 0;
+    var inp = numInput(fd.min != null ? fd.min : -99999, fd.max != null ? fd.max : 99999, cur);
+    inp.title = fd.tip || '';
+    inp.style.width = '72px';
+    if (a.value == null) a.value = 0;
+    inp.addEventListener('change', function () {
+      var v = parseFloat(inp.value);
+      a.value = isFinite(v) ? v : 0;
+    });
+    return inp;
+  }
   function buildEventsEditor(evWork, self) {
     var box = document.createElement('div');
     box.style.cssText = 'border:1px solid #454d61;border-radius:4px;padding:6px;margin:4px 0';
@@ -1829,7 +1977,7 @@
           delete a.id; delete a.atype; delete a.axtype; delete a.dx; delete a.dy; delete a.target; delete a.field; delete a.value;
           if (a.act === 'se') a.id = 4;
           if (a.act === 'spawn') { a.atype = 110; a.axtype = 0; a.dx = 0; a.dy = 0; }
-          if (a.act === 'setprop') { a.target = ''; a.field = 'txtype'; a.value = 0; }
+          if (a.act === 'setprop') { a.target = ''; a.field = 'col'; a.value = 0; }
           if (a.act === 'move') { a.target = ''; a.dx = 0; a.dy = 0; }
           renderRows();
         });
@@ -1853,18 +2001,41 @@
           mkNum('dx', -200000, 200000, 100, 'X偏移（世界单位，2900=1格）', 70);
           mkNum('dy', -200000, 200000, 100, 'Y偏移（负=上方，生成后向下落）', 70);
         } else if (a.act === 'setprop') {
+          // 目标下拉：选中变化时重置为第一个字段（col）
           var ts = evTargetSelect(a.target, self);
-          ts.addEventListener('change', function () { a.target = ts.value; });
+          ts.addEventListener('change', function () {
+            a.target = ts.value;
+            var tEl = state.elements.filter(function (x) { return x.uid === a.target; })[0] || null;
+            var flds0 = setpropFieldsFor(tEl);
+            a.field = flds0.length ? flds0[0].field : 'col';
+            a.value = setpropDefault(flds0[0]);
+            renderRows();
+          });
           line.appendChild(ts);
+          // 按目标元素类型构建字段下拉 + 自适应值控件
+          var tEl = state.elements.filter(function (x) { return x.uid === a.target; })[0] || null;
+          var flds = setpropFieldsFor(tEl);
+          // 兼容旧数据：当前 field 不在列表里时追加兜底项
+          var curFld = a.field || 'col';
+          if (!flds.some(function (fd) { return fd.field === curFld; })) {
+            flds.push({ field: curFld, label: curFld + '（旧/自定义）', kind: 'num', min: -99999, max: 99999, tip: '兜底数字字段' });
+          }
           var fs = document.createElement('select');
-          [['txtype', 'txtype（提示/子类型）'], ['ttype', 'ttype（方块类型）'], ['sxtype', 'sxtype（管道子类型）']].forEach(function (op) {
-            var o = document.createElement('option'); o.value = op[0]; o.textContent = op[1];
+          flds.forEach(function (fd) {
+            var o = document.createElement('option'); o.value = fd.field; o.textContent = fd.label;
+            if (fd.field === curFld) o.selected = true;
             fs.appendChild(o);
           });
-          fs.value = a.field || 'txtype';
-          fs.addEventListener('change', function () { a.field = fs.value; });
+          fs.addEventListener('change', function () {
+            a.field = fs.value;
+            var chosen = flds.filter(function (fd) { return fd.field === fs.value; })[0] || flds[0];
+            a.value = setpropDefault(chosen);
+            renderRows();
+          });
           line.appendChild(fs);
-          mkNum('value', -99999, 99999, 1, '新值');
+          // 当前选中字段描述
+          var curFd = flds.filter(function (fd) { return fd.field === curFld; })[0] || flds[0];
+          line.appendChild(buildSetpropValueInput(curFd, a));
         } else if (a.act === 'move') {
           var tm = evTargetSelect(a.target, self);
           tm.addEventListener('change', function () { a.target = tm.value; });
@@ -4004,7 +4175,7 @@
   function wEnemyId(t) {
     if (t >= 0 && t <= 9) return W_ENEMY0[t];
     var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
-      105: 'item_green_question', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
+      105: 'block_qball', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
       31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 82: 'enemy_block_mimic',
       83: 'enemy_spike_ball',
       84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 88: 'firebar', 90: 'enemy_beam' };

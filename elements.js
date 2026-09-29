@@ -102,10 +102,10 @@
     { id: 'trap_event', cat: 'struct', name: '事件触发区', kind: 'special',
       tw: 3, th: 3, w: 3, h: 3, events: [],
       hint: '隐形AABB触发区（画布虚线框，玩家看不见）：玩家进入区域即按顺序执行事件动作（播音效/按偏移生成敌人/改其他元素属性/移动其他元素），每关触发一次。选中后在⚙属性里改宽(格)、高(格)、编辑事件动作列表（可一键填入1-3整蛊模板）' },
-    { id: 'block_qball', cat: 'struct', name: '问号球(触碰事件)', kind: 'sprite', img: 'item/item_green_question.png',
-      tw: 1, th: 1, events: [],
-      hint: '复刻原版绿问号球（atype=105）：非实体，玩家触碰即按顺序执行事件动作并消失（每关一次，检查点复活不重置）。' +
-        '配 1-3 整蛊模板可还原：金币音效+提示块变空白框+天降7颗恶星+脆弱砖下移。选中后在⚙属性里编辑事件动作列表' },
+    { id: 'block_qball', cat: 'struct', name: '绿色问号球(触碰事件)', kind: 'sprite', img: 'item/item_green_question.png',
+      tw: 1, th: 1, atype: 105, events: [],
+      hint: '原版绿问号球（atype=105）：非实体，玩家触碰即按顺序执行事件动作并消失（每关一次，检查点复活不重置）。' +
+        '配 1-3 整蛊模板可还原：金币音效+提示块变空白框+天降7颗恶星+脆弱砖下移。选中后在⚙属性里编辑事件动作列表；其中「改属性」动作可改任意元素的全部可编辑属性（含行列；管道对应长度/方向/进入事件/喷射）' },
 
     // ================= 方块（特殊机关块，brock2.png） =================
     { id: 'b2_hint', cat: 'block', name: '提示块(橙圆)', kind: 'sprite', img: 'block/b2_hint.png',
@@ -170,8 +170,6 @@
       tw: 1, th: 1, atype: 102, hint: 'atype=102：带骷髅的紫色蘑菇' },
     { id: 'item_star', cat: 'item', name: '无敌星', kind: 'sprite', img: 'item/item_star.png',
       tw: 1, th: 1, atype: 110, hint: 'atype=110：戴墨镜的星星，短暂无敌' },
-    { id: 'item_green_question', cat: 'item', name: '绿色问号球', kind: 'sprite', img: 'item/item_green_question.png',
-      tw: 1, th: 1, atype: 105, hint: 'atype=105：绿色问号圆球' },
     { id: 'item_flower', cat: 'item', name: '火焰花', kind: 'sprite', img: 'item/item_flower.png',
       tw: 1, th: 1, atype: 101, hint: 'atype=101：吃了"肚子里有火球"' },
 

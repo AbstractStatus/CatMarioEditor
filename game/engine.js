@@ -1398,6 +1398,152 @@
 
   // 顺序执行动作列表（se=播音效 / spawn=按偏移生成对象 / setprop=改目标属性 /
   // move=平移目标；target uid 找不到时跳过该动作）
+  // ---------- setprop 友好名→运行时字段映射（与 play.html 转换表保持一致）----------
+  // 问号块/隐藏块弹出对象 ↔ 运行时 ttype/txtype 查表
+  var Q_S = { coin:[2,0], mushroom:[102,0], poison:[103,0], enemy:[101,0], flower:[101,3], badstar:[104,0], pswitch:[105,0] };
+  var Q_M = { coin:[112,0], mushroom:[110,2], poison:[110,0], enemy:[110,1], flower:[110,3], badstar:[110,4] };
+  var H_S = { coin:[7,0], poison:[114,0], mushroom:[114,4], enemy:[114,6], flower:[114,8], badstar:[114,11], pswitch:[114,10] };
+  var H_M = { coin:[114,12], poison:[110,0], mushroom:[110,2], enemy:[110,1], flower:[110,3], badstar:[110,4] };
+  var POP_REV = {};
+  (function () {
+    function reg(tbl, mass, kind) { for (var k in tbl) { var a = tbl[k]; POP_REV[a[0] + '_' + a[1]] = { pop: k, mass: mass, kind: kind }; } }
+    reg(Q_S, false, 'Q'); reg(Q_M, true, 'Q'); reg(H_S, false, 'H'); reg(H_M, true, 'H');
+  })();
+  function isYes(v) { return v === 'yes' || v === true || v === 1; }
+  // 管道：从运行时 sa/sb/sc/sd/dir 反推 编辑器 col/row/len
+  function pipeDerive(obj) {
+    var dir = obj.dir || 'up';
+    var len, col, row;
+    if (dir === 'up' || dir === 'down') len = (obj.sd + 100) / 2900 - 1;
+    else len = (obj.sc + 100) / 2900 - 1;
+    len = Math.max(1, Math.round(len));
+    if (dir === 'up' || dir === 'down') col = (obj.sa - 500) / 2900;
+    else col = obj.sa / 2900;
+    col = Math.round(col);
+    if (dir === 'down') row = (obj.sb / 100 + 12) / 29 - len;
+    else row = (obj.sb / 100 + 12) / 29;
+    row = Math.round(row);
+    return { col: col, row: row, len: len, dir: dir };
+  }
+  // 管道：按 col/row/len/dir 重算 sa/sb/sc/sd（与 play.html L624-644 一致）
+  function pipeApply(obj, col, row, len, dir) {
+    if (dir === 'down') {
+      obj.sa = col * 2900 + 500; obj.sb = ((row + len) * 29 - 12) * 100;
+      obj.sc = 6000; obj.sd = (len + 1) * 2900 - 100;
+    } else if (dir === 'left' || dir === 'right') {
+      obj.sa = col * 2900; obj.sb = (row * 29 - 12) * 100;
+      obj.sc = (len + 1) * 2900 - 100; obj.sd = 6000;
+    } else { // up
+      obj.sa = col * 2900 + 500; obj.sb = (row * 29 - 12) * 100;
+      obj.sc = 6000; obj.sd = (len + 1) * 2900 - 100;
+    }
+  }
+  // 通用：按对象类型把 grid 坐标写入运行时位置字段
+  function evSetPos(obj, field, g) {
+    if ('ta' in obj) {                     // blocks
+      if (field === 'col') obj.ta = g * 2900; else obj.tb = (g * 29 - 12) * 100;
+    } else if ('sa' in obj) {              // pipes
+      var d = pipeDerive(obj);
+      if (field === 'col') d.col = g; else d.row = g;
+      pipeApply(obj, d.col, d.row, d.len, d.dir);
+    } else if ('ba' in obj) {              // triggers
+      if (field === 'col') obj.ba = g * 2900; else obj.bb = (g * 29 - 12) * 100;
+    } else if ('sra' in obj) {             // lifts
+      if (field === 'col') obj.sra = g * 2900; else obj.srb = (g * 29 - 12) * 100;
+    }
+  }
+  // 问号块/隐藏块 pop → ttype/txtype（保留当前量产状态与块种类）
+  function evBlockPop(obj, pop) {
+    var cur = POP_REV[(obj.ttype | 0) + '_' + (obj.txtype | 0)] || { pop: 'coin', mass: false, kind: 'Q' };
+    var tbl = cur.mass ? (cur.kind === 'H' ? H_M : Q_M) : (cur.kind === 'H' ? H_S : Q_S);
+    var a = tbl[pop] || (cur.kind === 'H' ? H_S.coin : Q_S.coin);
+    obj.ttype = a[0]; obj.txtype = a[1];
+    obj.showQ = (cur.mass && cur.kind === 'Q' && a[0] === 110);
+  }
+  // 问号块/隐藏块 mass 切换（保留当前 pop 与块种类）
+  function evBlockMass(obj, yes) {
+    var cur = POP_REV[(obj.ttype | 0) + '_' + (obj.txtype | 0)] || { pop: 'coin', mass: false, kind: 'Q' };
+    var tbl = yes ? (cur.kind === 'H' ? H_M : Q_M) : (cur.kind === 'H' ? H_S : Q_S);
+    var a = tbl[cur.pop] || (cur.kind === 'H' ? (H_S[cur.pop] || H_S.coin) : (Q_S[cur.pop] || Q_S.coin));
+    obj.ttype = a[0]; obj.txtype = a[1];
+    obj.showQ = (yes && cur.kind === 'Q' && a[0] === 110);
+  }
+  // 管道 entry → stype/sxtype（与 play.html L614-620 一致）
+  function evPipeEntry(obj, entry) {
+    if (entry === 'trap') { obj.stype = 50; obj.sxtype = 0; }
+    else if (entry === 'warp') { obj.stype = 60; obj.sxtype = 1; if (!obj.warp) obj.warp = { end: true, id: null }; }
+    else { obj.stype = 50; obj.sxtype = 1; }   // none
+  }
+  // setprop 主分派
+  function evApplySetprop(obj, ev) {
+    var f = ev.field || 'txtype';
+    var raw = ev.value;
+    var v = (typeof raw === 'string') ? raw : (raw | 0);
+    if (f === 'col' || f === 'row') {
+      evSetPos(obj, f, v);
+    } else if (f === 'length' && 'sa' in obj && 'sc' in obj) {
+      var pd = pipeDerive(obj); pd.len = Math.max(1, Math.min(20, v | 0));
+      pipeApply(obj, pd.col, pd.row, pd.len, pd.dir);
+    } else if (f === 'dir' && 'sa' in obj && 'sc' in obj) {
+      var pd2 = pipeDerive(obj); pd2.dir = v;
+      pipeApply(obj, pd2.col, pd2.row, pd2.len, pd2.dir);
+      obj.dir = v;
+    } else if (f === 'dir' && 'bdir' in obj) {
+      obj.bdir = v;                              // 火焰棒旋转方向 cw/ccw
+    } else if (f === 'entry' && 'stype' in obj) {
+      evPipeEntry(obj, v);
+    } else if (f === 'pop' && 'ttype' in obj) {
+      evBlockPop(obj, v);
+    } else if (f === 'mass' && 'ttype' in obj) {
+      evBlockMass(obj, isYes(v));
+    } else if (f === 'follow') {
+      if ('followJump' in obj) obj.followJump = isYes(v);
+    } else if (f === 'spray') {
+      obj.spray = isYes(v);                       // 仅标记，不动态创建喷射生成器
+    } else if (f === 'sprayTarget') {
+      obj.sprayTarget = v;                        // 仅标记
+    } else if (f === 'warp' && 'warp' in obj) {
+      obj.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
+    } else if (f === 'w' && 'src' in obj && 'sra' in obj) {
+      obj.src = (v | 0) * 3000;                   // 升降台/悬挂站台宽度
+    } else if (f === 'h' && 'sra' in obj) {
+      obj.srh = (v | 0) * 3000;                   // 悬挂站台吊柱高
+    } else if (f === 'drop' && 'sracttype' in obj) {
+      obj.sracttype = isYes(v) ? 1 : 0;
+    } else if (f === 'len' && 'src' in obj && 'sra' in obj) {
+      obj.src = (v | 0) * 3000;                   // 升降台长度
+    } else if (f === 'xt' && (obj.btype === 87 || obj.btype === 88)) {
+      // 火焰棒火球总数：bxtype = rotFlag*100 + cnt（cnt=xt-1），保留 rotFlag
+      var rf = Math.floor((obj.bxtype | 0) / 100);
+      obj.bxtype = rf * 100 + Math.max(0, (v | 0) - 1);
+    } else if (f === 'rot' && (obj.btype === 87 || obj.btype === 88)) {
+      // 火焰棒角度：随机=100+cnt(<1000)，固定=cnt+(rot+100)*100(>=10000)
+      var rv = v | 0;
+      var bx = obj.bxtype | 0;
+      var cnt2 = (bx >= 10000) ? (bx % 100) : Math.max(0, bx - 100);
+      if (rv < 0) {
+        obj.bxtype = 100 + cnt2;                  // 随机初相
+      } else {
+        var r2 = ((rv % 360) + 360) % 360;
+        obj.bxtype = cnt2 + (r2 + 100) * 100;
+      }
+      obj.bdir = obj.bdir || 'cw';
+    } else if (f === 'mirror' && (obj.btype === 87 || obj.btype === 88)) {
+      // 火焰棒水平镜像：btype 88=镜像，87=正常
+      obj.btype = isYes(v) ? 88 : 87;
+    } else if (f.indexOf('trap.') === 0 && ('dir' in obj || 'target' in obj || 'count' in obj)) {
+      var sub = f.slice(5);
+      if (sub === 'tw') obj.sc = (v | 0) * 2900;
+      else if (sub === 'th') obj.sd = (v | 0) * 2900;
+      else obj[sub] = v;
+    } else if (f.indexOf('lengths.') === 0 && obj.lengths) {
+      obj.lengths[+f.slice(8)] = Math.max(1, Math.min(4, v | 0));
+    } else if (f === 'rot' && obj.lengths) {
+      obj.rot = ((v | 0) % 360 + 360) % 360;       // 连接管旋转
+    } else {
+      obj[f] = v;                                  // 通用兜底
+    }
+  }
   function runEvents(tr) {
     var evs = tr.events || [];
     for (var i = 0; i < evs.length; i++) {
@@ -1418,7 +1564,7 @@
         if (!obj) for (k = 0; k < state.lifts.length; k++) if (state.lifts[k].uid === tgt) { obj = state.lifts[k]; break; }
         if (!obj) continue;
         if (ev.act === 'setprop') {
-          obj[ev.field || 'txtype'] = ev.value | 0;
+          evApplySetprop(obj, ev);
         } else {
           var mdx = ev.dx | 0, mdy = ev.dy | 0;
           if ('ta' in obj) { obj.ta += mdx; obj.tb += mdy; }
