@@ -859,7 +859,12 @@
     }
 
     // 移动
-    if (p.mkeytm >= 1) p.mkeytm -= C._DT;
+    // 锁键计时：60Hz(_DT=0.5) 下偶数初值(如抛投的 24)按 >=1 递减会卡在 0.5 永不解锁，
+    // 导致抛出后玩家永久无法移动；改为 >0 递减并夹到 0（30Hz 整数行为不变）
+    if (p.mkeytm > 0) {
+      p.mkeytm -= C._DT;
+      if (p.mkeytm < 0) p.mkeytm = 0;
+    }
     p.ma += p.mc * C._DT; p.mb += p.md * C._DT;
     if (p.mc < 0) p.mactp += -p.mc * C._DT;
     else p.mactp += p.mc * C._DT;
@@ -1665,8 +1670,11 @@
           if (e.atm >= 10) {
             e.atm += C._DT;
             if (p.mhp >= 1) {
-              // 抓住玩家期间（atm 11~19）：把玩家锁在头顶（ab 上方 30px），机器人停步
-              if (e.atm <= 19) { p.ma = e.aa; p.mb = e.ab - 3000; p.mtype = C.MTYPE.NORMAL; }
+              // 抓住玩家期间（atm 10~20 之间）：把玩家锁在头顶（ab 上方 30px），机器人停步。
+              // 用 < 20 而非 <= 19：60Hz(_DT=0.5) 下 atm=19.5 的"空档帧"既不锁定也不抛出，
+              // 玩家带着累积下落速度坠入机器人头部 → 踩踏判定再触发 atm 重置 10 → 二次前摇；
+              // 30Hz 整数语义下 <20 与 <=19 等价，行为不变
+              if (e.atm < 20) { p.ma = e.aa; p.mb = e.ab - 3000; p.mtype = C.MTYPE.NORMAL; }
               xx[10] = 0;
               // atm==20：向右上方抛出玩家（mc=700 / md=-1200），锁键 24 帧
               if (e.atm === 20) {
@@ -2225,10 +2233,12 @@
         ctx.strokeRect(dx91, dy91, w91, h91);
       }
     } else if (e.atype === 6) {
+      // 原版 main.cpp:931 setmirror 为全局状态，机器人分支（955-962）在镜像状态下绘制：
+      // amuki=1（向右）时水平翻转精灵，与其他敌人一致；抱人姿态 id150 同样受镜像
       if ((e.atm >= 10 && e.atm <= 19) || (e.atm >= 100 && e.atm <= 119) || e.atm >= 200)
-        S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+        S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
       else
-        S.draw(ctx, 6, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+        S.draw(ctx, 6, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
     } else if (e.atype === 81 && e.axtype === 1) {
       S.draw(ctx, 130, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 86) {
