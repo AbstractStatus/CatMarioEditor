@@ -1769,9 +1769,28 @@
   // ---------- 事件触发器动作列表编辑器（trap_event / block_qball 共用） ----------
   var EV_ACTS = [
     ['se', '播音效'],
-    ['spawn', '生成敌人'],
+    ['spawn', '生成对象'],
     ['setprop', '改属性']
   ];
+  // spawn 动作的对象表：引擎 ayobi 按 atype(对象类型)+axtype(子类型/变体) 生成，
+  // 这里把目录中所有带 atype 的元素列成中文名下拉，免去手填编号
+  var SPAWN_AX0 = { enemy_block_mimic: 1, item_mushroom_purple: 1, firebar: 105 };   // 各元素的默认子类型
+  function spawnObjList() {
+    var list = [];
+    CAT.ELEMENTS.forEach(function (d) {
+      if (d.atype == null || d.internal) return;
+      list.push({ id: d.id, name: d.name, cat: d.cat, atype: d.atype, axtype: SPAWN_AX0[d.id] || 0 });
+      if (d.id === 'item_mushroom_red')
+        list.push({ id: 'item_mushroom_dark', name: '棕蘑菇(毒)', cat: d.cat, atype: 100, axtype: 1 });   // 与红蘑菇同 atype=100，靠 axtype 区分
+    });
+    return list;
+  }
+  function spawnObjFind(atype, axtype) {
+    var cand = spawnObjList().filter(function (it) { return it.atype === atype; });
+    if (!cand.length) return null;
+    if (atype === 100) return cand.filter(function (it) { return it.axtype === (axtype | 0); })[0] || cand[0];
+    return cand[0];
+  }
   function evTargetSelect(cur, self) {
     var sel = document.createElement('select');
     var none = document.createElement('option');
@@ -2016,13 +2035,88 @@
           });
           line.appendChild(inp);
         }
+        function mkGrid(key, tip) {
+          // 格子坐标输入：显示/编辑按格（支持负数、小数），存储仍为世界单位（×2900），引擎语义不变
+          var inp = document.createElement('input');
+          inp.type = 'number'; inp.step = '0.5';
+          inp.value = Math.round(((a[key] != null ? a[key] : 0) / 2900) * 100) / 100;
+          inp.title = tip;
+          inp.style.width = '56px';
+          inp.addEventListener('change', function () {
+            var v = parseFloat(inp.value);
+            a[key] = isFinite(v) ? Math.round(v * 2900) : 0;
+          });
+          line.appendChild(inp);
+        }
+        function mkLb(text) {
+          var lb = document.createElement('span');
+          lb.textContent = text;
+          lb.style.cssText = 'font-size:12px;color:#9aa4b5';
+          line.appendChild(lb);
+        }
         if (a.act === 'se') {
           mkNum('id', 0, 30, 1, '音效编号（4=金币）');
         } else if (a.act === 'spawn') {
-          mkNum('atype', 0, 199, 1, '对象 atype（110=恶星）', 56);
-          mkNum('axtype', 0, 999, 1, '子类型 axtype', 52);
-          mkNum('dx', -200000, 200000, 100, 'X偏移（世界单位，2900=1格）', 70);
-          mkNum('dy', -200000, 200000, 100, 'Y偏移（负=上方，生成后向下落）', 70);
+          // 对象下拉：按元素名选择（内部仍存 atype+axtype 编号，引擎语义不变）
+          var hit = spawnObjFind(a.atype | 0, a.axtype | 0);
+          var objSel = document.createElement('select');
+          objSel.title = '要生成的对象（引擎 ayobi 对象：敌人/道具/机关）';
+          var objGroups = {};
+          spawnObjList().forEach(function (it) {
+            var g = objGroups[it.cat];
+            if (!g) {
+              g = document.createElement('optgroup');
+              g.label = CAT.CATS[it.cat] || it.cat;
+              objGroups[it.cat] = g;
+              objSel.appendChild(g);
+            }
+            var o = document.createElement('option');
+            o.value = it.id; o.textContent = it.name;
+            g.appendChild(o);
+          });
+          var cust = document.createElement('option');
+          cust.value = '__custom__';
+          cust.textContent = hit ? '自定义编号…' : '自定义 (atype=' + (a.atype | 0) + ')';
+          objSel.appendChild(cust);
+          objSel.value = hit ? hit.id : '__custom__';
+          objSel.addEventListener('change', function () {
+            if (objSel.value !== '__custom__') {
+              var it = spawnObjList().filter(function (x) { return x.id === objSel.value; })[0];
+              if (it) { a.atype = it.atype; a.axtype = it.axtype; }
+            }
+            renderRows();
+          });
+          line.appendChild(objSel);
+          if (!hit) {
+            mkNum('atype', 0, 199, 1, '对象 atype（110=恶星）', 56);
+            mkNum('axtype', 0, 999, 1, '子类型 axtype', 52);
+          } else if ((a.atype | 0) === 82) {
+            // 伪装方块怪：axtype=外观变体
+            var msel = document.createElement('select');
+            msel.title = '外观变体（axtype）';
+            [['0', '地面顶'], ['1', '内框楼梯块'], ['2', '紫橙刺面板']].forEach(function (p) {
+              var o = document.createElement('option'); o.value = p[0]; o.textContent = p[1]; msel.appendChild(o);
+            });
+            msel.value = String(a.axtype | 0);
+            msel.addEventListener('change', function () { a.axtype = parseInt(msel.value, 10) || 0; });
+            line.appendChild(msel);
+          } else if ((a.atype | 0) === 87 || (a.atype | 0) === 88) {
+            // 火焰棒：axtype=100+火球数（随机初相）
+            mkLb('火球数');
+            var fbInp = numInput(1, 21, Math.max(1, (a.axtype | 0) % 100) || 5);
+            fbInp.title = '火球数（axtype=100+数量，随机初相）';
+            fbInp.style.width = '48px';
+            fbInp.addEventListener('change', function () {
+              var v = parseInt(fbInp.value, 10);
+              a.axtype = 100 + (isFinite(v) ? Math.max(1, Math.min(21, v)) : 5);
+            });
+            line.appendChild(fbInp);
+          }
+          // 行列格子偏移（相对触发器所在格，存储仍为世界单位 2900=1格，兼容旧数据与引擎）
+          mkLb('列');
+          mkGrid('dx', '列偏移（格，相对触发器，负=左，支持小数）');
+          mkLb('行');
+          mkGrid('dy', '行偏移（格，相对触发器，负=上，生成后向下落）');
         } else if (a.act === 'setprop') {
           // 目标下拉：选中变化时重置为第一个字段（col）
           var ts = evTargetSelect(a.target, self);
