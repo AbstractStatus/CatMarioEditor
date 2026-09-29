@@ -1886,6 +1886,30 @@
     if (fd.kind === 'ref') return '';
     return 0;
   }
+  // 读取目标元素当前属性值（改属性动作选中目标/字段时显示当前值）
+  // 支持嵌套路径（trap.dir / lengths.0）；元素上没有时回退元素默认定义，再回退字段默认值
+  function setpropCurrentValue(tEl, fd) {
+    if (!tEl || !fd) return setpropDefault(fd);
+    var path = fd.field.split('.');
+    function readPath(obj) {
+      var cur = obj;
+      for (var i = 0; i < path.length; i++) {
+        if (cur == null) return undefined;
+        cur = cur[path[i]];
+      }
+      return cur;
+    }
+    var v = readPath(tEl);
+    if (v == null) v = readPath(CAT.byId(tEl.id) || {});
+    if (fd.field === 'warp') {
+      // 元素上 warp 存的是 {end, id} 对象，控件用 '__end__' 或关卡 id
+      if (v && typeof v === 'object') return v.end ? '__end__' : (v.id || '__end__');
+      return '__end__';
+    }
+    if (v == null) return setpropDefault(fd);
+    if (fd.kind === 'bool') return (v === true || v === 'yes' || v === 1) ? 'yes' : 'no';
+    return v;
+  }
   // 按字段 kind 渲染值输入控件，变化写回 a.value
   function buildSetpropValueInput(fd, a) {
     if (fd.kind === 'enum') {
@@ -2009,7 +2033,7 @@
             var tEl = state.elements.filter(function (x) { return x.uid === a.target; })[0] || null;
             var flds0 = setpropFieldsFor(tEl);
             a.field = flds0.length ? flds0[0].field : 'col';
-            a.value = setpropDefault(flds0[0]);
+            a.value = setpropCurrentValue(tEl, flds0[0]);
             renderRows();
           });
           line.appendChild(ts);
@@ -2030,7 +2054,7 @@
           fs.addEventListener('change', function () {
             a.field = fs.value;
             var chosen = flds.filter(function (fd) { return fd.field === fs.value; })[0] || flds[0];
-            a.value = setpropDefault(chosen);
+            a.value = setpropCurrentValue(tEl, chosen);
             renderRows();
           });
           line.appendChild(fs);
