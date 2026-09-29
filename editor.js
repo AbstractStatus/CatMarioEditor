@@ -572,7 +572,7 @@
       ne.delay = (d.delay != null) ? d.delay : 0;
     }
     if (d.id === 'block_brick_m') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; }
-    if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; if (d.spray) { ne.spray = true; ne.sprayTarget = d.sprayTarget || 'enemy_fireball'; } }
+    if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; if (d.spray) { ne.spray = true; ne.sprayTarget = d.sprayTarget || 'enemy_fireball'; ne.sprayFreq = +d.sprayFreq > 0 ? +d.sprayFreq : 1.6; } }
     if (d.id === 'block_question' || d.id === 'block_hidden') { ne.pop = d.pop || 'coin'; ne.mass = !!d.mass; }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
       ne.lengths = (d.lengths || [1, 1]).slice();
@@ -1821,6 +1821,7 @@
       push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['trap', '陷阱管道'], ['warp', '传送管道']], tip: '' });
       push({ field: 'spray', label: '是否喷射', kind: 'bool', tip: '运行时仅标记，不动态创建喷射生成器' });
       push({ field: 'sprayTarget', label: '喷射对象', kind: 'ref', cat: 'enemy', tip: '从管口喷出的敌人' });
+      push({ field: 'sprayFreq', label: '喷射周期', kind: 'num', min: 0.1, max: 10, tip: '秒；旧引擎1-2-1默认1.6秒(=sgtype48物理帧)' });
     } else if (id === 'block_question' || id === 'block_hidden') {
       push({ field: 'pop', label: '弹出对象', kind: 'enum', opts: [['coin', '金币'], ['mushroom', '红蘑菇'], ['poison', '毒蘑菇'], ['enemy', '白猫怪'], ['flower', '火焰花'], ['badstar', '坏星星'], ['pswitch', 'P开关']], tip: '' });
       push({ field: 'mass', label: '是否量产', kind: 'bool', tip: '' });
@@ -2293,8 +2294,8 @@
         fPortIdxs.push(_baseIdx);
       });
     }
-    // 管道口：管身长度 + 进入事件 + 开口方向 + 是否喷射/喷射对象
-    var fPmLen = null, fPmEntry = null, fPmDir = null, fPmSpray = null, fPmSprayTarget = null;
+    // 管道口：管身长度 + 进入事件 + 开口方向 + 是否喷射/喷射对象/喷射周期
+    var fPmLen = null, fPmEntry = null, fPmDir = null, fPmSpray = null, fPmSprayTarget = null, fPmSprayFreq = null;
     if (d.id === 'pipe_mouth') {
       fPmLen = numInput(1, 20, Math.max(1, selected.length | 0 || d.length || 1));
       propBody.appendChild(propRow('管身长度', fPmLen, '格'));
@@ -2312,7 +2313,7 @@
         fPmDir.appendChild(opt2);
       });
       propBody.appendChild(propRow('开口方向', fPmDir, '决定管口朝向和管身延伸方向'));
-      // 是否喷射（默认否）+ 喷射对象（默认火球=喷火）；参考原版 1-2-1 喷火土管 stype=180
+      // 是否喷射（默认否）+ 喷射对象（默认火球=喷火）+ 喷射周期（秒）；参考原版 1-2-1 喷火土管 stype=180
       var pmSprayOn = !!(selected.spray != null ? selected.spray : d.spray);
       fPmSpray = document.createElement('select');
       [['no', '否（普通管口）'], ['yes', '是（周期向管口外喷射）']].forEach(function (op) {
@@ -2320,7 +2321,7 @@
         if ((pmSprayOn ? 'yes' : 'no') === op[0]) opt3.selected = true;
         fPmSpray.appendChild(opt3);
       });
-      propBody.appendChild(propRow('是否喷射', fPmSpray, '开启后约每1.6秒从管口喷出一个对象（原版喷火土管）'));
+      propBody.appendChild(propRow('是否喷射', fPmSpray, '开启后按下方「喷射周期」从管口喷出一个对象（原版喷火土管）'));
       fPmSprayTarget = document.createElement('select');
       var pmTgtVal = selected.sprayTarget || d.sprayTarget || 'enemy_fireball';
       var pmOg = document.createElement('optgroup'); pmOg.label = CAT.CATS.enemy || 'enemy';
@@ -2334,10 +2335,19 @@
       fPmSprayTarget.appendChild(pmOg);
       var pmTgtRow = propRow('喷射对象', fPmSprayTarget, '从管口喷出的敌人（默认火球=喷火）');
       pmTgtRow.style.display = pmSprayOn ? '' : 'none';
+      // 喷射周期（秒）：默认1.6 = 旧引擎 1-2-1 sgtype=48物理帧；play.html 转换时按 sgtype=round(freq*30) 转回物理帧
+      var pmFreqVal = +selected.sprayFreq > 0 ? +selected.sprayFreq : (+d.sprayFreq > 0 ? +d.sprayFreq : 1.6);
+      fPmSprayFreq = numInput(0.1, 10, pmFreqVal);
+      fPmSprayFreq.step = '0.1';
+      var pmFreqRow = propRow('喷射周期', fPmSprayFreq, '秒；旧引擎1-2-1默认1.6秒(=sgtype48物理帧)，改值需重新载入关卡生效');
+      pmFreqRow.style.display = pmSprayOn ? '' : 'none';
       fPmSpray.addEventListener('change', function () {
-        pmTgtRow.style.display = fPmSpray.value === 'yes' ? '' : 'none';
+        var on = fPmSpray.value === 'yes';
+        pmTgtRow.style.display = on ? '' : 'none';
+        pmFreqRow.style.display = on ? '' : 'none';
       });
       propBody.appendChild(pmTgtRow);
+      propBody.appendChild(pmFreqRow);
     }
     // 陷阱触发区：方向 + 对象 + 触发区宽高 + 生成区独立位置/尺寸 + 生成个数
     var fTzDir = null, fTzTarget = null, fTzW = null, fTzH = null, fTzGCol = null, fTzGRow = null, fTzGTw = null, fTzGTh = null, fTzCount = null;
@@ -2686,14 +2696,17 @@
         }
       }
       if (fPmDir) selected.dir = fPmDir.value;
-      // 是否喷射/喷射对象保存：开启才落盘（稀疏存储，默认否/火球）
+      // 是否喷射/喷射对象/喷射周期保存：开启才落盘（稀疏存储，默认否/火球/1.6秒）
       if (fPmSpray) {
         if (fPmSpray.value === 'yes') {
           selected.spray = true;
           selected.sprayTarget = fPmSprayTarget.value || 'enemy_fireball';
+          var _freq = parseFloat(fPmSprayFreq.value);
+          selected.sprayFreq = (isFinite(_freq) && _freq > 0) ? Math.max(0.1, Math.min(10, _freq)) : 1.6;
         } else {
           delete selected.spray;
           delete selected.sprayTarget;
+          delete selected.sprayFreq;
         }
       }
       // 陷阱触发区保存：tw/th/dir/target/count + 生成区独立 gcol/grow/gtw/gth
@@ -4393,6 +4406,9 @@
           if (E[pei].uid === 'p' + bestQi && E[pei].id === 'pipe_mouth') {
             E[pei].spray = true;
             E[pei].sprayTarget = 'enemy_fireball';
+            // 反推喷射周期（秒）：sgtype/30，sgtype 缺省 48→1.6；至少 0.1 秒
+            var _fbsg = Math.max(1, fp.sgtype | 0 || 48);
+            E[pei].sprayFreq = Math.max(0.1, Math.round(_fbsg / 30 * 10) / 10);
             break;
           }
         }

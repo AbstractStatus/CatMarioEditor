@@ -645,7 +645,8 @@ body.dragging #dropTip { display: flex; }
           pipes.push(pmPipe);
         }
         // 喷火管：额外生成一条独立的非实体 stype=180 记录（原版 1-2-1「ファイアー土管」）。
-        // 引擎每 sgtype 帧（48 物理帧≈1.6秒）从管口朝 dir 喷出一个 target（默认火球 atype84）。
+        // 引擎每 sgtype 帧（默认48物理帧≈1.6秒）从管口朝 dir 喷出一个 target（默认火球 atype84）。
+        // 喷射周期 sgtype 由 e.sprayFreq（秒）换算：sgtype = round(freq * 30)，1.6秒→48帧。
         // 锚点约定（与 PipeTypes[180].tick 对应）：生成点中心=管口边沿中点，sb/sa 预留 2000/1000 偏移。
         if (e.spray === true) {
           var fpSa, fpSb;
@@ -665,9 +666,11 @@ body.dragging #dropTip { display: flex; }
             fpSa = pmPipe.sa + pmPipe.sc - 1000;
             fpSb = pmPipe.sb + pmPipe.sd / 2 - 1500;
           }
+          var _freq = +e.sprayFreq;
+          if (!isFinite(_freq) || _freq <= 0) _freq = 1.6;   // 旧引擎 1-2-1 默认 48 帧 / 30 FPS = 1.6 秒
           pipes.push({
             sa: fpSa, sb: fpSb, sc: 3000, sd: 3000,
-            stype: 180, sxtype: 0, sgtype: 48, sr: 0,
+            stype: 180, sxtype: 0, sgtype: Math.max(1, Math.round(_freq * 30)), sr: 0,
             dir: pmDir, target: e.sprayTarget || 'enemy_fireball', uid: null
           });
         }

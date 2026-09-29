@@ -1502,6 +1502,11 @@
       obj.spray = isYes(v);                       // 仅标记，不动态创建喷射生成器
     } else if (f === 'sprayTarget') {
       obj.sprayTarget = v;                        // 仅标记
+    } else if (f === 'sprayFreq') {
+      // 仅标记：play.html convert 时基于 sprayFreq 生成 stype=180 生成器的 sgtype
+      // 运行时改值不动态影响已生成的喷射器（与 spray/sprayTarget 同样的已知限制）
+      var _fv = +v;
+      obj.sprayFreq = (isFinite(_fv) && _fv > 0) ? _fv : 1.6;
     } else if (f === 'warp' && 'warp' in obj) {
       obj.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
     } else if (f === 'w' && 'src' in obj && 'sra' in obj) {
