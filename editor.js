@@ -4449,6 +4449,44 @@
         // 透传 bxtype（伪装方块怪 atype=82 的外观变体等触发器类敌人的变体值），
         // 避免编辑器导入→保存链路丢失；无值/0 时不写以保持存档简洁
         if (en.bxtype) (ekExtra = ekExtra || {}).xt = en.bxtype;
+        // 绿色问号球（btype=105）：根据原版 main.cpp:3695-3714 的硬编码事件还原
+        // bxtype=0 (1-2-1 地下)：金币音效 + 喷管 sgtype 48→6（喷射周期 1.6s→0.2s）
+        // bxtype=1 (1-3 地上)：金币音效 + 提示块 txtype=80（空白框整蛊）+ 7 颗恶星天降 + 脆弱砖下移 3 格
+        if (eid === 'block_qball' && en.btype === 105) {
+          var evs = [];
+          if (def.id === '1-3' && en.bxtype === 1) {
+            evs.push({ act: 'se', id: 4 });
+            evs.push({ act: 'setprop', target: 'b7', field: 'txtype', value: 80 });
+            // 7 颗恶星（atype=110）从屏幕上方天降，原版 ayobi 偏移（dy 相对 qball.bb=30700）
+            var sp7 = [
+              { dx: -25000, dy: -42700 },
+              { dx: -29000, dy: -33700 },
+              { dx:  13000, dy: -36700 },
+              { dx:  14000, dy: -39700 },
+              { dx:  19000, dy: -42700 },
+              { dx:  20000, dy: -36700 },
+              { dx:  25000, dy: -37700 }
+            ];
+            for (var si = 0; si < sp7.length; si++) {
+              evs.push({ act: 'spawn', atype: 110, axtype: 0, dx: sp7[si].dx, dy: sp7[si].dy });
+            }
+            evs.push({ act: 'move', target: 'bm_1_3', dx: 0, dy: 9000 });
+          } else if (def.id === '1-2-1' && en.bxtype === 0) {
+            evs.push({ act: 'se', id: 4 });
+            // 旧引擎 sgtype[26]=6：把 1-2-1 喷火土管 sgtype 48→6（喷射周期 1.6s→0.2s）
+            // 配对带 spray 标记的 pipe_mouth（_fireSpawners 已先于本块完成配对）
+            // 已知限制：sprayFreq 仅更新编辑器标记，运行时由独立 stype=180 生成器驱动（uid=null）
+            // 见 Task 4 限制表格
+            var spPipe = null;
+            for (var pi = 0; pi < E.length; pi++) {
+              if (E[pi].id === 'pipe_mouth' && E[pi].spray === true) { spPipe = E[pi]; break; }
+            }
+            if (spPipe && spPipe.uid) {
+              evs.push({ act: 'setprop', target: spPipe.uid, field: 'sprayFreq', value: 0.2 });
+            }
+          }
+          if (evs.length) (ekExtra = ekExtra || {}).events = evs;
+        }
         add(eid, col, row, ekExtra, euid);
       }
     });
