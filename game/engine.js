@@ -517,12 +517,16 @@
 
     // 事件触发器（编辑器 trap_event/block_qball 透传；原版 def 无此字段）
     (def.eventTriggers || []).forEach(function (t) {
+      // repeat=true（问号球）：每次关卡载入都可再触发，不查 _evFired 持久化
+      // repeat 缺省/false（trap_door 等）：载入时按 _evFired 还原 fired，保持"一关一次"
+      var _isRepeat = !!t.repeat;
       state.eventTriggers.push({
         ax: t.ax, ay: t.ay, aw: t.aw, ah: t.ah,
         uid: t.uid || null,
         img: t.img || null,
         events: Array.isArray(t.events) ? t.events : [],
-        fired: !!(t.uid && state._evFired[t.uid])
+        repeat: _isRepeat,
+        fired: !_isRepeat && !!(t.uid && state._evFired[t.uid])
       });
     });
 
@@ -1391,7 +1395,9 @@
       if (p.ma + p.mnobia <= tr.ax || p.ma >= tr.ax + tr.aw ||
           p.mb + p.mnobib <= tr.ay || p.mb >= tr.ay + tr.ah) continue;
       tr.fired = true;
-      if (tr.uid) state._evFired[tr.uid] = true;
+      // repeat=true（问号球）：不写入 _evFired，玩家死亡复活后关卡重载时
+      // 可再次触发（参考旧引擎 main.cpp:3695-3714，原版无 fired 持久化）
+      if (tr.uid && !tr.repeat) state._evFired[tr.uid] = true;
       runEvents(tr);
     }
   }
@@ -1503,10 +1509,15 @@
     } else if (f === 'sprayTarget') {
       obj.sprayTarget = v;                        // 仅标记
     } else if (f === 'sprayFreq') {
-      // 仅标记：play.html convert 时基于 sprayFreq 生成 stype=180 生成器的 sgtype
-      // 运行时改值不动态影响已生成的喷射器（与 spray/sprayTarget 同样的已知限制）
+      // play.html convert 时基于 sprayFreq 生成 stype=180 生成器的 sgtype（round(freq*30)）。
+      // 运行时改值时：若目标对象是 stype=180 喷射生成器（有 sgtype 字段），同步改 sgtype 让周期立即生效；
+      // 若目标是 pipe_mouth（无 sgtype 字段，仅为编辑器标记字段），只改 sprayFreq 标记。
       var _fv = +v;
-      obj.sprayFreq = (isFinite(_fv) && _fv > 0) ? _fv : 1.6;
+      var _use = (isFinite(_fv) && _fv > 0) ? _fv : 1.6;
+      obj.sprayFreq = _use;
+      if ('sgtype' in obj && typeof obj.sgtype === 'number') {
+        obj.sgtype = Math.max(1, Math.round(_use * 30));
+      }
     } else if (f === 'warp' && 'warp' in obj) {
       obj.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
     } else if (f === 'w' && 'src' in obj && 'sra' in obj) {

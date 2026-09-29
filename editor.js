@@ -4474,15 +4474,16 @@
           } else if (def.id === '1-2-1' && en.bxtype === 0) {
             evs.push({ act: 'se', id: 4 });
             // 旧引擎 sgtype[26]=6：把 1-2-1 喷火土管 sgtype 48→6（喷射周期 1.6s→0.2s）
-            // 配对带 spray 标记的 pipe_mouth（_fireSpawners 已先于本块完成配对）
-            // 已知限制：sprayFreq 仅更新编辑器标记，运行时由独立 stype=180 生成器驱动（uid=null）
-            // 见 Task 4 限制表格
+            // 配对带 spray 标记的 pipe_mouth（_fireSpawners 已先于本块完成配对）。
+            // play.html 把 stype=180 生成器 uid 派生为 pipe_mouth.uid + '#spray'，
+            // 此处 target 同样加 '#spray' 后缀命中生成器，引擎 evApplySetprop 收到
+            // sprayFreq 时同步改写 sgtype = round(freq*30)，让喷射周期立即缩短。
             var spPipe = null;
             for (var pi = 0; pi < E.length; pi++) {
               if (E[pi].id === 'pipe_mouth' && E[pi].spray === true) { spPipe = E[pi]; break; }
             }
             if (spPipe && spPipe.uid) {
-              evs.push({ act: 'setprop', target: spPipe.uid, field: 'sprayFreq', value: 0.2 });
+              evs.push({ act: 'setprop', target: spPipe.uid + '#spray', field: 'sprayFreq', value: 0.2 });
             }
           }
           if (evs.length) (ekExtra = ekExtra || {}).events = evs;
@@ -4527,6 +4528,36 @@
   function loadWorld(stage) {
     var conv = worldToElements(stage);
     loadData({ cols: conv.cols, theme: conv.theme, bgm: conv.bgm, elements: conv.elements });
+    // 给原版 def 的 blocks/pipes/enemies 按 worldToElements uid 约定注入 uid，并回写 events：
+    // play.html 的 _worldDef 分支不走 convert()，直接用原版 def，引擎 loadStage 读
+    // b.uid/p.uid/e.uid 时若为 null，事件动作 setprop/move 的 target uid 无法命中目标对象。
+    (stage.blocks || []).forEach(function (b, bi) {
+      if (!b.uid) b.uid = 'b' + bi;
+      // 1-3 脆弱砖（type=1, col=22, row=3）：worldToElements 在该位置分配特殊 uid 'bm_1_3'
+      // （1-3 qball move 动作的 target），此处覆盖默认 'b'+bi
+      if (stage.id === '1-3' && b.type === 1 &&
+          Math.round(b.x / 29) === 22 && Math.round((b.y + 12) / 29) === 3) {
+        b.uid = 'bm_1_3';
+      }
+    });
+    (stage.pipes || []).forEach(function (p, pi) {
+      if (!p.uid) p.uid = 'p' + pi;
+    });
+    (stage.enemies || []).forEach(function (en, ei) {
+      if (!en.uid) en.uid = 'e' + ei;
+    });
+    // 把 worldToElements 注入到 block_qball 元素上的 events 同步回 stage.enemies
+    // 让 _worldDef 携带 events 数据：play.html 的 _worldDef 分支不走 convert()，
+    // 直接用原版 def，需在 def 里携带 events 才能让引擎 runEvents 生效
+    conv.elements.forEach(function (el) {
+      if (el.id !== 'block_qball' || !el.events || !el.events.length) return;
+      var m = /^e(\d+)$/.exec(el.uid || '');
+      if (!m) return;
+      var ei = +m[1];
+      if (stage.enemies[ei] && stage.enemies[ei].btype === 105) {
+        stage.enemies[ei].events = JSON.parse(JSON.stringify(el.events));
+      }
+    });
     state._worldDef = stage;   // 未编辑前试玩 1:1 还原原版
     scroller.scrollLeft = 0;
     hintEl.textContent = '已载入世界 ' + stage.id + '（' + stage.name + '）：' + conv.elements.length +
