@@ -456,6 +456,11 @@ body.dragging #dropTip { display: flex; }
           var _ebtype = tvByte === 50 ? 0 : (tvByte === 51 ? 1 : 4);
           enemies.push({ ba: x * 100, bb: y * 100, btype: _ebtype, bxtype: 0, followJump: true, uid: e.uid || null });
           used++;
+        } else if (e.pole && tvByte === 56) {
+          // 方块机器人"拔旗杆"变体：字节网格 trigger bxtype 恒 0，改走 enemies 数组带 bxtype:1
+          // → spawnEnemy axtype=1（原版 4-2：走到终点杆左侧拔起扔出）
+          enemies.push({ ba: x * 100, bb: y * 100, btype: 6, bxtype: 1, uid: e.uid || null });
+          used++;
         } else {
           if (put(r, c, tvByte, e.uid)) used++;
         }

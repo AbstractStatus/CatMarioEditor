@@ -1667,6 +1667,7 @@
         case 6:
           // デフラグさん（方块机器人）：原版 main.cpp:3035-3085
           xx[10] = 120;   // 平时贴地行走速度
+          if (e.atm >= 200) xx[10] = 0;   // 扔出道具后的短暂停（原版 atm>=200 时 xx[10]=0）
           if (e.atm >= 10) {
             e.atm += C._DT;
             if (p.mhp >= 1) {
@@ -1687,17 +1688,47 @@
             }
           }
           if (e.atm >= 220) { e.atm = 0; e.amuki = 0; }
-          // 他の敵を投げる：碰到道具类敌人(atype>=100)时举过头顶再抛出
+          // 他の敵を投げる：碰到道具类敌人(atype>=100)、馒头怪(atype=0)或假旗杆(atype=85)时举过头顶再抛出
           // （abrocktm=120：先上升 20 帧，到 100 时按通用逻辑 ad=-1200/ac=700 弹出）
           for (var ri = 0; ri < state.enemies.length; ri++) {
             var re = state.enemies[ri];
-            if (re === e || re.aa < -800000 || re.atype < 100) continue;
+            if (re === e || re.aa < -800000 || re.abrocktm > 0) continue;
+            var canThrowEnemy = re.atype >= 100 || re.atype === 0 || re.atype === 85;
+            if (!canThrowEnemy) continue;
+            // 垂直窗口：假旗杆(85)杆高 30000，机器人只需与杆身纵向重叠即可抓起；
+            // 其余敌人维持原版「脚底不超过敌人顶部+6300」
+            var vertReach = re.atype === 85 ? re.anobib + 800 : 6300;
             if (e.aa + e.anobia > re.aa + 500 && e.aa < re.aa + re.anobia - 500 &&
                 e.ab + e.anobib > re.ab - 800 &&
-                e.ab + e.anobib < re.ab + 6300) {
+                e.ab + e.anobib < re.ab + vertReach) {
               re.amuki = 1; re.aa = e.aa + 300; re.ab = e.ab - 3000; re.abrocktm = 120;
               e.atm = 200; e.amuki = 1;
             }
+          }
+          // ポール捨て：原版 main.cpp:3055-3074，axtype=1 变体机器人（デフラグ）走到终点杆左侧
+          // 将其拔起（atm=100 举杆 20 帧→atm=120 抛出 egtype=4 杆粒子→atm=140 结束）。
+          // 杆粒子仅飞行表现，无碰撞（原版即无通关判定）；拔杆时若玩家正在杆上滑行则强行取消通关
+          if (e.axtype === 1) {
+            for (var gi = 0; gi < state.pipes.length; gi++) {
+              var gs = state.pipes[gi];
+              if (gs.stype === 300 && gs.sa > -800000 &&
+                  e.aa - state.fx >= -8000 && e.aa >= gs.sa + 2000 && e.aa <= gs.sa + 3600 &&
+                  e.axzimen === 1) {
+                gs.sa = -800000; e.atm = 100;
+              }
+            }
+            if (e.atm === 100) {
+              spawnParticle(e.aa, e.ab + 3000 - 10 * 3000 - 1500, 0, 0, 0, 0, 1000, 10 * 3000 - 1200, 4, 20);
+              if (p.mtype === C.MTYPE.GOAL_SLIDE) { p.mtype = 0; A.stopSe(C.SE.GOAL); A.bgmChange(state.bgmId || 100); }
+              for (var gi2 = 0; gi2 < state.pipes.length; gi2++) {
+                if (state.pipes[gi2].stype === 104) state.pipes[gi2].sa = -80000000;
+              }
+            }
+            if (e.atm === 120) {
+              spawnParticle(e.aa, e.ab + 3000 - 10 * 3000 - 1500, 600, -1200, 0, 160, 1000, 10 * 3000 - 1200, 4, 240);
+              e.amuki = 1;
+            }
+            if (e.atm === 140) { e.amuki = 0; e.atm = 0; }
           }
           break;
         case 7:
@@ -2415,6 +2446,15 @@
         ctx.fill();
         ctx.strokeStyle = '#000';
         ctx.stroke();
+      } else if (p.egtype === 4) {
+        // ポール（原版 main.cpp:762-771）：白杆+黑描边，顶端黄球——机器人拔起/抛出的终点杆
+        var px = Math.floor(xx[0] / 100), py = Math.floor(xx[1] / 100), ph = Math.floor(p.enobib / 100);
+        ctx.fillStyle = '#fff'; ctx.fillRect(px + 10, py, 10, ph);
+        ctx.strokeStyle = '#000'; ctx.strokeRect(px + 10, py, 10, ph);
+        ctx.fillStyle = '#fafa00';
+        ctx.beginPath(); ctx.arc(px + 15, py, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#000';
+        ctx.beginPath(); ctx.arc(px + 15, py, 10, 0, Math.PI * 2); ctx.stroke();
       }
     });
 

@@ -201,6 +201,7 @@
         if (e.pop) o.pop = e.pop;
         if (e.mass) o.mass = true;
         if (e.follow) o.follow = true;   // 跳跃跟随（解耦属性，block 类通用）
+        if (e.pole) o.pole = true;   // 机器人拔旗杆变体
         if (e.ori) o.ori = e.ori;
         if (e.count != null) o.count = e.count;
         if (e.dir) o.dir = e.dir;
@@ -2659,6 +2660,19 @@
         : '玩家在附近起跳时，该敌人同步起跳（复用尖刺馒头怪的判定与力度）';
       propBody.appendChild(propRow('跳跃跟随', fEnemyFollow, _ekNote));
     }
+    // 方块机器人拔旗杆变体（原版 4-2：走到终点杆左侧将其拔起扔出，对应引擎 axtype=1）
+    var fRobotPole = null;
+    if (d.id === 'enemy_robot') {
+      fRobotPole = document.createElement('select');
+      [['no', '否：普通（默认）'], ['yes', '是：拔起终点旗杆扔出']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fRobotPole.appendChild(o);
+      });
+      fRobotPole.value = selected.pole ? 'yes' : 'no';
+      propBody.appendChild(propRow('拔旗杆', fRobotPole,
+        '走到终点旗杆左侧时将其拔起并扔出（原版 4-2 デフラグ的行为）；若玩家正在杆上滑行则取消通关'));
+    }
     // 提示块：消息类型选择 + 自定义文本
     var fHintType = null, fHintText = null;
     if (d.id === 'b2_hint') {
@@ -2767,6 +2781,11 @@
       if (fEnemyFollow) {
         if (fEnemyFollow.value === 'yes') selected.follow = true;
         else delete selected.follow;
+      }
+      // 机器人拔旗杆写回（稀疏存储）
+      if (fRobotPole) {
+        if (fRobotPole.value === 'yes') selected.pole = true;
+        else delete selected.pole;
       }
       // 连接管保存：per-port lengths + rot
       if (fPortInputs) {
@@ -4943,6 +4962,8 @@
       }
       // 跳跃跟随（解耦属性：block 类通用 + 馒头怪系敌人；稀疏存储仅 true 落盘）
       if ((ed.cat === 'block' || e.id === 'enemy_syobon' || e.id === 'enemy_turtle' || e.id === 'enemy_king') && e.follow) out.follow = true;
+      // 机器人拔旗杆（稀疏存储仅 true 落盘）
+      if (e.id === 'enemy_robot' && e.pole) out.pole = true;
       if (e.id === 'platform_hang') {
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;
