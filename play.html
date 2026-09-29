@@ -1139,7 +1139,7 @@ body.dragging #dropTip { display: flex; }
             if (evs.length) en.events = evs;
           });
         }
-        // 5) 把问号球（btype=105）转成 eventTriggers：ba/bb 世界单位 → ax/ay + 2 格 AABB
+        // 5) 把问号球（btype=105）转成 eventTriggers：ba/bb 世界单位 → ax/ay + 1 格 AABB
         if (Array.isArray(conv.enemies)) {
           var _qballEvs = [];
           conv.enemies.forEach(function (en, ei) {
@@ -1149,11 +1149,10 @@ body.dragging #dropTip { display: flex; }
             _qballEvs.push({
               ax: col * 2900,
               ay: (row * 29 - 12) * 100,
-              // AABB 高度扩到 2 格（ay..ay+5800）：绿问号球生成后会因重力下落 1 格
-              // （ab 从 bb 变成 bb+2900），玩家在地面（mb=bb+2900）与触发器 1 格 AABB
-              // （ay..ay+2900）正好相切，AABB 检查 p.mb >= tr.ay+tr.ah 命中跳过门
-              // 导致玩家碰到问号球却没触发事件。扩大到 2 格让玩家在地面也能命中。
-              aw: 2900, ah: 5800,
+              // 1 格 AABB：引擎 loadStage 识别出问号球后让其受重力下落，
+              // AABB 与可见球一起移动并落到地形上（旧实现给 2 格 AABB 静态补偿下落，
+              // 球会悬浮在半空，已废弃）。
+              aw: 2900, ah: 2900,
               uid: en.uid || ('e' + ei),
               img: 'item/item_green_question.png',
               // repeat=true：问号球事件每次接触都触发（参考旧引擎 main.cpp:3695-3714，

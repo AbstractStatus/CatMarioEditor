@@ -525,13 +525,20 @@
       // repeat=true（问号球）：每次关卡载入都可再触发，不查 _evFired 持久化
       // repeat 缺省/false（trap_door 等）：载入时按 _evFired 还原 fired，保持"一关一次"
       var _isRepeat = !!t.repeat;
+      // 问号球是实体元素：像普通敌人一样受重力下落、站在地形上，不悬浮。
+      // 碰撞盒统一为 1 格并随球一起移动（_worldDef 转换曾给 2 格 AABB 补偿下落，
+      // 现在 AABB 跟随球，不再需要）。
+      var _isQball = !!(t.img && t.img.indexOf('item_green_question') >= 0);
       state.eventTriggers.push({
-        ax: t.ax, ay: t.ay, aw: t.aw, ah: t.ah,
+        ax: t.ax, ay: t.ay,
+        aw: _isQball ? 2900 : t.aw, ah: _isQball ? 2900 : t.ah,
         uid: t.uid || null,
         img: t.img || null,
         events: Array.isArray(t.events) ? t.events : [],
         repeat: _isRepeat,
-        fired: !_isRepeat && !!(t.uid && state._evFired[t.uid])
+        fired: !_isRepeat && !!(t.uid && state._evFired[t.uid]),
+        physical: _isQball,   // 受重力 + 地形落地
+        vy: 0                // 垂直速度（世界单位/帧）
       });
     });
 
@@ -1392,6 +1399,53 @@
   // ==================== 事件触发器（编辑器 trap_event / block_qball）====================
   // 玩家 AABB 与触发区重叠即按顺序执行动作；每个触发器每关一次（fired，
   // 检查点复活不重置，换关/新游戏随关卡重载清空）
+  // 问号球（实体 eventTrigger）落地：顶面规则与敌人 enemyGroundCollide 一致，
+  // 只处理垂直方向（球无水平速度），使其站在管道/方块/升降台顶面上，不悬浮。
+  // 调用前 updateEventTriggers 已完成本帧重力积分；collideLifts 更早执行，
+  // 升降台 _oldSrb/_oldSre 均已就绪。
+  function eventBallGroundCollide(tr) {
+    var bottom;
+    // 管道/墙体顶面
+    for (var i = 0; i < state.pipes.length; i++) {
+      var s = state.pipes[i];
+      if (s.sa < -8000000 || !PT.isSolid(s.stype)) continue;
+      bottom = tr.ay + tr.ah;
+      if (tr.ax + tr.aw > s.sa + 200 && tr.ax < s.sa + s.sc - 200 &&
+          bottom > s.sb && bottom < s.sb + 2000 && tr.vy >= -100) {
+        tr.ay = s.sb - tr.ah + 100; tr.vy = 0;
+        return;
+      }
+    }
+    // 方块顶面（隐藏块 ttype=7 / 音符块 ttype=117 与敌人规则一致不承载顶面；ttype>=1000 非实体）
+    for (var j = 0; j < state.blocks.length; j++) {
+      var b = state.blocks[j];
+      if (b.ta < -800000 || b.ttype >= 1000 || b.ttype === 7 || b.ttype === 117) continue;
+      bottom = tr.ay + tr.ah;
+      if (tr.ax + tr.aw > b.ta + 200 && tr.ax < b.ta + 3000 - 200 &&
+          bottom > b.tb && bottom < b.tb + 3000 && tr.vy >= -100) {
+        tr.ay = b.tb - tr.ah + 100; tr.vy = 0;
+        return;
+      }
+    }
+    // 升降台/悬挂站台顶面
+    for (var li = 0; li < state.lifts.length; li++) {
+      var lf = state.lifts[li];
+      if (lf.sra < -8000000) continue;
+      var lOld = lf._oldSrb != null ? lf._oldSrb : lf.srb;
+      bottom = tr.ay + tr.ah;
+      if (tr.ax + tr.aw > lf.sra + 500 && tr.ax < lf.sra + lf.src - 500 &&
+          bottom > lOld && bottom < lOld + 1200 && tr.vy >= -100) {
+        tr.ay = lOld - tr.ah + 100;
+        // 随活动台面纵向移动（与敌人同款吸附）
+        if ((lf.sracttype === 1 && lf.sron === 1) || lf.sracttype === 3 || lf.sracttype === 5) {
+          tr.ay += (lf._oldSre != null ? lf._oldSre : lf.sre) * C._DT;
+        }
+        tr.vy = 0;
+        return;
+      }
+    }
+  }
+
   function updateEventTriggers() {
     var list = state.eventTriggers;
     if (!list || !list.length) return;
@@ -1399,6 +1453,14 @@
     for (var i = 0; i < list.length; i++) {
       var tr = list[i];
       if (tr.fired) continue;
+      // 实体问号球：每帧重力积分 + 落地（与普通敌人同参数：重力120、限速1200），
+      // AABB 与可见球一起移动
+      if (tr.physical) {
+        tr.vy += 120 * C._DT;
+        if (tr.vy > 1200) tr.vy = 1200;
+        tr.ay += tr.vy * C._DT;
+        eventBallGroundCollide(tr);
+      }
       // 镜头窗口门控（与管道连锁检查同款条件）：视野外不检测
       if (tr.ax - state.fx + tr.aw < -12000 || tr.ax - state.fx > C.FXMAX) continue;
       // 玩家 AABB 重叠
