@@ -1824,8 +1824,7 @@
       { field: 'row', label: '行(row)', kind: 'num', min: -50, max: 999, tip: '目标元素左上行号（格）' }
     ];
     if (!targetEl) {
-      // 悬空目标：兜底显示旧的 txtype/ttype/sxtype，避免空面板
-      f.push({ field: 'txtype', label: 'txtype（提示/子类型）', kind: 'num', min: -99999, max: 99999, tip: '目标未选或悬空，兜底数字字段' });
+      // 悬空目标：兜底显示旧的 ttype/sxtype，避免空面板
       f.push({ field: 'ttype', label: 'ttype（方块类型）', kind: 'num', min: -99999, max: 99999, tip: '' });
       f.push({ field: 'sxtype', label: 'sxtype（管道子类型）', kind: 'num', min: -99999, max: 99999, tip: '' });
       return f;
