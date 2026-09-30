@@ -622,6 +622,10 @@ body.dragging #dropTip { display: flex; }
           ah: teH * 2900,
           uid: e.uid || null,
           img: (id === 'block_qball') ? 'item/item_green_question.png' : null,
+          // repeat=true（仅问号球）：每次接触都触发且不写入 _evFired 持久化，
+          // 玩家死亡复活后关卡重载时 fired 复位、问号球重新出现（与 _worldDef 分支一致）。
+          // 缺了它，复活后 _evFired 仍命中 uid → fired=true → 问号球永久消失。
+          repeat: id === 'block_qball',
           events: Array.isArray(e.events) ? JSON.parse(JSON.stringify(e.events)) : []
         });
         used++;
