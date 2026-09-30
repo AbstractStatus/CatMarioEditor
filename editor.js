@@ -1848,6 +1848,7 @@
     none.value = ''; none.textContent = '(未选目标)';
     sel.appendChild(none);
     var found = false;
+    var curBase = stripSpraySuffix(cur);
     state.elements.forEach(function (el) {
       if (el === self) return;
       if (el.id === 'trap_event' || el.id === 'block_qball') return;   // 触发器不作动作目标
@@ -1857,15 +1858,31 @@
       o.value = el.uid || '';
       o.textContent = '#' + (el.uid || '?') + ' ' + (eld.name || el.id) + ' (' + el.col + ',' + el.row + ')';
       sel.appendChild(o);
-      if (el.uid && el.uid === cur) found = true;
+      // 兼容旧档「管口 uid + #spray」目标：按剥离后缀的管口元素命中
+      if (el.uid && (el.uid === cur || el.uid === curBase)) found = true;
     });
     if (cur && !found) {
       var od = document.createElement('option');
       od.value = cur; od.textContent = '(悬空) #' + cur;
       sel.appendChild(od);
     }
-    if (cur) sel.value = cur;
+    // 选中值按管口 uid 显示（旧档 #spray 目标也定位到管口选项上）
+    if (cur) sel.value = found ? curBase : cur;
     return sel;
+  }
+  // setprop 目标 uid → 元素：喷射属性（spray/sprayTarget/sprayFreq）的真实目标是
+  // stype=180 生成器，存档里可能以「管口 uid + '#spray'」形式存在，但编辑器画布上
+  // 只有管口元素。统一剥离后缀按管口元素解析，字段列表/当前值都读管口的真实属性。
+  function stripSpraySuffix(uid) {
+    var s = String(uid || '');
+    return (s.length > 6 && s.slice(-6) === '#spray') ? s.slice(0, -6) : s;
+  }
+  function resolveSetpropEl(uid) {
+    var base = stripSpraySuffix(uid);
+    for (var i = 0; i < state.elements.length; i++) {
+      if (state.elements[i].uid === base) return state.elements[i];
+    }
+    return null;
   }
   // 改属性动作的字段目录：按目标元素类型返回 [{field,label,kind,opts?}]
   // kind: 'num'=数字 / 'enum'=下拉(string) / 'bool'=是否 / 'ref'=元素id引用
@@ -2172,15 +2189,15 @@
           var ts = evTargetSelect(a.target, self);
           ts.addEventListener('change', function () {
             a.target = ts.value;
-            var tEl = state.elements.filter(function (x) { return x.uid === a.target; })[0] || null;
+            var tEl = resolveSetpropEl(a.target);
             var flds0 = setpropFieldsFor(tEl);
             a.field = flds0.length ? flds0[0].field : 'col';
             a.value = setpropCurrentValue(tEl, flds0[0]);
             renderRows();
           });
           line.appendChild(ts);
-          // 按目标元素类型构建字段下拉 + 自适应值控件
-          var tEl = state.elements.filter(function (x) { return x.uid === a.target; })[0] || null;
+          // 按目标元素类型构建字段下拉 + 自适应值控件（#spray 后缀目标按管口元素解析）
+          var tEl = resolveSetpropEl(a.target);
           var flds = setpropFieldsFor(tEl);
           // 兼容旧数据：当前 field 不在列表里时追加兜底项
           var curFld = a.field || 'col';
@@ -4761,15 +4778,15 @@
             evs.push({ act: 'se', id: 4 });
             // 旧引擎 sgtype[26]=6：把 1-2-1 喷火土管 sgtype 48→6（喷射周期 1.6s→0.2s）
             // 配对带 spray 标记的 pipe_mouth（_fireSpawners 已先于本块完成配对）。
-            // play.html 把 stype=180 生成器 uid 派生为 pipe_mouth.uid + '#spray'，
-            // 此处 target 同样加 '#spray' 后缀命中生成器，引擎 evApplySetprop 收到
-            // sprayFreq 时同步改写 sgtype = round(freq*30)，让喷射周期立即缩短。
+            // target 直接存管口元素 uid（与编辑器下拉可选目标一致）；引擎收到 sprayFreq
+            // 后经 resolveSprayGen 定位配对的 stype=180 生成器（uid=管口uid+'#spray'）
+            // 并改写 sgtype = round(freq*30)，让喷射周期立即缩短。
             var spPipe = null;
             for (var pi = 0; pi < E.length; pi++) {
               if (E[pi].id === 'pipe_mouth' && E[pi].spray === true) { spPipe = E[pi]; break; }
             }
             if (spPipe && spPipe.uid) {
-              evs.push({ act: 'setprop', target: spPipe.uid + '#spray', field: 'sprayFreq', value: 0.2 });
+              evs.push({ act: 'setprop', target: spPipe.uid, field: 'sprayFreq', value: 0.2 });
             }
           }
           if (evs.length) (ekExtra = ekExtra || {}).events = evs;

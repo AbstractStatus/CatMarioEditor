@@ -263,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog26"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd55"></script>
+<script src="engine.js?v=hd56"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -1137,11 +1137,12 @@ body.dragging #dropTip { display: flex; }
           evs.push({ act: 'setprop', target: 'bm_1_3', field: 'row', value: 6 });
         } else if (conv.id === '1-2-1' && en.bxtype === 0) {
           evs.push({ act: 'se', id: 4 });
-          // 查找 stype=180 喷火生成器配对的最近管口，target 用其 uid + '#spray'
-          // （与 editor.js worldToElements L4389-4414 同款配对逻辑）
-          var _sprayUid = null;
+          // 查找 stype=180 喷火生成器配对的最近管口：setprop 目标存管口自身 uid
+          //（与编辑器可选目标一致），引擎 evApplySetprop 收到 sprayFreq 后经
+          // resolveSprayGen 按「管口 uid + '#spray'」定位生成器并改写 sgtype。
+          var _sprayMouthUid = null;
           (conv.pipes || []).forEach(function (fp) {
-            if (fp.stype !== 180 || _sprayUid) return;
+            if (fp.stype !== 180 || _sprayMouthUid) return;
             var fcx = fp.sa + (fp.sc || 3000) / 2, fcy = fp.sb + (fp.sd || 3000) / 2;
             var bestD = 5000, bestQi = -1;
             (conv.pipes || []).forEach(function (q, qi) {
@@ -1154,10 +1155,16 @@ body.dragging #dropTip { display: flex; }
               var dd = Math.sqrt((fcx - qx) * (fcx - qx) + (fcy - qy) * (fcy - qy));
               if (dd < bestD) { bestD = dd; bestQi = qi; }
             });
-            if (bestQi >= 0) _sprayUid = 'p' + bestQi + '#spray';
+            if (bestQi >= 0) {
+              _sprayMouthUid = 'p' + bestQi;
+              // 同步重写 stype=180 生成器自身的 uid：步骤 2 给它注入的是 'p'+自身索引
+              //（1-2-1 为 p9），引擎按「管口 uid(p10) + '#spray'」反查生成器，
+              // 故这里必须派生为 p10#spray，否则 resolveSprayGen 配对失败、周期不变。
+              fp.uid = _sprayMouthUid + '#spray';
+            }
           });
-          if (_sprayUid) {
-            evs.push({ act: 'setprop', target: _sprayUid, field: 'sprayFreq', value: 0.2 });
+          if (_sprayMouthUid) {
+            evs.push({ act: 'setprop', target: _sprayMouthUid, field: 'sprayFreq', value: 0.2 });
           }
         }
         if (evs.length) en.events = evs;

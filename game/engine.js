@@ -1583,6 +1583,21 @@
     else if (entry === 'warp') { obj.stype = 60; obj.sxtype = 1; if (!obj.warp) obj.warp = { end: true, id: null }; }
     else { obj.stype = 50; obj.sxtype = 1; }   // none
   }
+  // 定位喷射运行时实体：
+  //  - 目标本身就是 stype=180 生成器（旧档事件 target 带 '#spray' 后缀）→ 直接返回；
+  //  - 目标是管道口（stype=50/60 等）→ 找 uid 派生为「管口 uid + '#spray'」的生成器
+  //    （play.html convert 的喷火管 push 与原版 injectWorldDef 均按此约定派生 uid）。
+  function resolveSprayGen(obj) {
+    if (!obj) return null;
+    if (obj.stype === 180) return obj;
+    if (!obj.uid || !state.pipes) return null;
+    var genUid = obj.uid + '#spray';
+    for (var i = 0; i < state.pipes.length; i++) {
+      var g = state.pipes[i];
+      if (g.stype === 180 && g.uid === genUid) return g;
+    }
+    return null;
+  }
   // setprop 主分派
   function evApplySetprop(obj, ev) {
     var f = ev.field || 'txtype';
@@ -1610,17 +1625,20 @@
     } else if (f === 'spray') {
       obj.spray = isYes(v);                       // 仅标记，不动态创建喷射生成器
     } else if (f === 'sprayTarget') {
-      obj.sprayTarget = v;                        // 仅标记
+      obj.sprayTarget = v;
+      // 命中生成器直接改其 target；命中管道口则传播到配对生成器（tick 读 s.target）
+      var _genT = resolveSprayGen(obj);
+      if (_genT) _genT.target = v;
     } else if (f === 'sprayFreq') {
       // play.html convert 时基于 sprayFreq 生成 stype=180 生成器的 sgtype（round(freq*30)）。
-      // 运行时改值时：若目标对象是 stype=180 喷射生成器（有 sgtype 字段），同步改 sgtype 让周期立即生效；
-      // 若目标是 pipe_mouth（无 sgtype 字段，仅为编辑器标记字段），只改 sprayFreq 标记。
+      // setprop 目标语义统一为「管道口元素」：这里必须改到真正驱动 tick 的 stype=180
+      // 生成器上才会生效。注意不能用 'sgtype' in obj 判断——loadStage 给所有 pipe
+      // （含普通管口 stype=50/60）都初始化了 sgtype:0，写它没有任何 tick 读取。
       var _fv = +v;
       var _use = (isFinite(_fv) && _fv > 0) ? _fv : 1.6;
       obj.sprayFreq = _use;
-      if ('sgtype' in obj && typeof obj.sgtype === 'number') {
-        obj.sgtype = Math.max(1, Math.round(_use * 30));
-      }
+      var _gen = resolveSprayGen(obj);
+      if (_gen) _gen.sgtype = Math.max(1, Math.round(_use * 30));
     } else if (f === 'warp' && 'warp' in obj) {
       obj.warp = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
     } else if (f === 'w' && 'src' in obj && 'sra' in obj) {
