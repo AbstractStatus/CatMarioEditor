@@ -1965,9 +1965,20 @@
     if (id === 'enemy_syobon' || id === 'enemy_turtle' || id === 'enemy_king') {
       push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '' });
     }
-    // 升降台长度
+    // 升降台：与元素主属性面板字段一一对应（参考 editor.js 主面板 lift 分支）
     if (isLiftId(id)) {
       push({ field: 'len', label: '平台长度', kind: 'num', min: 1, max: 50, tip: '格' });
+      push({ field: 'move', label: '往复移动', kind: 'bool', tip: '纵向循环移动（默认速度300）' });
+      push({ field: 'dir', label: '往复方向', kind: 'enum', opts: [['up', '向上（上升）'], ['down', '向下（下降）']], tip: '仅往复移动时生效' });
+      push({ field: 'prox', label: '靠近触发', kind: 'bool', tip: '玩家水平接近即加速下坠；与往复移动互斥' });
+      push({ field: 'color', label: '颜色', kind: 'enum', opts: [['yellow', '黄'], ['green', '绿'], ['gray', '灰']], tip: '台面颜色' });
+      push({ field: 'cev.speedUp',    label: '往复速度加快', kind: 'bool', tip: '仅往复时有效：站上瞬间提速到900' });
+      push({ field: 'cev.standBreak', label: '碎裂消失',     kind: 'bool', tip: '站上即碎裂' });
+      push({ field: 'cev.launch',     label: '弹飞(疲劳)',   kind: 'bool', tip: '站上被弹飞；连续站立疲劳帧后碎裂' });
+      push({ field: 'cev.slip',       label: '打滑',         kind: 'bool', tip: '站上强制打滑' });
+      push({ field: 'cev.dropFall',   label: '踩上坠落',     kind: 'bool', tip: '站上即加速下坠；仅非往复时有效' });
+      push({ field: 'cev.launchMc',     label: '弹飞力度', kind: 'num', min: -9999, max: 0, tip: '勾选「弹飞」时生效（默认 -2400）' });
+      push({ field: 'cev.fatigueFrames', label: '疲劳帧数', kind: 'num', min: 1, max: 999, tip: '勾选「弹飞」时连续站立多少帧后碎裂（默认100）' });
     }
     // 传送目标
     if (def.warpable) {

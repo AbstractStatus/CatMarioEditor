@@ -1657,6 +1657,48 @@
       obj.sracttype = isYes(v) ? 1 : 0;
     } else if (f === 'len' && 'src' in obj && 'sra' in obj) {
       obj.src = (v | 0) * 3000;                   // 升降台长度
+    } else if (f === 'move' && 'srsp' in obj && obj.srsp === 0) {
+      // 合并升降台往复移动：sracttype=5（往复）/ 0（静止）；sre=±300（向下+/向上-）
+      var _mvYes = isYes(v);
+      obj.sracttype = _mvYes ? 5 : (obj.bhv && obj.bhv.dropFall ? 1 : 0);
+      obj.sre = _mvYes ? (obj._liftDir === 'down' ? 300 : -300) : 0;
+      obj._liftMove = _mvYes;                    // 运行时缓存，不参与持久化
+    } else if (f === 'dir' && 'srsp' in obj && obj.srsp === 0) {
+      // 往复方向：仅往复移动时生效（向下 sre=+300，向上 sre=-300，与 play.html 一致）
+      obj._liftDir = v;
+      if (obj.sracttype === 5) obj.sre = (v === 'down' ? 300 : -300);
+    } else if (f === 'prox' && 'srsp' in obj && obj.srsp === 0) {
+      // 靠近触发：与往复移动互斥（设 yes 时关掉往复）
+      var _pxYes = isYes(v);
+      obj.proximity = _pxYes;
+      if (_pxYes) { obj.sracttype = 0; obj.sre = 0; obj._liftMove = false; }
+    } else if (f === 'color' && 'srsp' in obj && obj.srsp === 0) {
+      obj.color = v;
+    } else if (f.indexOf('cev.') === 0 && 'srsp' in obj && obj.srsp === 0) {
+      // 接触事件 → bhv（引擎 LiftTypes.resolve 直接消费；srsp=0 无默认行为）
+      var _csub = f.slice(4);
+      if (!obj.bhv) obj.bhv = {};
+      if (_csub === 'speedUp') {
+        if (isYes(v)) obj.bhv.speedUp = true; else delete obj.bhv.speedUp;
+      } else if (_csub === 'standBreak') {
+        if (isYes(v)) obj.bhv.standBreak = true; else delete obj.bhv.standBreak;
+      } else if (_csub === 'launch') {
+        // 弹飞：开启时补默认 launchMc/fatigueFrames；关闭时清掉避免遗留
+        if (isYes(v)) {
+          if (obj.bhv.launchMc == null) obj.bhv.launchMc = -2400;
+          if (obj.bhv.fatigueFrames == null) obj.bhv.fatigueFrames = 100;
+        } else { delete obj.bhv.launchMc; delete obj.bhv.fatigueFrames; }
+      } else if (_csub === 'slip') {
+        if (isYes(v)) obj.bhv.slipMd = -800; else delete obj.bhv.slipMd;
+      } else if (_csub === 'dropFall') {
+        // 仅非往复时有效：sracttype=1 表示踩上坠落
+        if (isYes(v)) { if (obj.sracttype !== 5) obj.sracttype = 1; }
+        else if (obj.sracttype === 1) obj.sracttype = 0;
+      } else if (_csub === 'launchMc') {
+        obj.bhv.launchMc = (v | 0);
+      } else if (_csub === 'fatigueFrames') {
+        obj.bhv.fatigueFrames = (v | 0);
+      }
     } else if (f === 'xt' && (obj.btype === 87 || obj.btype === 88)) {
       // 火焰棒火球总数：bxtype = rotFlag*100 + cnt（cnt=xt-1），保留 rotFlag
       var rf = Math.floor((obj.bxtype | 0) / 100);
