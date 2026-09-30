@@ -2635,11 +2635,15 @@
         fLiftDir.appendChild(d0);
       });
       fLiftDir.value = selected.dir === 'down' ? 'down' : 'up';
-      propBody.appendChild(propRow('往复方向', fLiftDir, '仅往复移动时生效：向上=台面上升（sre=-300），向下=台面下降（sre=300，1-2-1 下行台）'));
+      var fLiftDirRow = propRow('往复方向', fLiftDir, '仅往复移动时生效：向上=台面上升（sre=-300），向下=台面下降（sre=300，1-2-1 下行台）');
+      propBody.appendChild(fLiftDirRow);
       fLiftProx = yesNoSelect(!!selected.prox, '否', '是：靠近即下坠');
       propBody.appendChild(propRow('靠近触发', fLiftProx, '玩家水平接近1500距离内即加速下坠；与往复移动互斥'));
-      fLiftMove.addEventListener('change', function () { if (fLiftMove.value === 'yes') fLiftProx.value = 'no'; });
-      fLiftProx.addEventListener('change', function () { if (fLiftProx.value === 'yes') fLiftMove.value = 'no'; });
+      // 往复方向仅「往复移动=是」时可见；选「靠近触发=是」会联动把往复移动置否，也需同步
+      function syncLiftDirRow() { fLiftDirRow.style.display = fLiftMove.value === 'yes' ? '' : 'none'; }
+      syncLiftDirRow();
+      fLiftMove.addEventListener('change', function () { if (fLiftMove.value === 'yes') fLiftProx.value = 'no'; syncLiftDirRow(); });
+      fLiftProx.addEventListener('change', function () { if (fLiftProx.value === 'yes') fLiftMove.value = 'no'; syncLiftDirRow(); });
 
       // 3) 颜色（黄/绿/灰 + 自定义）
       var colorBox = document.createElement('div');
@@ -2712,11 +2716,20 @@
       });
       propBody.appendChild(propRow('接触事件', chkBox, '可多选'));
 
-      // 弹飞参数（勾选 launch 时生效）
+      // 弹飞参数（勾选 launch 时生效，未勾选时两行隐藏）
       fLiftLaunchMc = numInput(-9999, 0, cev0.launchMc != null ? cev0.launchMc : -2400);
-      propBody.appendChild(propRow('弹飞力度', fLiftLaunchMc, '勾选「弹飞」时生效（原版默认 -2400）'));
+      var fLiftLaunchRow = propRow('弹飞力度', fLiftLaunchMc, '勾选「弹飞」时生效（原版默认 -2400）');
+      propBody.appendChild(fLiftLaunchRow);
       fLiftFatigue = numInput(1, 999, cev0.fatigueFrames != null ? cev0.fatigueFrames : 100);
-      propBody.appendChild(propRow('疲劳帧数', fLiftFatigue, '勾选「弹飞」时连续站立多少帧后台碎人亡（原版默认100）'));
+      var fLiftFatigueRow = propRow('疲劳帧数', fLiftFatigue, '勾选「弹飞」时连续站立多少帧后台碎人亡（原版默认100）');
+      propBody.appendChild(fLiftFatigueRow);
+      function syncLiftLaunchRows() {
+        var showLaunch = fLiftChk.launch.checked;
+        fLiftLaunchRow.style.display = showLaunch ? '' : 'none';
+        fLiftFatigueRow.style.display = showLaunch ? '' : 'none';
+      }
+      syncLiftLaunchRows();
+      fLiftChk.launch.addEventListener('change', syncLiftLaunchRows);
     }
     var fPlatW = null, fPlatH = null, fPlatDrop = null;
     if (d.id === 'platform_hang') {
