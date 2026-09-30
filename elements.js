@@ -43,12 +43,14 @@
       tw: 1, th: 12, mapId: 99, hint: 'stype=300：白色杆(10宽)+黄色圆球(r10)，地图99号，杆从放置行向下延伸到第12行' },
     { id: 'bg_midflag', cat: 'struct', name: '中间旗', kind: 'sprite', img: 'bg/bg_midflag.png',
       tw: 2, th: 3, mapId: 30, hint: 'stype=500，haikei(40,182,40,60)，旗面40x60像素；编辑器按 40x60 原始比例绘制（约1.4格宽、2格高），过了之后死亡从中点复活' },
-    { id: 'lift_yellow', cat: 'struct', name: '升降台(黄)', kind: 'vector', img: 'vector/lift_yellow.png',
-      tw: 3, th: 1, mapId: 20, len: 3, hint: '地图20-29号：黄色移动平台，14px厚，长度可在JSON的len字段调整' },
-    { id: 'lift_green', cat: 'struct', name: '升降台(绿)', kind: 'vector', img: 'vector/lift_green.png',
-      tw: 3, th: 1, len: 3, hint: 'srsp=2 的绿色平台（游戏附加机关）' },
-    { id: 'lift_gray', cat: 'struct', name: '升降台(灰)', kind: 'vector', img: 'vector/lift_gray.png',
-      tw: 3, th: 1, len: 3, hint: 'srsp=21 的灰色平台' },
+    { id: 'lift', cat: 'struct', name: '升降台', kind: 'vector', img: 'vector/lift_yellow.png',
+      tw: 3, th: 1, mapId: 20, len: 3,
+      hint: '原版 srsp 升降台三合一（旧 lift_yellow/lift_green/lift_gray）。len=平台长度（1-50格）。' +
+        '运动模式二选一（互斥）：move=true=往复移动（纵向循环，默认速度300，1-2-1型）；prox=true=靠近触发（玩家靠近1500距离内即加速下坠）。' +
+        '接触事件 cev（可多选）：speedUp=站上时往复速度加快（仅 move 有效）；standBreak=站上即碎裂消失；' +
+        'launch=弹飞玩家（launchMc 默认 -2400）且连续站立 fatigueFrames 帧（默认100）后台碎人亡；' +
+        'slip=站上打滑（速度 -800）；dropFall=站上即加速下坠（仅非往复时有效，sracttype=1）。' +
+        'color=颜色：yellow/green/gray（默认 yellow）。选中后在⚙属性里配置' },
     { id: 'firebar', cat: 'struct', name: '火焰棒(旋转)', kind: 'vector', img: 'vector/firebar.png',
       tw: 3, th: 3, atype: 87, xt: 5, hint: 'atype=87/88：一串橙色圆(fillarc r8)绕中心旋转，xt为火球个数' },
     { id: 'block_fall', cat: 'struct', name: '坠落砖组', kind: 'vector', img: 'block/block_brick.png',

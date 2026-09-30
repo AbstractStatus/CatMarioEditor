@@ -15,6 +15,17 @@
   var BlockTypes = global.BlockTypes;
   var LiftTypes = global.LiftTypes;
 
+  // ---- 合并升降台（元素 id=lift）默认参数 ----
+  // 运动/行为由编辑器属性配置，经 play.html convert 转成 sracttype/sre/bhv/proximity/color；
+  // 这里集中存放原版硬编码数值，供运行时兜底。
+  var LIFT_BREAK_DEFAULT = { parts: 2, vx: 240, vy: -1400, grav: 160, w: 4500, h: 4500, life: 120, sound: 3 };
+  var LIFT_SPEEDUP_ACCEL = 12;    // 接触事件 speedUp：站上往复台时速度增量（世界单位/帧²，60fps 基准）
+  var LIFT_SPEEDUP_MAX = 1200;    // 加速后速度绝对值上限
+  var LIFT_MOVE_SPEED = 300;      // 往复移动默认速度绝对值（sre 初值，原版 1-2-1 = ±300）
+  var LIFT_PROX_DIST = 1500;      // 靠近触发：水平接近距离
+  var LIFT_PROX_ACCEL = 60;       // 靠近触发后下坠加速度（srf）
+  var LIFT_COLOR_HEX = { yellow: '#dcdc00', green: '#00dc00', gray: '#b4b4b4' };
+
   var Engine = {};
 
   // ==================== 游戏状态 ====================
@@ -551,6 +562,8 @@
         sron: l.sron || 0, srmuki: l.srmuki || 0, srsok: l.srsok || 0,
         srmove: l.srmove || 0, srmovep: l.srmovep || 0,
         srh: l.srh || 48000, uid: l.uid || null,
+        // 合并升降台：颜色（渲染用，缺省按 srsp 反推）+ 靠近触发模式
+        color: l.color || null, proximity: !!l.proximity,
         // 行为属性覆盖（LiftTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
         bhv: l.bhv ? JSON.parse(JSON.stringify(l.bhv)) : null
       });
@@ -1272,6 +1285,9 @@
       l._oldSrb = oldSrb;   // 供敌人 enemyGroundCollide 随动使用
       l._oldSre = oldSre;
 
+      // 行为解析：srsp 默认 + 实例 bhv（合并升降台 srsp=0，行为全由 bhv 给出）
+      var lb = LiftTypes.resolve(l);
+
       switch (l.sracttype) {
         case 1: if (l.sron === 1) l.srf = 60; break;            // 踩上即加速下坠
         case 5:                                                  // 纵向循环（1-2-1）
@@ -1280,6 +1296,17 @@
           if (l.srb > C.FYMAX + 2000) l.srb = -2100;
           break;
         case 6: if (l.sron === 1) l.srf = 40; break;
+      }
+
+      // 靠近触发（合并升降台 prox；与往复移动互斥；原版 srsp=11 走 LiftTypes 同路径）：
+      // 玩家水平接近即触发，之后台身加速下坠（运动积分已在上方完成，不重复积分）
+      var proxCfg = l.proximity
+        ? { dist: LIFT_PROX_DIST, accel: LIFT_PROX_ACCEL }
+        : (lb && lb.proxDist != null ? { dist: -lb.proxDist, accel: lb.accel || 60 } : null);
+      if (proxCfg && p.mtype < 10 && p.mhp >= 1) {
+        if (l.sron === 0 &&
+            p.ma + p.mnobia > l.sra - proxCfg.dist && p.ma < l.sra + l.src + 500) l.sron = 1;
+        if (l.sron === 1) l.srf = proxCfg.accel;
       }
 
       if (p.mtype < 10 && p.mhp >= 1) {
@@ -1292,21 +1319,28 @@
             p.mb + p.mnobib > oldSrb && p.mb + p.mnobib < oldSrb + win && p.md >= -100) {
           // 先吸附到旧台底（脚=旧台底+100），再随台移动 sre → 脚=新台底+100，紧贴不嵌入
           p.mb = oldSrb - p.mnobib + 100;
-          var lb = LiftTypes.resolve(l);
           if (lb && lb.slipMd != null) { p.md = lb.slipMd; }
           else { p.mzimen = 1; p.md = 0; }
 
           // 踩上触发下坠
           if (l.sracttype === 1 && l.sron === 0) l.sron = 1;
-          // 下坠/循环台带着玩家一起动（oldSre×DT 是台本帧实际位移，脚=新台底+100）
-          if ((l.sracttype === 1 && l.sron === 1) || l.sracttype === 3 || l.sracttype === 5) {
+          // 下坠/循环/靠近触发台带着玩家一起动（oldSre×DT 是台本帧实际位移，脚=新台底+100）
+          if ((l.sracttype === 1 && l.sron === 1) || l.sracttype === 3 || l.sracttype === 5 ||
+              (proxCfg && l.sron === 1)) {
             p.mb += oldSre * C._DT;
           }
 
-          // LiftTypes 驱动：站碎台 / 疲劳台
           if (lb) {
-            if (lb.standBreak && lb.breakCfg) {
-              var lbc = lb.breakCfg;
+            // speedUp：站上往复台时速度沿当前方向加快（仅 sracttype=5 有效，钳制上限）
+            if (lb.speedUp && l.sracttype === 5) {
+              var sgn0 = l.sre >= 0 ? 1 : -1;
+              l.sre += sgn0 * LIFT_SPEEDUP_ACCEL * C._DT;
+              if (l.sre > LIFT_SPEEDUP_MAX) l.sre = LIFT_SPEEDUP_MAX;
+              if (l.sre < -LIFT_SPEEDUP_MAX) l.sre = -LIFT_SPEEDUP_MAX;
+            }
+            // 站碎台：breakCfg 缺省时用引擎默认（合并升降台 bhv 只给 standBreak 标记）
+            if (lb.standBreak) {
+              var lbc = lb.breakCfg || LIFT_BREAK_DEFAULT;
               if (lbc.sound != null && lbc.sound >= 0) A.playSE(lbc.sound);
               var lbp = lbc.parts != null ? lbc.parts : 2;
               var lbx = lbc.vx != null ? lbc.vx : 240;
@@ -1325,21 +1359,18 @@
               }
               l.sra = -70000000;
             }
+            // 弹飞 + 疲劳：连续站立 fatigueFrames 帧后台碎人亡
             if (lb.launchMc != null) {
               p.mc = lb.launchMc;
               l.srmove += C._DT;
               var fat = lb.fatigueFrames != null ? lb.fatigueFrames : 100;
               if (l.srmove >= fat) { markHurt('fatigue-lift', l.uid); sayPlayer(53, 30); p.mhp = 0; l.srmove = -5000; }
             }
-            if (lb.proxDist != null) {
-              if (p.ma + p.mnobia > l.sra + lb.proxDist && p.ma < l.sra + l.src - 500) l.sron = 1;
-              if (l.sron === 1) { l.srf = lb.accel != null ? lb.accel : 60; l.srb += l.sre * C._DT; }
-            }
           }
         }
 
-        // 疲劳计时：未被弹飞且不在台上时逐帧回退（仅当 resolve 含 launchMc 时）
-        if (l.srsp === 2 && p.mc !== -2400 && l.srmove > 0) l.srmove -= C._DT;
+        // 疲劳计时：未被弹飞且不在台上时逐帧回退（行为含 launchMc 即生效，不再按 srsp=2 判定）
+        if (lb && lb.launchMc != null && p.mc !== lb.launchMc && l.srmove > 0) l.srmove -= C._DT;
         // sracttype=6：横向经过即触发下坠
         if (l.sracttype === 6) {
           if (p.ma + p.mnobia > l.sra + 500 && p.ma < l.sra + l.src - 500) l.sron = 1;
@@ -2546,9 +2577,10 @@
         ctx.strokeRect(lx, ly, lw, 30);
       } else {
         var lh = l.srsp === 1 ? 12 : 14;
-        ctx.fillStyle = '#dcdc00';
-        if (l.srsp === 2) ctx.fillStyle = '#00dc00';
-        if (l.srsp === 21) ctx.fillStyle = '#b4b4b4';
+        // 颜色：合并升降台读 l.color（预设名或自定义 rgba/hex）；原版 srsp 台反推（2=绿/21=灰/其余黄）
+        var liftColorName = l.color || (l.srsp === 2 ? 'green' : l.srsp === 21 ? 'gray' : 'yellow');
+        var liftHex = LIFT_COLOR_HEX[liftColorName];
+        ctx.fillStyle = liftHex || (typeof l.color === 'string' && l.color ? l.color : LIFT_COLOR_HEX.yellow);
         ctx.fillRect(lx, ly, lw, lh);
         ctx.strokeStyle = ctx.fillStyle;
         ctx.strokeRect(lx, ly, lw, lh);

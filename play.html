@@ -263,7 +263,7 @@ body.dragging #dropTip { display: flex; }
 <script src="input.js?v=custom5"></script>
 <script src="elements.js?v=evlog26"></script>
 <script src="levels.js?v=custom2"></script>
-<script src="engine.js?v=hd53"></script>
+<script src="engine.js?v=hd55"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell14"></script>
 <script>
@@ -345,8 +345,8 @@ body.dragging #dropTip { display: flex; }
     firebar:              { t: 87,  xt: 5 }   // xt = 火球个数
   };
 
-  // 升降台 → srsp（渲染颜色）
-  var LIFT_SRSP = { lift_yellow: 0, lift_green: 2, lift_gray: 21 };
+  // 合并升降台（元素 id=lift）：颜色 color、运动模式 move/prox、接触事件 cev
+  var LIFT_DEFAULT_SPEED = 300;   // 往复移动默认速度绝对值（原版 1-2-1 sre=±300）
 
   var BGM_ID = { bgm_field: 100, bgm_dungeon: 103, bgm_star: 104, bgm_castle: 105, bgm_puyo: 106 };
   var THEME_COLOR = { overworld: 1, dungeon: 2, castle: 4, sky: 3 };
@@ -464,15 +464,34 @@ body.dragging #dropTip { display: flex; }
         } else {
           if (put(r, c, tvByte, e.uid)) used++;
         }
-      } else if (LIFT_SRSP[id] !== undefined) {
+      } else if (id === 'lift') {
         var len = Math.max(1, Math.min(e.len | 0 || 3, 50));
+        var cev = (e.cev && typeof e.cev === 'object') ? e.cev : {};
+        var nMove = !!e.move;
+        var nProx = !!e.prox && !nMove;                 // 互斥：往复移动优先
+        var nColor = (e.color === 'green' || e.color === 'gray') ? e.color
+          : (typeof e.color === 'string' && e.color && e.color !== 'yellow') ? e.color : 'yellow';
         var liftObj = {
           sra: x * 100, srb: y * 100, src: len * 3000,
-          srtype: 0, sracttype: 0, sre: 0, srf: 0,
-          srsp: LIFT_SRSP[id], sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
+          srtype: 0,
+          // dropFall（踩上坠落）仅非往复时有效；往复时 sracttype=5
+          sracttype: nMove ? 5 : (cev.dropFall ? 1 : 0),
+          sre: nMove ? -LIFT_DEFAULT_SPEED : 0,
+          srf: 0, srsp: 0,
+          color: nColor, proximity: nProx,
+          sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,
           uid: e.uid || null
         };
-        if (e.bhv) liftObj.bhv = JSON.parse(JSON.stringify(e.bhv));
+        // 接触事件 → bhv（引擎 LiftTypes.resolve 直接消费；srsp=0 无默认行为）
+        var bhv = {};
+        if (cev.speedUp) bhv.speedUp = true;
+        if (cev.standBreak) bhv.standBreak = true;
+        if (cev.launch) {
+          bhv.launchMc = cev.launchMc != null ? (cev.launchMc | 0) : -2400;
+          bhv.fatigueFrames = cev.fatigueFrames != null ? (cev.fatigueFrames | 0) : 100;
+        }
+        if (cev.slip) bhv.slipMd = -800;
+        if (Object.keys(bhv).length) liftObj.bhv = bhv;
         lifts.push(liftObj);
         used++;
       } else if (id === 'platform_hang') {

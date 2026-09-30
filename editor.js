@@ -211,6 +211,13 @@
         if (e.bhv) o.bhv = JSON.parse(JSON.stringify(e.bhv));   // 行为属性覆盖（BlockTypes/LiftTypes）
         if (e.trapAnim) o.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));   // 陷阱管道抖动动画覆盖
         if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
+        // 合并升降台：运动模式 + 颜色 + 接触事件
+        if (e.id === 'lift') {
+          if (e.move) o.move = true;
+          if (e.prox) o.prox = true;
+          if (e.color === 'green' || e.color === 'gray' || isCustomColor(e.color)) o.color = e.color;
+          if (e.cev && Object.keys(e.cev).length) o.cev = JSON.parse(JSON.stringify(e.cev));
+        }
         return o;
       })
     };
@@ -339,7 +346,7 @@
       var gr = (gv === 0) ? 2 : (elDef.rows || 1);
       return { c0: col, c1: col + gc - 1, r0: row, r1: row + gr - 1, tw: gc, th: gr };
     }
-    if (elDef.cat === 'struct' && elDef.id.indexOf('lift_') === 0) {
+    if (elDef.cat === 'struct' && isLiftId(elDef.id)) {
       // 升降台长度由 len 决定
     }
     return {
@@ -350,6 +357,32 @@
   }
 
   function liftLen(e) { return e.len || CAT.byId(e.id).len || CAT.byId(e.id).tw || 3; }
+  // 合并升降台（旧 lift_yellow/lift_green/lift_gray 已合并为 lift）
+  function isLiftId(id) { return id === 'lift'; }
+  // 颜色：预设名（yellow/green/gray）或自定义颜色值字符串（rgba/hex）
+  function isCustomColor(c) {
+    return typeof c === 'string' && c && c !== 'yellow' && c !== 'green' && c !== 'gray';
+  }
+  function liftColor(e) {
+    var c = e && e.color;
+    if (c === 'green' || c === 'gray' || c === 'yellow') return c;
+    if (isCustomColor(c)) return c;
+    return 'yellow';
+  }
+  function hexToRgba(hex) {
+    var m = /^#([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return 'rgba(220,220,0,1)';
+    var n = parseInt(m[1], 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',1)';
+  }
+  function rgbaToHex(rgba) {
+    var m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(rgba || '');
+    if (!m) return '#dcdc00';
+    function h(n) { var s = (parseInt(n) & 255).toString(16); return s.length < 2 ? '0' + s : s; }
+    return '#' + h(m[1]) + h(m[2]) + h(m[3]);
+  }
+  // 接触事件（稀疏对象）：speedUp/standBreak/launch/slip/dropFall + launchMc/fatigueFrames
+  function liftCev(e) { return (e && e.cev && typeof e.cev === 'object') ? e.cev : {}; }
 
   // footprint → 画布像素矩形（支持 pixel 级精确覆盖，如中间旗按 40x60 原始比例绘制）
   function fpRect(fp) {
@@ -491,7 +524,7 @@
       return { c0: e.col, c1: e.col + 1, r0: e.row, r1: e.row + _pmLen, tw: 2, th: _pmLen + 1 };
     }
     var fp = footprint(d, e.col, e.row);
-    if (d.id.indexOf('lift_') === 0) {
+    if (isLiftId(d.id)) {
       fp.c1 = e.col + liftLen(e) - 1;
     }
     return fp;
@@ -518,7 +551,7 @@
     if (!d) return;
     var tw = d.tw || 1, th = d.th || 1;
     var len = d.len || tw;
-    if (d.id.indexOf('lift_') === 0) { tw = len; }
+    if (isLiftId(d.id)) { tw = len; }
     if (d.id === 'platform_hang') { tw = d.w || 5; th = 1; }
     if (d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') {
       tw = d.ori === 'v' ? 1 : (d.count || 3);
@@ -538,7 +571,7 @@
     if (col < 0) return;
 
     var fp = footprint(d, col, row);
-    if (d.id.indexOf('lift_') === 0) fp.c1 = col + len - 1;
+    if (isLiftId(d.id)) fp.c1 = col + len - 1;
     if (d.id === 'platform_hang') fp.c1 = col + (d.w || 5) - 1;
     // connector：用临时元素计算 arm-aware 完整 footprint（避免新建后与臂范围内已有元素重叠）
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
@@ -566,7 +599,7 @@
     });
 
     var ne = { id: d.id, col: col, row: row, uid: nextUid() };
-    if (d.id.indexOf('lift_') === 0) ne.len = len;
+    if (isLiftId(d.id)) ne.len = len;
     if (d.id === 'platform_hang') { ne.w = d.w || 5; ne.h = d.h || 16; ne.drop = !!d.drop; }
     if (d.id === 'block_fall' || d.id === 'block_fall_d') {
       ne.ori = d.ori || 'h'; ne.count = d.count || 3; ne.dir = d.dir || 'down';
@@ -1072,16 +1105,22 @@
       return;
     }
 
-    if (d.id.indexOf('lift_') === 0) {
-      var im = getImg(d);
+    if (isLiftId(d.id)) {
+      var lc0 = liftColor(e);
       var Lw = liftLen(e) * TILE;
       ctx.globalAlpha = a;
-      if (im && im.complete && im.naturalWidth) {
-        drawImg(im, x - 1, y + tilePx(7), Lw + 2, tilePx(14));
-      } else {
-        ctx.fillStyle = d.img.indexOf('yellow') >= 0 ? '#dcdc00' :
-                        d.img.indexOf('green') >= 0 ? '#00dcdc' : '#b0b0b0';
+      if (isCustomColor(lc0)) {
+        // 自定义颜色：纯色台面（无贴图）
+        ctx.fillStyle = lc0;
         ctx.fillRect(x, y + tilePx(7), Lw, tilePx(14));
+      } else {
+        var im = getImg({ img: 'vector/lift_' + lc0 + '.png' });
+        if (im && im.complete && im.naturalWidth) {
+          drawImg(im, x - 1, y + tilePx(7), Lw + 2, tilePx(14));
+        } else {
+          ctx.fillStyle = lc0 === 'green' ? '#00dcdc' : (lc0 === 'gray' ? '#b0b0b0' : '#dcdc00');
+          ctx.fillRect(x, y + tilePx(7), Lw, tilePx(14));
+        }
       }
       ctx.globalAlpha = 1;
       return;
@@ -1607,12 +1646,12 @@
       if (d) {
         // 构造临时伪元素实例（带默认值，让 footprintOf 能正确算动态 footprint）
         var _hLen = (d.id === 'pipe_mouth') ? Math.max(1, Math.min(20, d.length || 1))
-          : (d.id.indexOf('lift_') === 0 ? (d.len || 4)
+          : (isLiftId(d.id) ? (d.len || 4)
           : (d.id === 'platform_hang' ? (d.w || 5)
           : ((d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') ? (d.count || 3)
           : (d.id === 'block_fall_g' ? (d.count || 3) : 1))));
         var _hTh = (d.id === 'pipe_mouth') ? (_hLen + 1)
-          : (d.id.indexOf('lift_') === 0 ? 1
+          : (isLiftId(d.id) ? 1
           : (d.id === 'platform_hang' ? 1
           : ((d.id === 'block_fall' || d.id === 'block_fall_d' || d.id === 'block_brick_m') ? ((d.ori === 'v') ? _hLen : 1)
           : (d.id === 'block_fall_g' ? ((d.variant === 0) ? 2 : (d.rows || 1)) : (d.th || 1)))));
@@ -1767,6 +1806,17 @@
     inp.type = 'number'; inp.min = min; inp.max = max; inp.value = val;
     return inp;
   }
+  // 是/否下拉（属性面板通用）
+  function yesNoSelect(val, noText, yesText) {
+    var sel = document.createElement('select');
+    [['no', noText || '否'], ['yes', yesText || '是']].forEach(function (op) {
+      var o = document.createElement('option');
+      o.value = op[0]; o.textContent = op[1];
+      sel.appendChild(o);
+    });
+    sel.value = val ? 'yes' : 'no';
+    return sel;
+  }
   // ---------- 事件触发器动作列表编辑器（trap_event / block_qball 共用） ----------
   var EV_ACTS = [
     ['se', '播音效'],
@@ -1887,7 +1937,7 @@
       push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '' });
     }
     // 升降台长度
-    if (id.indexOf('lift_') === 0) {
+    if (isLiftId(id)) {
       push({ field: 'len', label: '平台长度', kind: 'num', min: 1, max: 50, tip: '格' });
     }
     // 传送目标
@@ -2214,6 +2264,11 @@
     var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
     var fBhvBounce = null, fBhvDamage = null, fBhvParts = null, fBhvLife = null;
     var fBhvLaunchMc = null, fBhvFatigue = null;
+    // 合并升降台面板
+    var fLiftMove = null, fLiftProx = null, fLiftColor = null;
+    var fLiftColorPicker = null, fLiftColorText = null;  // 自定义颜色选择器 + rgba 显示
+    var fLiftChk = null;                 // {speedUp,standBreak,launch,slip,dropFall} → checkbox
+    var fLiftLaunchMc = null, fLiftFatigue = null;
     var fTrapAnimAmp = null, fTrapAnimRiseMax = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
@@ -2535,9 +2590,95 @@
       evWork = Array.isArray(selected.events) ? JSON.parse(JSON.stringify(selected.events)) : [];
       propBody.appendChild(buildEventsEditor(evWork, selected));
     }
-    if (d.id.indexOf('lift_') === 0) {
+    if (isLiftId(d.id)) {
+      var cev0 = liftCev(selected);
       fLen = numInput(1, 50, liftLen(selected));
       propBody.appendChild(propRow('平台长度', fLen, '格'));
+
+      // 1) 往复移动 / 4) 靠近触发（互斥，change 时联动关闭对方）
+      fLiftMove = yesNoSelect(!!selected.move, '否：不往复', '是：纵向循环移动');
+      propBody.appendChild(propRow('往复移动', fLiftMove, '开启后纵向循环移动（默认速度300，1-2-1型）'));
+      fLiftProx = yesNoSelect(!!selected.prox, '否', '是：靠近即下坠');
+      propBody.appendChild(propRow('靠近触发', fLiftProx, '玩家水平接近1500距离内即加速下坠；与往复移动互斥'));
+      fLiftMove.addEventListener('change', function () { if (fLiftMove.value === 'yes') fLiftProx.value = 'no'; });
+      fLiftProx.addEventListener('change', function () { if (fLiftProx.value === 'yes') fLiftMove.value = 'no'; });
+
+      // 3) 颜色（黄/绿/灰 + 自定义）
+      var colorBox = document.createElement('div');
+      colorBox.className = 'lift-color-box';
+      fLiftColor = document.createElement('select');
+      [['yellow', '黄'], ['green', '绿'], ['gray', '灰']].forEach(function (op) {
+        var o0 = document.createElement('option');
+        o0.value = op[0]; o0.textContent = op[1];
+        fLiftColor.appendChild(o0);
+      });
+      var customOpt = document.createElement('option');
+      customOpt.value = 'custom'; customOpt.textContent = '其它颜色…';
+      fLiftColor.appendChild(customOpt);
+      var curColor = selected.color;
+      if (isCustomColor(curColor)) fLiftColor.value = 'custom';
+      else fLiftColor.value = liftColor(selected);
+      colorBox.appendChild(fLiftColor);
+      // 自定义颜色选择器 + rgba 文本（仅选「其它颜色」时显示）
+      fLiftColorPicker = document.createElement('input');
+      fLiftColorPicker.type = 'color';
+      fLiftColorPicker.className = 'lift-color-picker';
+      fLiftColorText = document.createElement('span');
+      fLiftColorText.className = 'lift-color-rgba';
+      function syncLiftColorPicker() {
+        var isC = fLiftColor.value === 'custom';
+        fLiftColorPicker.style.display = isC ? '' : 'none';
+        fLiftColorText.style.display = isC ? '' : 'none';
+        if (isC) {
+          var cc = selected.color;
+          if (isCustomColor(cc)) {
+            fLiftColorPicker.value = rgbaToHex(cc);
+            fLiftColorText.textContent = cc;
+          } else {
+            fLiftColorPicker.value = '#dcdc00';
+            fLiftColorText.textContent = 'rgba(220,220,0,1)';
+          }
+        }
+      }
+      syncLiftColorPicker();
+      fLiftColor.addEventListener('change', syncLiftColorPicker);
+      fLiftColorPicker.addEventListener('input', function () {
+        fLiftColorText.textContent = hexToRgba(fLiftColorPicker.value);
+      });
+      colorBox.appendChild(fLiftColorPicker);
+      colorBox.appendChild(fLiftColorText);
+      propBody.appendChild(propRow('颜色', colorBox, '台面颜色：黄/绿/灰/自定义 rgba'));
+
+      // 2) 接触事件（复选框组，可多选）
+      var chkDefs = [
+        ['speedUp',   '往复速度加快', '仅往复移动时有效：站上后台子持续加速'],
+        ['standBreak','碎裂消失',     '站上即碎裂消失（原版 srsp=1）'],
+        ['launch',    '弹飞(疲劳)',   '站上被水平弹飞；连续站立疲劳帧数后台碎人亡（原版 srsp=2）'],
+        ['slip',      '打滑',         '站上强制打滑（速度 -800，原版 srsp=12）'],
+        ['dropFall',  '踩上坠落',     '站上即加速下坠（仅非往复时有效，原版 sracttype=1）']
+      ];
+      var chkBox = document.createElement('div');
+      chkBox.className = 'lift-checks';
+      fLiftChk = {};
+      chkDefs.forEach(function (cd) {
+        var item = document.createElement('label');
+        item.className = 'lift-chk';
+        var box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = !!cev0[cd[0]];
+        var tx = document.createElement('span');
+        tx.textContent = cd[1]; tx.title = cd[2];
+        item.appendChild(box); item.appendChild(tx);
+        chkBox.appendChild(item);
+        fLiftChk[cd[0]] = box;
+      });
+      propBody.appendChild(propRow('接触事件', chkBox, '可多选'));
+
+      // 弹飞参数（勾选 launch 时生效）
+      fLiftLaunchMc = numInput(-9999, 0, cev0.launchMc != null ? cev0.launchMc : -2400);
+      propBody.appendChild(propRow('弹飞力度', fLiftLaunchMc, '勾选「弹飞」时生效（原版默认 -2400）'));
+      fLiftFatigue = numInput(1, 999, cev0.fatigueFrames != null ? cev0.fatigueFrames : 100);
+      propBody.appendChild(propRow('疲劳帧数', fLiftFatigue, '勾选「弹飞」时连续站立多少帧后台碎人亡（原版默认100）'));
     }
     var fPlatW = null, fPlatH = null, fPlatDrop = null;
     if (d.id === 'platform_hang') {
@@ -2628,13 +2769,6 @@
       fBhvDamage = numInput(1, 999, sb0.damage != null ? sb0.damage : 1);
       propBody.appendChild(propRow('伤害值', fBhvDamage, '每次触碰扣除的 HP 数（原版默认 1）'));
     }
-    if (d.id === 'lift_green') {
-      var lg0 = selected.bhv || {};
-      fBhvLaunchMc = numInput(-9999, 0, lg0.launchMc != null ? lg0.launchMc : -2400);
-      propBody.appendChild(propRow('弹飞力度', fBhvLaunchMc, '站上去时玩家水平弹飞速度（原版默认 -2400）'));
-      fBhvFatigue = numInput(1, 999, lg0.fatigueFrames != null ? lg0.fatigueFrames : 100);
-      propBody.appendChild(propRow('疲劳帧数', fBhvFatigue, '连续站立多少帧后玩家阵亡（原版默认 100）'));
-    }
     // 陷阱管道：抖动动画参数覆盖（pipe_mouth entry=trap 时生效）
     if (d.id === 'pipe_mouth' && (selected.entry || d.entry) === 'trap') {
       var ta0 = selected.trapAnim || {};
@@ -2711,6 +2845,37 @@
       if (fDir) selected.dir = fDir.value === 'ccw' ? 'ccw' : 'cw';
       if (fMirror) selected.mirror = fMirror.checked;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
+      // 合并升降台写回：运动模式（互斥兜底）+ 颜色 + 接触事件（含弹飞参数）
+      if (fLiftMove) {
+        var nMove = fLiftMove.value === 'yes';
+        var nProx = fLiftProx.value === 'yes';
+        if (nMove && nProx) nProx = false;   // 往复优先
+        if (nMove) selected.move = true; else delete selected.move;
+        if (nProx) selected.prox = true; else delete selected.prox;
+
+        var nColor = fLiftColor.value;
+        if (nColor === 'custom') {
+          var rgba = fLiftColorText.textContent || hexToRgba(fLiftColorPicker.value);
+          selected.color = rgba;
+        } else if (nColor && nColor !== 'yellow') {
+          selected.color = nColor;
+        } else {
+          delete selected.color;
+        }
+
+        var nCev = {};
+        ['speedUp', 'standBreak', 'launch', 'slip', 'dropFall'].forEach(function (k) {
+          if (fLiftChk[k].checked) nCev[k] = true;
+        });
+        if (nCev.launch) {
+          var nMc = parseInt(fLiftLaunchMc.value, 10);
+          var nFat = parseInt(fLiftFatigue.value, 10) || 100;
+          if (!isNaN(nMc) && nMc !== -2400) nCev.launchMc = nMc;
+          if (nFat !== 100) nCev.fatigueFrames = nFat;
+        }
+        if (Object.keys(nCev).length) selected.cev = nCev;
+        else delete selected.cev;
+      }
       if (fPlatW) {
         var nW = Math.max(1, Math.min(50, parseInt(fPlatW.value, 10) || 5));
         var nH = Math.max(1, Math.min(30, parseInt(fPlatH.value, 10) || 16));
@@ -2894,14 +3059,6 @@
         var nDmg = parseInt(fBhvDamage.value, 10) || 1;
         if (nDmg !== 1) selected.bhv = { damage: nDmg };
         else delete selected.bhv;
-      }
-      if (d.id === 'lift_green') {
-        var nLaunch = parseInt(fBhvLaunchMc.value, 10);
-        var nFat = parseInt(fBhvFatigue.value, 10) || 100;
-        var changed = false;
-        if (nLaunch !== -2400) { if (!selected.bhv) selected.bhv = {}; selected.bhv.launchMc = nLaunch; changed = true; }
-        if (nFat !== 100) { if (!selected.bhv) selected.bhv = {}; selected.bhv.fatigueFrames = nFat; changed = true; }
-        if (!changed) delete selected.bhv;
       }
       if (d.id === 'pipe_mouth' && (selected.entry || d.entry) === 'trap') {
         var nAmp = parseInt(fTrapAnimAmp.value, 10) || 200;
@@ -4024,7 +4181,7 @@
       // 拖动选中元素（触发区/普通元素）：按鼠标位移更新位置，吸附网格并做边界钳制
       var d = CAT.byId(selected.id);
       var tw = (d.tw || 1), th = (d.th || 1);
-      if (d.id.indexOf('lift_') === 0) tw = liftLen(selected);
+      if (isLiftId(d.id)) tw = liftLen(selected);
       if (d.id === 'platform_hang') { tw = platInfo(selected).w; th = 1; }
       if (d.id === 'block_fall' || d.id === 'block_fall_d') {
         var fdi = fallInfo(selected);
@@ -4322,7 +4479,6 @@
       84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 88: 'firebar', 90: 'enemy_beam' };
     return m[t] || null;
   }
-  var W_LIFT_ID = { 0: 'lift_yellow', 2: 'lift_green', 21: 'lift_gray' };
   var W_BGM_ID = { 100: 'bgm_field', 103: 'bgm_dungeon', 104: 'bgm_star', 105: 'bgm_castle', 106: 'bgm_puyo' };
   var W_THEME = { 1: 'overworld', 2: 'dungeon', 3: 'sky', 4: 'castle' };
   // 主题变体：地下/城堡关卡的网格字节用对应配色元素还原（与引擎 id+30/+60 贴图一致）
@@ -4386,7 +4542,7 @@
       }
       if (v === 41 || v === 43 || v === 44) continue;  // 管身字节：已由管口合并，跳过
       if (v === 99) add('goal_pole', tt, Math.min(t, 11), null, guid);
-      else if (v >= 20 && v <= 29) add('lift_yellow', tt, t, { len: 1 }, guid);
+      else if (v >= 20 && v <= 29) add('lift', tt, t, { len: 1 }, guid);
       else if (v >= 50 && v <= 79) add(W_ENEMY0[v - 50], tt, t, null, guid);
       else if (v >= 80 && v <= 89) add(W_BG0[v - 80], tt, t, null, guid);
       else if (W_BYTE_ID[v]) add(vid(W_BYTE_ID[v]), tt, t, null, guid);
@@ -4631,12 +4787,26 @@
         var pw0 = Math.max(1, Math.min(50, Math.round(l.src / 3000)));
         var ph0 = l.srh ? Math.max(1, Math.min(30, Math.round(l.srh / 2900))) : 16;
         add('platform_hang', col, row, { w: pw0, h: ph0, drop: l.sracttype === 1 }, luid);
-      } else if (l.srsp === 1) {
-        // 易碎台 srsp=1：编辑器按普通黄台还原（踩碎陷阱不保留）
-        add('lift_yellow', col, row, { len: Math.max(1, Math.round(l.src / 3000)) }, luid);
-      } else if (W_LIFT_ID[l.srsp]) {
-        add(W_LIFT_ID[l.srsp], col, row, { len: Math.max(1, Math.round(l.src / 3000)) }, luid);
-      } else skip++;
+        return;
+      }
+      if (l.srsp === 15) {
+        // srsp=15 砖块贴图台：合并模型只有黄/绿/灰三色，无对应外观，沿用旧策略跳过
+        skip++;
+        return;
+      }
+      // 普通升降台 → 合并 lift：颜色 + 运动模式（往复/靠近触发互斥）+ 接触事件
+      var extra = { len: Math.max(1, Math.min(50, Math.round(l.src / 3000))) };
+      var color = (l.srsp === 2) ? 'green' : (l.srsp === 21) ? 'gray' : 'yellow';
+      if (color !== 'yellow') extra.color = color;
+      if (l.sracttype === 5) extra.move = true;
+      if (l.srsp === 11) extra.prox = true;
+      var cev = {};
+      if (l.srsp === 1) cev.standBreak = true;    // 易碎台：旧版降级为黄台，现接触事件完整还原
+      if (l.srsp === 12) cev.slip = true;
+      if (l.srsp === 2) cev.launch = true;        // 颜色与行为解耦：绿色仅外观，launch 单独配
+      if (l.sracttype === 1) cev.dropFall = true;
+      if (Object.keys(cev).length) extra.cev = cev;
+      add('lift', col, row, extra, luid);
     });
     // 6) 出生点（BGM 是关卡级设置，不放画布，随返回值交给 loadData）
     // 原版抽取关 spawn={ma,mb} 世界坐标；编辑器自定义关 spawn={x,y} 像素坐标
@@ -4938,6 +5108,25 @@
         nh.mass = false;
         return nh;
       }
+      // 旧升降台三件套 → 合并 lift（lift_green 的 launch 行为与 bhv 参数迁移到 cev）
+      if (e.id === 'lift_yellow' || e.id === 'lift_green' || e.id === 'lift_gray') {
+        var nlit = {};
+        for (var litk in e) nlit[litk] = e[litk];
+        nlit.id = 'lift';
+        if (e.id === 'lift_green') nlit.color = 'green';
+        else if (e.id === 'lift_gray') nlit.color = 'gray';
+        else delete nlit.color;
+        if (e.id === 'lift_green') {
+          var ncev0 = { launch: true };
+          if (e.bhv) {
+            if (e.bhv.launchMc != null) ncev0.launchMc = e.bhv.launchMc;
+            if (e.bhv.fatigueFrames != null) ncev0.fatigueFrames = e.bhv.fatigueFrames;
+          }
+          nlit.cev = ncev0;
+          delete nlit.bhv;
+        }
+        return nlit;
+      }
       return e;
     });
     state.elements = rawEls.filter(function (e) {
@@ -4968,6 +5157,15 @@
         if (e.w != null) out.w = e.w | 0;
         if (e.h != null) out.h = e.h | 0;
         out.drop = !!e.drop;
+      }
+      // 合并升降台：运动模式 + 颜色 + 接触事件（稀疏：默认值不落盘）
+      if (e.id === 'lift') {
+        if (e.move) out.move = true;
+        if (e.prox) out.prox = true;
+        if (e.color === 'green' || e.color === 'gray' || isCustomColor(e.color)) out.color = e.color;
+        if (e.cev && typeof e.cev === 'object' && Object.keys(e.cev).length) {
+          out.cev = JSON.parse(JSON.stringify(e.cev));
+        }
       }
       if (e.id === 'block_fall' || e.id === 'block_fall_d') {
         if (e.ori === 'h' || e.ori === 'v') out.ori = e.ori;

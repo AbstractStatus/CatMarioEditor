@@ -392,6 +392,16 @@ select option, select optgroup {
 }
 .prop-row input:focus, .prop-row select:focus { outline: none; border-color: #5a7bd0; }
 .prop-row .prop-note { color: #778; font-size: 11px; flex: 1 1 0; min-width: 90px; overflow-wrap: anywhere; }
+/* 升降台接触事件复选框组 */
+.prop-row .lift-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; min-width: 200px; flex: 1 1 auto; }
+.prop-row .lift-chk { display: flex; align-items: center; gap: 5px; min-width: auto !important; color: #dfe3ee; cursor: pointer; font-weight: normal; }
+.prop-row .lift-chk input { min-width: 0 !important; width: auto; flex: 0 0 auto; margin: 0; padding: 0; accent-color: #5a7bd0; }
+.prop-row .lift-chk span { font-size: 12.5px; }
+/* 升降台自定义颜色选择器 */
+.prop-row .lift-color-box { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 130px; }
+.prop-row .lift-color-box select { flex: 0 1 auto; }
+.prop-row .lift-color-picker { min-width: 0 !important; width: 34px; height: 28px; padding: 0; border: 1px solid #3a4152; border-radius: 4px; background: none; cursor: pointer; flex: 0 0 auto; }
+.prop-row .lift-color-rgba { font-size: 11px; color: #aab; font-family: monospace; white-space: nowrap; }
 .prop-foot {
   display: flex; gap: 10px; justify-content: flex-end; padding: 12px 16px;
   background: #1f222a; border-top: 1px solid #3a4152;
