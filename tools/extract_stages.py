@@ -227,8 +227,12 @@ def parse_lifts(body):
         r"sra" + idx + r"\s*=\s*([^;]+?)\s*;"
         r"\s*srb" + idx + r"\s*=\s*([^;]+?)\s*;"
         r"\s*src" + idx + r"\s*=\s*([^;]+?)\s*;")
-    for m in lift_re.finditer(body):
-        seg = body[m.start():m.start() + 320]
+    # 字段段必须以「下一个升降台的 sra 赋值」为界，不能用固定 320 字符窗口：
+    # 无 srsp 的升降台（如 1-3 坠落台、1-4 l0）窗口会越界吃到下一台的 srsp。
+    matches = list(lift_re.finditer(body))
+    for li_i, m in enumerate(matches):
+        seg_end = matches[li_i + 1].start() if li_i + 1 < len(matches) else m.start() + 320
+        seg = body[m.start():seg_end]
         srtype = re.search(r"srtype" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
         sracttype = re.search(r"sracttype" + idx + r"\s*=\s*([^;]+?)\s*;", seg)
         sre = re.search(r"\bsre" + idx + r"\s*=\s*([^;]+?)\s*;", seg)

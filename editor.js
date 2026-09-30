@@ -211,9 +211,10 @@
         if (e.bhv) o.bhv = JSON.parse(JSON.stringify(e.bhv));   // 行为属性覆盖（BlockTypes/LiftTypes）
         if (e.trapAnim) o.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));   // 陷阱管道抖动动画覆盖
         if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
-        // 合并升降台：运动模式 + 颜色 + 接触事件
+        // 合并升降台：运动模式 + 往复方向 + 颜色 + 接触事件
         if (e.id === 'lift') {
           if (e.move) o.move = true;
+          if (e.dir === 'down') o.dir = 'down';
           if (e.prox) o.prox = true;
           if (e.color === 'green' || e.color === 'gray' || isCustomColor(e.color)) o.color = e.color;
           if (e.cev && Object.keys(e.cev).length) o.cev = JSON.parse(JSON.stringify(e.cev));
@@ -1123,6 +1124,17 @@
         }
       }
       ctx.globalAlpha = 1;
+      // 往复移动台：台面中心叠加运动方向箭头（↑向上 / ↓向下）
+      if (e.move) {
+        var lArw = e.dir === 'down' ? '↓' : '↑';
+        var lcx = x + Lw / 2, lcy = y + tilePx(7) + tilePx(14) / 2;
+        ctx.font = 'bold ' + tilePx(18) + 'px sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeText(lArw, lcx, lcy + 1);
+        ctx.fillStyle = 'rgba(200,30,30,0.95)';
+        ctx.fillText(lArw, lcx, lcy + 1);
+      }
       return;
     }
 
@@ -2282,7 +2294,7 @@
     var fBhvBounce = null, fBhvDamage = null, fBhvParts = null, fBhvLife = null;
     var fBhvLaunchMc = null, fBhvFatigue = null;
     // 合并升降台面板
-    var fLiftMove = null, fLiftProx = null, fLiftColor = null;
+    var fLiftMove = null, fLiftProx = null, fLiftDir = null, fLiftColor = null;
     var fLiftColorPicker = null, fLiftColorText = null;  // 自定义颜色选择器 + rgba 显示
     var fLiftChk = null;                 // {speedUp,standBreak,launch,slip,dropFall} → checkbox
     var fLiftLaunchMc = null, fLiftFatigue = null;
@@ -2615,6 +2627,15 @@
       // 1) 往复移动 / 4) 靠近触发（互斥，change 时联动关闭对方）
       fLiftMove = yesNoSelect(!!selected.move, '否：不往复', '是：纵向循环移动');
       propBody.appendChild(propRow('往复移动', fLiftMove, '开启后纵向循环移动（默认速度300，1-2-1型）'));
+      // 往复运动方向（仅往复移动时生效）：向上 sre=-300 / 向下 sre=+300（原版 1-2-1）
+      fLiftDir = document.createElement('select');
+      [['up', '向上（上升）'], ['down', '向下（下降）']].forEach(function (op) {
+        var d0 = document.createElement('option');
+        d0.value = op[0]; d0.textContent = op[1];
+        fLiftDir.appendChild(d0);
+      });
+      fLiftDir.value = selected.dir === 'down' ? 'down' : 'up';
+      propBody.appendChild(propRow('往复方向', fLiftDir, '仅往复移动时生效：向上=台面上升（sre=-300），向下=台面下降（sre=300，1-2-1 下行台）'));
       fLiftProx = yesNoSelect(!!selected.prox, '否', '是：靠近即下坠');
       propBody.appendChild(propRow('靠近触发', fLiftProx, '玩家水平接近1500距离内即加速下坠；与往复移动互斥'));
       fLiftMove.addEventListener('change', function () { if (fLiftMove.value === 'yes') fLiftProx.value = 'no'; });
@@ -2668,7 +2689,7 @@
 
       // 2) 接触事件（复选框组，可多选）
       var chkDefs = [
-        ['speedUp',   '往复速度加快', '仅往复移动时有效：站上后台子持续加速'],
+        ['speedUp',   '往复速度加快', '仅往复移动时有效：站上瞬间台速提到900（复刻1-2-1下行台）'],
         ['standBreak','碎裂消失',     '站上即碎裂消失（原版 srsp=1）'],
         ['launch',    '弹飞(疲劳)',   '站上被水平弹飞；连续站立疲劳帧数后台碎人亡（原版 srsp=2）'],
         ['slip',      '打滑',         '站上强制打滑（速度 -800，原版 srsp=12）'],
@@ -2862,12 +2883,15 @@
       if (fDir) selected.dir = fDir.value === 'ccw' ? 'ccw' : 'cw';
       if (fMirror) selected.mirror = fMirror.checked;
       if (fLen) selected.len = Math.max(1, Math.min(50, parseInt(fLen.value, 10) || 3));
-      // 合并升降台写回：运动模式（互斥兜底）+ 颜色 + 接触事件（含弹飞参数）
+      // 合并升降台写回：运动模式（互斥兜底）+ 往复方向 + 颜色 + 接触事件（含弹飞参数）
       if (fLiftMove) {
         var nMove = fLiftMove.value === 'yes';
         var nProx = fLiftProx.value === 'yes';
         if (nMove && nProx) nProx = false;   // 往复优先
         if (nMove) selected.move = true; else delete selected.move;
+        // 往复方向稀疏存储：仅向下落盘（缺省=向上）；非往复台无意义，清掉避免遗留
+        if (nMove && fLiftDir.value === 'down') selected.dir = 'down';
+        else delete selected.dir;
         if (nProx) selected.prox = true; else delete selected.prox;
 
         var nColor = fLiftColor.value;
@@ -4815,12 +4839,17 @@
       var extra = { len: Math.max(1, Math.min(50, Math.round(l.src / 3000))) };
       var color = (l.srsp === 2) ? 'green' : (l.srsp === 21) ? 'gray' : 'yellow';
       if (color !== 'yellow') extra.color = color;
-      if (l.sracttype === 5) extra.move = true;
+      if (l.sracttype === 5) {
+        extra.move = true;
+        // 往复方向：sre>0=向下（1-2-1 下行台），否则向上
+        if (l.sre > 0) extra.dir = 'down';
+      }
       if (l.srsp === 11) extra.prox = true;
       var cev = {};
       if (l.srsp === 1) cev.standBreak = true;    // 易碎台：旧版降级为黄台，现接触事件完整还原
       if (l.srsp === 12) cev.slip = true;
       if (l.srsp === 2) cev.launch = true;        // 颜色与行为解耦：绿色仅外观，launch 单独配
+      if (l.srtype === 1) cev.speedUp = true;     // srtype=1：踩上往复台瞬间提速到 900（1-2-1 下行一对台）
       if (l.sracttype === 1) cev.dropFall = true;
       if (Object.keys(cev).length) extra.cev = cev;
       add('lift', col, row, extra, luid);
@@ -5175,9 +5204,12 @@
         if (e.h != null) out.h = e.h | 0;
         out.drop = !!e.drop;
       }
-      // 合并升降台：运动模式 + 颜色 + 接触事件（稀疏：默认值不落盘）
+      // 合并升降台：运动模式 + 往复方向 + 颜色 + 接触事件（稀疏：默认值不落盘）
       if (e.id === 'lift') {
-        if (e.move) out.move = true;
+        if (e.move) {
+          out.move = true;
+          if (e.dir === 'down') out.dir = 'down';
+        }
         if (e.prox) out.prox = true;
         if (e.color === 'green' || e.color === 'gray' || isCustomColor(e.color)) out.color = e.color;
         if (e.cev && typeof e.cev === 'object' && Object.keys(e.cev).length) {

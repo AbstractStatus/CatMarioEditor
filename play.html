@@ -476,7 +476,8 @@ body.dragging #dropTip { display: flex; }
           srtype: 0,
           // dropFall（踩上坠落）仅非往复时有效；往复时 sracttype=5
           sracttype: nMove ? 5 : (cev.dropFall ? 1 : 0),
-          sre: nMove ? -LIFT_DEFAULT_SPEED : 0,
+          // 往复方向：向下 sre=+300（1-2-1 下行台），向上 sre=-300
+          sre: nMove ? (e.dir === 'down' ? LIFT_DEFAULT_SPEED : -LIFT_DEFAULT_SPEED) : 0,
           srf: 0, srsp: 0,
           color: nColor, proximity: nProx,
           sron: 0, srmuki: 0, srsok: 0, srmove: 0, srmovep: 0,

@@ -19,9 +19,7 @@
   // 运动/行为由编辑器属性配置，经 play.html convert 转成 sracttype/sre/bhv/proximity/color；
   // 这里集中存放原版硬编码数值，供运行时兜底。
   var LIFT_BREAK_DEFAULT = { parts: 2, vx: 240, vy: -1400, grav: 160, w: 4500, h: 4500, life: 120, sound: 3 };
-  var LIFT_SPEEDUP_ACCEL = 12;    // 接触事件 speedUp：站上往复台时速度增量（世界单位/帧²，60fps 基准）
-  var LIFT_SPEEDUP_MAX = 1200;    // 加速后速度绝对值上限
-  var LIFT_MOVE_SPEED = 300;      // 往复移动默认速度绝对值（sre 初值，原版 1-2-1 = ±300）
+  var LIFT_CONTACT_SPEED = 900;   // 接触加速：站上往复台瞬间台速绝对值提到 900（原版 main.cpp:2774）
   var LIFT_PROX_DIST = 1500;      // 靠近触发：水平接近距离
   var LIFT_PROX_ACCEL = 60;       // 靠近触发后下坠加速度（srf）
   var LIFT_COLOR_HEX = { yellow: '#dcdc00', green: '#00dc00', gray: '#b4b4b4' };
@@ -1330,13 +1328,21 @@
             p.mb += oldSre * C._DT;
           }
 
+          // 接触加速（原版 main.cpp:2774）：站上 srtype=1 往复台时，同组台速度立即
+          // 变为 900、方向不变（原码硬编码 sre[10]=sre[11]=900，即 1-2-1 下行一对台
+          // 踩任一台则两台同时提速）。本帧随台位移仍用旧 sre（脚下不嵌入），下帧起按 900。
+          if (l.srtype === 1) {
+            for (var lj = 0; lj < state.lifts.length; lj++) {
+              var lo = state.lifts[lj];
+              if (lo.srtype === 1) lo.sre = lo.sre >= 0 ? LIFT_CONTACT_SPEED : -LIFT_CONTACT_SPEED;
+            }
+          }
+
           if (lb) {
-            // speedUp：站上往复台时速度沿当前方向加快（仅 sracttype=5 有效，钳制上限）
+            // speedUp（自定义接触事件，复刻原版接触加速）：站上往复台瞬间速度提到 900，
+            // 方向不变（仅 sracttype=5 有效）
             if (lb.speedUp && l.sracttype === 5) {
-              var sgn0 = l.sre >= 0 ? 1 : -1;
-              l.sre += sgn0 * LIFT_SPEEDUP_ACCEL * C._DT;
-              if (l.sre > LIFT_SPEEDUP_MAX) l.sre = LIFT_SPEEDUP_MAX;
-              if (l.sre < -LIFT_SPEEDUP_MAX) l.sre = -LIFT_SPEEDUP_MAX;
+              l.sre = l.sre >= 0 ? LIFT_CONTACT_SPEED : -LIFT_CONTACT_SPEED;
             }
             // 站碎台：breakCfg 缺省时用引擎默认（合并升降台 bhv 只给 standBreak 标记）
             if (lb.standBreak) {

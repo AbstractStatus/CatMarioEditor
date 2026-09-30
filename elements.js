@@ -46,8 +46,8 @@
     { id: 'lift', cat: 'struct', name: '升降台', kind: 'vector', img: 'vector/lift_yellow.png',
       tw: 3, th: 1, mapId: 20, len: 3,
       hint: '原版 srsp 升降台三合一（旧 lift_yellow/lift_green/lift_gray）。len=平台长度（1-50格）。' +
-        '运动模式二选一（互斥）：move=true=往复移动（纵向循环，默认速度300，1-2-1型）；prox=true=靠近触发（玩家靠近1500距离内即加速下坠）。' +
-        '接触事件 cev（可多选）：speedUp=站上时往复速度加快（仅 move 有效）；standBreak=站上即碎裂消失；' +
+        '运动模式二选一（互斥）：move=true=往复移动（纵向循环，速度300，1-2-1型），dir=往复方向（up向上/down向下，默认向上）；prox=true=靠近触发（玩家靠近1500距离内即加速下坠）。' +
+        '接触事件 cev（可多选）：speedUp=站上时往复速度瞬间提到900（仅 move 有效，复刻1-2-1下行台）；standBreak=站上即碎裂消失；' +
         'launch=弹飞玩家（launchMc 默认 -2400）且连续站立 fatigueFrames 帧（默认100）后台碎人亡；' +
         'slip=站上打滑（速度 -800）；dropFall=站上即加速下坠（仅非往复时有效，sracttype=1）。' +
         'color=颜色：yellow/green/gray（默认 yellow）。选中后在⚙属性里配置' },
