@@ -1634,7 +1634,9 @@
       // setprop 目标语义统一为「管道口元素」：这里必须改到真正驱动 tick 的 stype=180
       // 生成器上才会生效。注意不能用 'sgtype' in obj 判断——loadStage 给所有 pipe
       // （含普通管口 stype=50/60）都初始化了 sgtype:0，写它没有任何 tick 读取。
-      var _fv = +v;
+      // 必须用原始值 raw 而非上方统一取整后的 v：分派入口对数字做了 (raw|0)，
+      // 0.2 秒这类小数周期会被截成 0 → 下面 0>0 不成立 → 兜底回 1.6 → sgtype 仍是 48。
+      var _fv = +raw;
       var _use = (isFinite(_fv) && _fv > 0) ? _fv : 1.6;
       obj.sprayFreq = _use;
       var _gen = resolveSprayGen(obj);
