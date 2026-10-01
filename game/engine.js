@@ -105,6 +105,29 @@
           "                          "]
   };
 
+  // 制作名单（スタッフロール）19 行文本，对应原版 str.h IDS_STAFF_1~19 官中版
+  var STAFF_TEXT = [
+    '制作名单',
+    '关卡1 制作',
+    '先輩　Ⅹ～Ｚ',
+    '关卡2 制作',
+    '友人　willowlet',
+    '关卡3 制作',
+    '友人　willowlet',
+    '关卡4 制作',
+    '友人２　ann',
+    '协助',
+    'Ｔ先輩',
+    'Ｓ先輩',
+    '動画技術提供',
+    'Ｋ先輩',
+    '动画制作',
+    'willowlet',
+    '程序・美术・动画',
+    'ちく',
+    '感谢您的参与～'
+  ];
+
   // ==================== 台词气泡系统 ====================
   // 文本来源：旧引擎 src/str.h 官中版（IDS_MSG_* 玩家台词 / IDS_AMSG_* 敌人台词）。
   // 触发点与旧引擎 main.cpp 一致：
@@ -879,6 +902,46 @@
           }
         }
       }
+
+      // 剑结局(301) / 通关触发结局(302) 演出序列（原版 main.cpp:1960-2012）
+      if (p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2) {
+        p.mkeytm = 3;
+        var isSword = (p.mtype === C.MTYPE.ENDING);
+        if (p.mtm <= 1) { p.mc = 0; p.md = 0; }
+        // 玩家自动向右奔跑，镜头由 updateCamera() 正常向右跟随；
+        // 原版 ma-=500/fx+=500 的强制左拉会让玩家滑向屏幕左侧，此处按需求改为向右推进。
+        // 演出中不做无敌保护：坠落、敌人、尖刺等均可正常造成死亡（与原版 main.cpp:2074/3582 一致）。
+        if (p.mtm >= 2 && p.mtm <= 130) { p.mc = 250; p.mmuki = 1; }
+        // mtm==200：播全通关音效、登记通关、剑结局额外生成"恭喜通关/感谢游玩"文本
+        if (p.mtm === 200) {
+          A.playSE(C.SE.ALL_CLEAR);
+          if (isSword) {
+            // 原版 na/nb/ntype=101(IDS_2 恭喜通关)、102(IDS_3 感谢游玩)
+            // 文本锚定在玩家当前世界坐标，随镜头左移逐渐移出屏幕左侧
+            state.bg.push({ na: p.ma, nb: 4 * 29 * 100, ntype: 101, uid: null, _endingText: true });
+            state.bg.push({ na: p.ma, nb: 6 * 29 * 100, ntype: 102, uid: null, _endingText: true });
+          }
+        }
+        // mtm==440：剑结局→进入制作名单(staff roll)；通关触发→进入下一大关
+        if (p.mtm === 440) {
+          if (isSword) {
+            state.ending = 1;   // frame() 中据此切换 proc=ENDING
+          } else {
+            state.checkpoint = null;
+            var nl2 = state.nextLevel;
+            if (nl2 && typeof state.onGoalNext === 'function') {
+              var proceed2 = state.onGoalNext(nl2) !== false;
+              if (proceed2) {
+                if (!nl2.end && !nl2.id) { state.sta++; state.stb = 1; state.stc = 0; }
+                startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
+              }
+            } else {
+              state.sta++; state.stb = 1; state.stc = 0;
+              startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
+            }
+          }
+        }
+      }
     }
 
     // 移动
@@ -891,7 +954,8 @@
     p.ma += p.mc * C._DT; p.mb += p.md * C._DT;
     if (p.mc < 0) p.mactp += -p.mc * C._DT;
     else p.mactp += p.mc * C._DT;
-    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE) {
+    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE ||
+        p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2) {
       // 帧率一致性补偿：匀加速下显式欧拉（先位移后加重力）的位移误差 = -g·T·DT/2，
       // 30Hz(DT=1) 为原版手感基准（误差率最大），非 30Hz 补回 g·DT·(1-DT)/2，
       // 使跳跃/坠落轨迹与 30Hz 逐帧一致（DT=1 时补偿=0，30Hz 行为分毫不变）
@@ -911,7 +975,7 @@
 
     // 地面摩擦
     if (p.mzimen === 1 && p.actaon[0] !== 3) {
-      if (p.mtype <= 9) {
+      if (p.mtype <= 9 || p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2) {
         if (p.mrzimen === 0) {
           xx[2] = 30; xx[1] = 60; xx[3] = 30;
           if (p.mc >= -xx[3] && p.mc <= xx[3]) p.mc = 0;
@@ -1191,6 +1255,22 @@
             b.ta = -800000; A.playSE(C.SE.COIN);
           }
         }
+
+        // 剣とってクリア（剑结局）：拾取剑方块 → 进入 mtype=301 剑结局演出
+        if (b.ttype === C.TTYPE.SWORD) {
+          if (p.mb > xx[9] - xx[0] * 2 - 2000 && p.mb < xx[9] + xx[1] - xx[0] * 2 + 2000 &&
+              p.ma + p.mnobia > xx[8] - 400 && p.ma < xx[8] + xx[1]) {
+            b.ta = -800000;
+            // 激活灰色升降台（srsp=21）作为结局载台（原版 sracttype[20]=1; sron[20]=1）
+            state.lifts.forEach(function (lf) {
+              if (lf.srsp === C.SRSP.GRAY) { lf.sracttype = 1; lf.sron = 1; }
+            });
+            A.bgmStop();
+            p.mtype = C.MTYPE.ENDING; p.mtm = 0;
+            A.playSE(C.SE.SWORD_CLEAR);
+            pushEvent({ kind: 'goal', via: 'sword', f: _debugFrame, uid: b.uid || null, ma: p.ma, mb: p.mb });
+          }
+        }
       }
       // ONOFF 开关
       if (b.ttype === 130 && state.stageonoff === 0) b.ttype = 131;
@@ -1213,7 +1293,11 @@
       if (ptTick && ptTick.tick) ptTick.tick(p, s, xx, state, A, spawnEnemy);
 
       // 通过注册表查询该类型的实体性
-      if (PT.isSolid(s.stype) && p.mtype < 10) {
+      // 剑结局/通关演出(301/302)期间保留与正常游玩完全一致的墙体/管道阻挡，
+      // 不沿用旧引擎 main.cpp:2469 的 mtype<10 门槛（按需求演出中不得穿墙穿管道）。
+      // 管道进入 onEnter 内部要求 mtype===0，演出中自动不会触发。
+      if (PT.isSolid(s.stype) &&
+          (p.mtype < 10 || p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2)) {
         // 自定义物理钩子（stype 51/52 坠落砖组）：必须在常规碰撞前执行；
         // 返回 true = 本帧运动中，跳过常规实体碰撞（对应原版 xx[7]=1）
         var ptPhys = PT.get(s.stype);
@@ -1301,13 +1385,17 @@
       var proxCfg = l.proximity
         ? { dist: LIFT_PROX_DIST, accel: LIFT_PROX_ACCEL }
         : (lb && lb.proxDist != null ? { dist: -lb.proxDist, accel: lb.accel || 60 } : null);
-      if (proxCfg && p.mtype < 10 && p.mhp >= 1) {
+      if (proxCfg && p.mhp >= 1 &&
+          (p.mtype < 10 || p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2)) {
         if (l.sron === 0 &&
             p.ma + p.mnobia > l.sra - proxCfg.dist && p.ma < l.sra + l.src + 500) l.sron = 1;
         if (l.sron === 1) l.srf = proxCfg.accel;
       }
 
-      if (p.mtype < 10 && p.mhp >= 1) {
+      // 旧引擎 main.cpp:2765 本处仅要求 mhp>=1（无 mtype 门槛），
+      // 故 301/302 演出期间升降台站立/随动/刺台伤害全部与正常游玩一致
+      if (p.mhp >= 1 &&
+          (p.mtype < 10 || p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2)) {
         // 站立吸附窗口：脚底在台面下方 1200 世界单位内（下落速度大时放宽 900+md）
         var win = 1200;
         if (p.md >= 100) win = 900 + p.md;
@@ -2591,6 +2679,24 @@
       return;
     }
 
+    // 制作名单（staff roll）：黑底 + 19 行白字居中自下而上滚动
+    if (state.proc === C.PROC.ENDING) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, C.CANVAS_W, C.CANVAS_H);
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px "Microsoft YaHei", "PingFang SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      var ys = state._staffY || [];
+      for (var ti = 0; ti < STAFF_TEXT.length; ti++) {
+        var yp = ys[ti] != null ? ys[ti] / 100 : -9999;
+        if (yp > -30 && yp < C.CANVAS_H + 30) {
+          ctx.fillText(STAFF_TEXT[ti], C.CANVAS_W / 2, yp);
+        }
+      }
+      return;
+    }
+
     if (state.proc !== C.PROC.GAME) return;
 
     // 背景层（原版用 16000 单位的包围盒做剔除，避免宽元素被过早剔除）
@@ -2598,7 +2704,15 @@
       xx[0] = n.na - state.fx; xx[1] = n.nb - state.fy;
       if (xx[0] + 16000 >= -10 && xx[0] <= C.FXMAX &&
           xx[1] + 16000 >= -10 && xx[1] <= C.FYMAX) {
-        if (n.ntype === -1 && n._custom) {
+        // 剑结局文本覆盖层（ntype=101「恭喜通关」/102「感谢游玩」）
+        if (n._endingText && (n.ntype === 101 || n.ntype === 102)) {
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 20px "Microsoft YaHei", "PingFang SC", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          var txt = (n.ntype === 101) ? '恭喜您通关了' : '感谢您体验我们的游戏';
+          ctx.fillText(txt, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+        } else if (n.ntype === -1 && n._custom) {
           // 自定义背景装饰
           var cu = n._custom;
           if (!_customImgCache[cu.dataUrl]) {
@@ -2726,6 +2840,15 @@
         S.draw(ctx, 4, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       } else if (b.ttype === 117 && b.txtype >= 3) {
         S.draw(ctx, 3, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === C.TTYPE.SWORD) {
+        // 剣（剑）grap[12][5] = b2_sword.png
+        S.draw(ctx, 12, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === C.TTYPE.BLADE) {
+        // 刀刃 grap[13][5] = b2_blade.png
+        S.draw(ctx, 13, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
+      } else if (b.ttype === C.TTYPE.PINEAPPLE) {
+        // 菠萝雷 grap[14][5] = b2_pineapple.png
+        S.draw(ctx, 14, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       }
     });
 
@@ -2904,6 +3027,38 @@
       if (state.maintm >= 30) {
         state.maintm = 0; state.proc = C.PROC.GAME;
         A.bgmChange(state.bgmId || 100);   // 进入游戏界面后才播放 BGM
+      }
+    }
+
+    // 剑结局演出收尾：进入制作名单（staff roll）
+    if (state.ending === 1) {
+      state.ending = 0;
+      state.proc = C.PROC.ENDING;
+      state.maintm = 0;
+      state._staffInit = false;
+    }
+
+    // スタッフロール（制作名单）：19 行文字自下而上滚动，BGM=PUYO(106)
+    if (state.proc === C.PROC.ENDING) {
+      state.maintm += C._DT;
+      if (!state._staffInit) {
+        state._staffInit = true;
+        A.bgmChange(C.BGM.PUYO);
+        // 原版 main.cpp:3795-3819：xx[12..30] 初始为各行 y 偏移（像素），
+        // 叠加 (screenH-420) 后 ×100。画布恒为 420，偏移为 0。
+        var staffBase = [460, 540, 590, 650, 700, 760, 810, 870, 920,
+                         1000, 1050, 1100, 1180, 1230, 1360, 1410, 1540, 1590, 1800];
+        state._staffY = staffBase.map(function (v) { return v * 100; });
+      }
+      // 按键快进：原版每帧 -=300
+      var step = 100 * C._DT;
+      if (key) step = 300 * C._DT;
+      for (var sj = 0; sj < state._staffY.length; sj++) state._staffY[sj] -= step;
+      // 最后一行滚出屏幕（<= -400）→ 回到标题
+      if (state._staffY[18] <= -400) {
+        state.proc = C.PROC.TITLE;
+        state.maintm = 0;
+        A.bgmStop();
       }
     }
 

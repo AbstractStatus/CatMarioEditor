@@ -591,7 +591,7 @@
       state.scrollx = 0;
     } else if (s.sxtype === 30) {
       s.sa = -80000000; p.md = 0;
-      A.bgmStop(); p.mtype = 302; p.mtm = 0; A.playSE(16);
+      A.bgmStop(); p.mtype = getC().MTYPE.ENDING2; p.mtm = 0; A.playSE(getC().SE.SWORD_CLEAR);
     }
     if (s.sxtype !== 3 && s.sxtype !== 4 && s.sxtype !== 10) {
       s.sa = -800000000;
