@@ -39,6 +39,7 @@
     life: 0,   // 死亡次数（原版 save.life），剩余生命 = 2 - life
     cheat: false,  // 作弊模式（C 键切换）：方向键悬空移动、不死亡
     speedup: false,  // 加速模式（空格按住）：物理 2x 倍速
+    randomMode: false,  // 随机模式（标题画面按 0 开关）：新游戏从关卡池随机抽起始关，参考旧引擎标题数字键选关
     sta: 1, stb: 1, stc: 0,
     _showTraps: false,   // 调试模式：显示陷阱区域
     _stagecolor: 1,      // 当前关卡色调缓存（供 PipeTypes 渲染使用）
@@ -2658,8 +2659,13 @@
       ctx.fillText('猫 里 奥', C.CANVAS_W / 2, C.CANVAS_H / 2 - 40);
       ctx.font = '16px sans-serif';
       ctx.fillText('按任意键开始', C.CANVAS_W / 2, C.CANVAS_H / 2 + 20);
+      // 0 随机模式：参考旧引擎标题画面数字键选关（1..6 预选起始关），0=随机抽起始关
+      ctx.font = '14px sans-serif';
+      ctx.fillStyle = state.randomMode ? '#ffd54a' : '#9aa4b8';
+      ctx.fillText('按 0 随机模式：' + (state.randomMode ? '开' : '关'), C.CANVAS_W / 2, C.CANVAS_H / 2 + 48);
+      ctx.fillStyle = '#fff';
       ctx.font = '12px sans-serif';
-      ctx.fillText('← → 移动   ↑/空格 跳跃   ↓ 进管道', C.CANVAS_W / 2, C.CANVAS_H / 2 + 60);
+      ctx.fillText('← → 移动   ↑/空格 跳跃   ↓ 进管道', C.CANVAS_W / 2, C.CANVAS_H / 2 + 76);
       return;
     }
 
@@ -3064,14 +3070,7 @@
 
     if (state.proc === C.PROC.TITLE) {
       state.maintm += C._DT;
-      if (key) {
-        state.life = 0;   // 新游戏，重置死亡计数
-        state.checkpoint = null;   // 新游戏，清空中间旗检查点
-        state._evFired = {};       // 新游戏，事件触发器重新待命
-        state.proc = C.PROC.STAGE_START;
-        state.maintm = 0;
-        startGame();
-      }
+      if (key) beginNewGame();
     }
 
     IN.endFrame();
@@ -3086,6 +3085,31 @@
     // BGM 延后到 STAGE_START 倒计时结束、真正进入 GAME 状态时才播放，
     // 避免死亡界面 / 剩余生命界面期间提前播放（main.cpp bgmchange 在 startGame 里，
     // 但原版 STAGE_START 显示剩余生命时 BGM 实际上等 proc 切换后才起）
+  }
+
+  // 随机起始关：向关卡提供器要一个随机坐标（宿主可实现 Lv.randomCoord）。
+  // 返回 {sta,stb,stc} 或 null（无关卡池，如仅载入单个自定义关时保持当前坐标）。
+  function randomStartStage() {
+    if (Lv && typeof Lv.randomCoord === 'function') {
+      var c = Lv.randomCoord(state.sta, state.stb, state.stc);
+      if (c && c.sta) return { sta: c.sta, stb: c.stb, stc: c.stc || 0 };
+    }
+    return null;
+  }
+
+  // 标题画面开始新游戏（按键 / Engine.startGame 按钮共用）。
+  // randomMode 开启时先抽随机起始关（仅影响起始关；通关/进管仍走原版固定世界链）。
+  function beginNewGame() {
+    if (state.randomMode) {
+      var rc = randomStartStage();
+      if (rc) { state.sta = rc.sta; state.stb = rc.stb; state.stc = rc.stc; }
+    }
+    state.life = 0;   // 新游戏，重置死亡计数
+    state.checkpoint = null;   // 新游戏，清空中间旗检查点
+    state._evFired = {};       // 新游戏，事件触发器重新待命
+    state.proc = C.PROC.STAGE_START;
+    state.maintm = 0;
+    startGame();
   }
 
   // ==================== 公开接口 ====================
@@ -3202,6 +3226,16 @@
       if (e.keyCode === 32) {                     // Space: 加速（不再跳跃）
         state.speedup = true;
         e.preventDefault();
+      }
+      // 0（主键区 48 / 小键盘 96）：标题画面开关随机模式。
+      // 参考旧引擎 TmpCatMarioEditor 标题画面数字键预选起始关（1..6），0=随机起始关。
+      // 0 未映射到 keyState，不会触发"按任意键开始"；表单控件内不拦截。
+      if ((e.keyCode === 48 || e.keyCode === 96) && !e.repeat &&
+          state.proc === C.PROC.TITLE) {
+        var tgt = e.target;
+        var tag = tgt && tgt.tagName;
+        var inControl = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tgt.isContentEditable;
+        if (!inControl) state.randomMode = !state.randomMode;
       }
     });
     window.addEventListener('keyup', function (e) {
@@ -3393,12 +3427,8 @@
   };
 
   Engine.startGame = function () {
-    state.proc = C.PROC.STAGE_START;
-    state.maintm = 0;
-    state.checkpoint = null;   // 从外部启动新游戏，清空中间旗检查点
-    state._evFired = {};       // 事件触发器重新待命
+    beginNewGame();            // 与标题按键开局同一入口（含 0 随机起始关）
     _debugFrame = 0;
-    startGame();
   };
 
   // 回到标题画面（试玩页"回到标题"按钮用）
