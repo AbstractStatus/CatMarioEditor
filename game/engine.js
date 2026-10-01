@@ -392,7 +392,8 @@
     // 顺序反了会指错方块。故先放 def.blocks，网格块收集后追加。
     def.blocks.forEach(function (b) {
       state.blocks.push({
-        ta: b.x * 100, tb: b.y * 100, ttype: b.type, txtype: b.xt || 0, thp: 0, titem: 0,
+        // ttype=116（旧引擎P开关问号块，如 1-3 的54列9行）归一为 105，渲染/行为走同一通道
+        ta: b.x * 100, tb: b.y * 100, ttype: b.type === 116 ? 105 : b.type, txtype: b.xt || 0, thp: 0, titem: 0,
         followJump: (b.followJump != null) ? !!b.followJump : (b.type === 100 && (b.xt || 0) === 0),
         // showQ：ttype=110 隐藏量产块的"可见问号块"扩展（编辑器问号块+量产），原版 110 不绘制
         showQ: !!b.showQ,
@@ -1239,8 +1240,10 @@
             e104.abrocktm = 16; if (b.uid) e104.uid = b.uid + '#item';
           }
           if (b.ttype === 105 && xx[17] === 1) {
-            // 问号块出P开关（编辑器统一问号块新增）：原地变成P开关块(400)，站上去触发
-            A.playSE(8); b.ttype = 400;
+            // 问号块出P开关（与旧引擎 ttype=116 同语义，main.cpp:2354-2361）：
+            // 自身变已用块(3)，P开关块(400)生成在上方1格，站上去触发全体方块变金币
+            A.playSE(8); b.ttype = 3;
+            state.blocks.push({ ta: b.ta, tb: b.tb - 2900, ttype: 400, txtype: 0, thp: 0, titem: 0, uid: b.uid ? b.uid + '#pswitch' : null });
           }
           if (b.ttype === 110 && xx[17] === 1) { b.ttype = 111; b.thp = 999; }
           if (b.ttype === 111 && b.ta - state.fx >= 0) {

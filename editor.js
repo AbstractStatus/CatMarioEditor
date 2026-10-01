@@ -4516,8 +4516,10 @@
     if (type === 102) return { id: 'block_question', extra: { pop: 'mushroom' } };
     if (type === 103) return { id: 'block_question', extra: { pop: 'poison' } };
     if (type === 104) return { id: 'block_question', extra: { pop: 'badstar' } };
-    // 问号块出P开关（引擎新增 ttype=105：顶出后原地变P开关块400）
+    // 问号块出P开关（引擎新增 ttype=105：顶后自身变已用块，P开关生成在上方1格，同旧引擎116语义）
     if (type === 105) return { id: 'block_question', extra: { pop: 'pswitch' } };
+    // ttype=116 旧引擎P开关问号块（1-3 的54列9行）：语义同 105，编辑器同样映射到 pop=pswitch（保存后写回为 105）
+    if (type === 116) return { id: 'block_question', extra: { pop: 'pswitch' } };
     // 隐藏量产块（110→111）：原版不绘制（隐形陷阱，如 1-1 b3 毒蘑菇量产）；
     // xt 选择量产对象 0=毒蘑菇 1=白猫怪 2=红蘑菇 3=火焰花 4=坏星
     if (type === 110) return {
