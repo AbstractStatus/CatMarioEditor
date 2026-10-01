@@ -4506,6 +4506,9 @@
     // ttype=1 普通砖块（tyobi 实体，可顶碎）；1-3 的 22列3行那块是整蛊事件移动对象，
     // 由 worldToElements 特判为 block_brick_m，不走此映射
     if (type === 1) return { id: 'block_brick' };
+    // ttype=7 隐藏块（单发金币）：与字节网格 7 语义相同（W_BYTE_ID[7]='block_hidden'），
+    // tyobi 路径在此补映射——否则 1-3 的 74列9行隐藏块会被静默 skip，编辑后保存/试玩丢失
+    if (type === 7) return { id: 'block_hidden', extra: { pop: 'coin' } };
     // ttype=100 逃跑问号砖（1-1 b0 陷阱块）：外观=问号块、顶出金币、跳跃跟随；
     // 跟随已解耦为 follow 属性（xt=2 为只顶金币不跟随的历史变体，无跟随）
     if (type === 100) return { id: 'block_question', extra: { pop: 'coin', follow: (xt || 0) !== 2 } };
