@@ -87,16 +87,5 @@
     };
   };
 
-  // 标题画面「0 随机模式」随机起始关坐标池。
-  // 本页仅内置 1-1；宿主（如 play.html）可覆盖为完整 STAGES 池。
-  var RANDOM_POOL = [{ sta: 1, stb: 1, stc: 0 }];
-  Levels.randomCoord = function (curSta, curStb, curStc) {
-    var pool = RANDOM_POOL.filter(function (c) {
-      return !(c.sta === curSta && c.stb === curStb && c.stc === (curStc || 0));
-    });
-    if (!pool.length) pool = RANDOM_POOL;
-    return pool[Math.floor(Math.random() * pool.length)];
-  };
-
   global.Levels = Levels;
 })(window);

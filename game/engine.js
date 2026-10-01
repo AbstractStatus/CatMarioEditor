@@ -39,7 +39,7 @@
     life: 0,   // 死亡次数（原版 save.life），剩余生命 = 2 - life
     cheat: false,  // 作弊模式（C 键切换）：方向键悬空移动、不死亡
     speedup: false,  // 加速模式（空格按住）：物理 2x 倍速
-    randomMode: false,  // 随机模式（标题画面按 0 开关）：新游戏从关卡池随机抽起始关，参考旧引擎标题数字键选关
+    randomMode: false,  // 随机模式（标题画面按 0 开关）：参考旧引擎 RAND_STAGE 宏，当前关卡内元素随机分布
     sta: 1, stb: 1, stc: 0,
     _showTraps: false,   // 调试模式：显示陷阱区域
     _stagecolor: 1,      // 当前关卡色调缓存（供 PipeTypes 渲染使用）
@@ -597,6 +597,9 @@
     state.nextLevel = def.nextLevel || null;
     state.hintTexts = def.hintTexts || null;
 
+    // 0 随机元素模式（参考旧引擎 main.cpp RAND_STAGE 宏）
+    if (state.randomMode) _randomizeElements();
+
     // 出生点：
     //  - 若已触碰中间旗（state.checkpoint），死亡复活时从旗子位置出生
     //  - 否则使用 def.spawn：
@@ -623,6 +626,65 @@
         state.fzx = fxp;
         _camSnap = true;   // 换关/复活镜头定位为非连续跳变，渲染吸附
       }
+    }
+  }
+
+  // ==================== 0 随机元素模式 ====================
+  // 参考旧引擎 main.cpp:1672-1697 RAND_STAGE 宏。
+  // 在 loadStage() 末尾调用，对当前关卡内的元素做随机分布。
+  // 核心差异：旧引擎遍历整个固定数组（tmax=641 砖块槽、bmax=81 触发器槽），
+  // 新引擎改为"保留原有元素 + 额外填充"，避免清空导致稀疏。
+  function _randomizeElements() {
+    var i, r;
+
+    // ── 敌人触发器（旧引擎 t 数组 → 新引擎 state.triggers）──
+    // 保留现有触发器，再额外生成新触发器填满关卡空间。
+    // 密度参考旧引擎：bmax=81 个槽位，全部重新随机化 → 81 个触发器。
+    var scrollCols = Math.max(1, Math.round(state.scrollx / 2900)); // 关卡列数（scrollx/29px）
+    var existingTrigCount = state.triggers.length;
+    var targetTrigCount = Math.max(existingTrigCount, 81); // 至少 81 个（旧引擎密度）
+    var addTrigCount = targetTrigCount - existingTrigCount;
+
+    for (i = 0; i < addTrigCount; i++) {
+      // 均匀分布在关卡范围内，避免过于集中在开头
+      var col = Math.floor((i + 0.5) / addTrigCount * scrollCols);
+      var row = Math.floor(Math.random() * 14); // 0~13 行
+      var x = col * 2900; // 世界单位（29px * 100）
+      var y = (row * 29 - 12) * 100;
+      // 类型：0~141；9~99 重抽为 0~8（旧引擎逻辑）
+      var btype = Math.floor(Math.random() * 142);
+      if (btype >= 9 && btype <= 99) btype = Math.floor(Math.random() * 8);
+      var bxtype = Math.floor(Math.random() * 4);
+      state.triggers.push({
+        ba: x, bb: y, btype: btype, bxtype: bxtype,
+        bz: 1, btm: 0, spawned: false, uid: null
+      });
+    }
+
+    // ── 砖块（旧引擎 b 数组 → 新引擎 state.blocks）──
+    // 保留现有砖块，再额外生成新砖块填满关卡空间。
+    // 密度参考旧引擎：tmax=641 个槽位，约 2/3 被重新随机化 → ~427 个砖块。
+    var existingBlkCount = state.blocks.length;
+    var targetBlkCount = Math.max(existingBlkCount, 427); // 至少 ~427 个（旧引擎密度）
+    var addBlkCount = targetBlkCount - existingBlkCount;
+
+    for (i = 0; i < addBlkCount; i++) {
+      // 均匀分布在关卡范围内
+      var col = Math.floor((i + 0.5) / addBlkCount * scrollCols);
+      var row = Math.floor(Math.random() * 15); // 0~14 行（原版 getrand(15)）
+      var x = col * 2900;
+      var y = (row * 29 - 12) * 100 - 3000; // 原版 -1200 - 3000
+      // 1/6 概率随机类型，否则保持 0（空，即 invisible）
+      var ttype = (Math.floor(Math.random() * 6) === 0) ? Math.floor(Math.random() * 9) : 0;
+      state.blocks.push({
+        ta: x, tb: y, ttype: ttype, txtype: 0, thp: 0, titem: 0, uid: null
+      });
+    }
+
+    // ── 关卡色调：25% 概率随机 ──
+    if (Math.floor(Math.random() * 4) === 0) {
+      state.stagecolor = Math.floor(Math.random() * 4);  // 0~3
+      state._stagecolor = state.stagecolor;
     }
   }
 
@@ -2659,10 +2721,10 @@
       ctx.fillText('猫 里 奥', C.CANVAS_W / 2, C.CANVAS_H / 2 - 40);
       ctx.font = '16px sans-serif';
       ctx.fillText('按任意键开始', C.CANVAS_W / 2, C.CANVAS_H / 2 + 20);
-      // 0 随机模式：参考旧引擎标题画面数字键选关（1..6 预选起始关），0=随机抽起始关
+      // 0 随机模式：参考旧引擎 RAND_STAGE 宏，当前关卡内元素随机分布
       ctx.font = '14px sans-serif';
       ctx.fillStyle = state.randomMode ? '#ffd54a' : '#9aa4b8';
-      ctx.fillText('按 0 随机模式：' + (state.randomMode ? '开' : '关'), C.CANVAS_W / 2, C.CANVAS_H / 2 + 48);
+      ctx.fillText('按 0 随机元素：' + (state.randomMode ? '开' : '关'), C.CANVAS_W / 2, C.CANVAS_H / 2 + 48);
       ctx.fillStyle = '#fff';
       ctx.font = '12px sans-serif';
       ctx.fillText('← → 移动   ↑/空格 跳跃   ↓ 进管道', C.CANVAS_W / 2, C.CANVAS_H / 2 + 76);
@@ -3087,23 +3149,8 @@
     // 但原版 STAGE_START 显示剩余生命时 BGM 实际上等 proc 切换后才起）
   }
 
-  // 随机起始关：向关卡提供器要一个随机坐标（宿主可实现 Lv.randomCoord）。
-  // 返回 {sta,stb,stc} 或 null（无关卡池，如仅载入单个自定义关时保持当前坐标）。
-  function randomStartStage() {
-    if (Lv && typeof Lv.randomCoord === 'function') {
-      var c = Lv.randomCoord(state.sta, state.stb, state.stc);
-      if (c && c.sta) return { sta: c.sta, stb: c.stb, stc: c.stc || 0 };
-    }
-    return null;
-  }
-
   // 标题画面开始新游戏（按键 / Engine.startGame 按钮共用）。
-  // randomMode 开启时先抽随机起始关（仅影响起始关；通关/进管仍走原版固定世界链）。
   function beginNewGame() {
-    if (state.randomMode) {
-      var rc = randomStartStage();
-      if (rc) { state.sta = rc.sta; state.stb = rc.stb; state.stc = rc.stc; }
-    }
     state.life = 0;   // 新游戏，重置死亡计数
     state.checkpoint = null;   // 新游戏，清空中间旗检查点
     state._evFired = {};       // 新游戏，事件触发器重新待命

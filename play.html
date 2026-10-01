@@ -983,18 +983,6 @@ body.dragging #dropTip { display: flex; }
     }
     return levelConv;
   };
-  // 标题画面「0 随机模式」：从全部原版关卡池随机抽起始关（排除当前关，避免连开同一关）。
-  // 仅载入单个自定义关（非世界链、无 STAGES 池）时返回 null，引擎保持当前坐标。
-  window.Levels.randomCoord = function (curSta, curStb, curStc) {
-    var pool = (window.STAGES || []).filter(function (s) { return s && s.sta; });
-    if (!pool.length) return null;
-    var rest = pool.filter(function (s) {
-      return !(s.sta === curSta && s.stb === curStb && (s.stc || 0) === (curStc || 0));
-    });
-    if (rest.length) pool = rest;
-    var s = pool[Math.floor(Math.random() * pool.length)];
-    return { sta: s.sta, stb: s.stb, stc: s.stc || 0 };
-  };
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
