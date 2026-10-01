@@ -1340,9 +1340,23 @@
 
           if (lb) {
             // speedUp（自定义接触事件，复刻原版接触加速）：站上往复台瞬间速度提到 900，
-            // 方向不变（仅 sracttype=5 有效）
+            // 方向不变（仅 sracttype=5 有效）。speedGroup 为非0整数时同组所有往复台一起
+            // 提速（数据驱动版 1-2-1 l2/l3 联动，替代原版 sre[10]=sre[11]=900 硬编码）；
+            // speedGroup=0（默认）仅被踩的台自身提速。
             if (lb.speedUp && l.sracttype === 5) {
-              l.sre = l.sre >= 0 ? LIFT_CONTACT_SPEED : -LIFT_CONTACT_SPEED;
+              var _spdGrp = lb.speedGroup | 0;
+              if (_spdGrp !== 0) {
+                for (var _li2 = 0; _li2 < state.lifts.length; _li2++) {
+                  var _l2 = state.lifts[_li2];
+                  if (_l2.sracttype !== 5) continue;
+                  var _lb2 = LiftTypes.resolve(_l2);
+                  if (_lb2 && (_lb2.speedGroup | 0) === _spdGrp) {
+                    _l2.sre = _l2.sre >= 0 ? LIFT_CONTACT_SPEED : -LIFT_CONTACT_SPEED;
+                  }
+                }
+              } else {
+                l.sre = l.sre >= 0 ? LIFT_CONTACT_SPEED : -LIFT_CONTACT_SPEED;
+              }
             }
             // 站碎台：breakCfg 缺省时用引擎默认（合并升降台 bhv 只给 standBreak 标记）
             if (lb.standBreak) {
@@ -1680,6 +1694,11 @@
       if (!obj.bhv) obj.bhv = {};
       if (_csub === 'speedUp') {
         if (isYes(v)) obj.bhv.speedUp = true; else delete obj.bhv.speedUp;
+      } else if (_csub === 'speedGroup') {
+        // 加速分组：非0整数=同组联动，0/负值=不联动（清掉走默认）
+        var _sg0 = v | 0;
+        if (_sg0 > 0) obj.bhv.speedGroup = Math.min(9999, _sg0);
+        else delete obj.bhv.speedGroup;
       } else if (_csub === 'standBreak') {
         if (isYes(v)) obj.bhv.standBreak = true; else delete obj.bhv.standBreak;
       } else if (_csub === 'launch') {

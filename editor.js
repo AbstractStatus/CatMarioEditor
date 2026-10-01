@@ -382,7 +382,7 @@
     function h(n) { var s = (parseInt(n) & 255).toString(16); return s.length < 2 ? '0' + s : s; }
     return '#' + h(m[1]) + h(m[2]) + h(m[3]);
   }
-  // 接触事件（稀疏对象）：speedUp/standBreak/launch/slip/dropFall + launchMc/fatigueFrames
+  // 接触事件（稀疏对象）：speedUp/speedGroup/standBreak/launch/slip/dropFall + launchMc/fatigueFrames
   function liftCev(e) { return (e && e.cev && typeof e.cev === 'object') ? e.cev : {}; }
 
   // footprint → 画布像素矩形（支持 pixel 级精确覆盖，如中间旗按 40x60 原始比例绘制）
@@ -1973,6 +1973,7 @@
       push({ field: 'prox', label: '靠近触发', kind: 'bool', tip: '玩家水平接近即加速下坠；与往复移动互斥' });
       push({ field: 'color', label: '颜色', kind: 'enum', opts: [['yellow', '黄'], ['green', '绿'], ['gray', '灰']], tip: '台面颜色' });
       push({ field: 'cev.speedUp',    label: '往复速度加快', kind: 'bool', tip: '仅往复时有效：站上瞬间提速到900' });
+      push({ field: 'cev.speedGroup', label: '加速分组', kind: 'num', min: 0, max: 9999, tip: '勾选「往复速度加快」时生效：相同非0分组值的往复台，踩任一台则同组一起提速到900；0=不联动（仅自身）' });
       push({ field: 'cev.standBreak', label: '碎裂消失',     kind: 'bool', tip: '站上即碎裂' });
       push({ field: 'cev.launch',     label: '弹飞(疲劳)',   kind: 'bool', tip: '站上被弹飞；连续站立疲劳帧后碎裂' });
       push({ field: 'cev.slip',       label: '打滑',         kind: 'bool', tip: '站上强制打滑' });
@@ -2308,7 +2309,7 @@
     var fLiftMove = null, fLiftProx = null, fLiftDir = null, fLiftColor = null;
     var fLiftColorPicker = null, fLiftColorText = null;  // 自定义颜色选择器 + rgba 显示
     var fLiftChk = null;                 // {speedUp,standBreak,launch,slip,dropFall} → checkbox
-    var fLiftLaunchMc = null, fLiftFatigue = null;
+    var fLiftLaunchMc = null, fLiftFatigue = null, fLiftSpeedGroup = null;
     var fTrapAnimAmp = null, fTrapAnimRiseMax = null;
     if (d.id === 'firebar') {
       // 火焰棒：长度（火球总数，含圆心）+ 初始角度（顺时针，0=向右）
@@ -2727,6 +2728,14 @@
       });
       propBody.appendChild(propRow('接触事件', chkBox, '可多选'));
 
+      // 加速分组（勾选「往复速度加快」时才显示）：0=不联动仅自身提速，非0=同组所有往复台一起提速
+      fLiftSpeedGroup = numInput(0, 9999, cev0.speedGroup != null ? (cev0.speedGroup | 0) : 0);
+      var fLiftSpeedGroupRow = propRow('加速分组', fLiftSpeedGroup, '勾选「往复速度加快」时生效：填相同非0整数的往复台为同一组，站上组内任一台则同组所有台一起提速到900（各自保留运动方向）；0=不联动，仅被踩的台加速');
+      propBody.appendChild(fLiftSpeedGroupRow);
+      function syncLiftSpeedGroupRow() { fLiftSpeedGroupRow.style.display = fLiftChk.speedUp.checked ? '' : 'none'; }
+      syncLiftSpeedGroupRow();
+      fLiftChk.speedUp.addEventListener('change', syncLiftSpeedGroupRow);
+
       // 弹飞参数（勾选 launch 时生效，未勾选时两行隐藏）
       fLiftLaunchMc = numInput(-9999, 0, cev0.launchMc != null ? cev0.launchMc : -2400);
       var fLiftLaunchRow = propRow('弹飞力度', fLiftLaunchMc, '勾选「弹飞」时生效（原版默认 -2400）');
@@ -2937,6 +2946,11 @@
           var nFat = parseInt(fLiftFatigue.value, 10) || 100;
           if (!isNaN(nMc) && nMc !== -2400) nCev.launchMc = nMc;
           if (nFat !== 100) nCev.fatigueFrames = nFat;
+        }
+        // 加速分组：仅勾选 speedUp 时有效；0=默认不联动，稀疏存储不落盘
+        if (nCev.speedUp) {
+          var nSg = parseInt(fLiftSpeedGroup.value, 10);
+          if (isFinite(nSg) && nSg > 0) nCev.speedGroup = Math.min(9999, nSg);
         }
         if (Object.keys(nCev).length) selected.cev = nCev;
         else delete selected.cev;
@@ -4873,7 +4887,9 @@
       if (l.srsp === 1) cev.standBreak = true;    // 易碎台：旧版降级为黄台，现接触事件完整还原
       if (l.srsp === 12) cev.slip = true;
       if (l.srsp === 2) cev.launch = true;        // 颜色与行为解耦：绿色仅外观，launch 单独配
-      if (l.srtype === 1) cev.speedUp = true;     // srtype=1：踩上往复台瞬间提速到 900（1-2-1 下行一对台）
+      // srtype=1：踩上往复台瞬间提速到 900（1-2-1 下行一对台）；原版同关所有 srtype=1
+      // 的台硬编码联动（sre[10]=sre[11]=900），导入时统一归入分组1以保留同组联动
+      if (l.srtype === 1) { cev.speedUp = true; cev.speedGroup = 1; }
       if (l.sracttype === 1) cev.dropFall = true;
       if (Object.keys(cev).length) extra.cev = cev;
       add('lift', col, row, extra, luid);

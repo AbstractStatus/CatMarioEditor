@@ -485,7 +485,12 @@ body.dragging #dropTip { display: flex; }
         };
         // 接触事件 → bhv（引擎 LiftTypes.resolve 直接消费；srsp=0 无默认行为）
         var bhv = {};
-        if (cev.speedUp) bhv.speedUp = true;
+        if (cev.speedUp) {
+          bhv.speedUp = true;
+          // 加速分组（非0整数）：同组往复台踩任一台一起提速到900；0=不联动
+          var _spdGrp = cev.speedGroup | 0;
+          if (_spdGrp > 0) bhv.speedGroup = _spdGrp;
+        }
         if (cev.standBreak) bhv.standBreak = true;
         if (cev.launch) {
           bhv.launchMc = cev.launchMc != null ? (cev.launchMc | 0) : -2400;
