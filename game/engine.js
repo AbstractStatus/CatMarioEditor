@@ -1960,7 +1960,9 @@
           // 普通馒头怪(atype=0)/龟壳馒头怪(atype=1) 原版无此行为，开启 followJump 后复用
           // 尖刺馒头怪(case 4) 的判定与力度
           if (e.atm >= 0) e.atm -= C._DT;
-          if (e.followJump && Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
+          // 距离判定需在屏幕系比较（xx[0] 已是屏幕 x；p.ma 为世界 x，须先减 fx，
+          // 否则镜头滚动后差值≈fx 恒超阈值，跟随跳永不触发——1-3 e0 即此根因）
+          if (e.followJump && Math.abs(p.ma - state.fx + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
             if (p.mzimen === 0 && e.axzimen === 1) {
               e.ad = -1600; e.atm = 40; e.ab -= 1000;
             }
@@ -1996,7 +1998,8 @@
           if (e.atm >= 0) e.atm -= C._DT;
           // 跳跃跟随（解耦属性 e.followJump）：玩家在附近起跳时敌人同步起跳。
           // 原版硬编码为 axtype===1；显式 followJump 优先，旧数据 axtype===1 自动迁移
-          if (e.followJump && Math.abs(p.ma + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
+          // 距离判定同 case 0/1：屏幕系比较，p.ma 须先减 state.fx
+          if (e.followJump && Math.abs(p.ma - state.fx + p.mnobia - xx[0] - 500) < 9000 && p.md <= -600 && e.atm <= 0) {
             if (p.mzimen === 0 && e.axzimen === 1) {
               e.ad = -1600; e.atm = 40; e.ab -= 1000;
             }
