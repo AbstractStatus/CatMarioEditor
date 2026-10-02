@@ -1837,7 +1837,7 @@
   ];
   // spawn 动作的对象表：引擎 ayobi 按 atype(对象类型)+axtype(子类型/变体) 生成，
   // 这里把目录中所有带 atype 的元素列成中文名下拉，免去手填编号
-  var SPAWN_AX0 = { enemy_block_mimic: 1, item_mushroom_purple: 1, firebar: 105 };   // 各元素的默认子类型
+  var SPAWN_AX0 = { enemy_block_mimic: 1, item_mushroom_purple: 1, firebar: 105, enemy_cloud_stealth: 1 };   // 各元素的默认子类型
   function spawnObjList() {
     var list = [];
     CAT.ELEMENTS.forEach(function (d) {
@@ -4554,8 +4554,9 @@
     if (type === 800) return { id: 'item_coin' };
     return null;
   }
-  function wEnemyId(t) {
+  function wEnemyId(t, xt) {
     if (t >= 0 && t <= 9) return W_ENEMY0[t];
+    if (t === 81 && (xt | 0) === 1) return 'enemy_cloud_stealth';   // 81+axtype1 = 隐形鬼脸云
     var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
       105: 'block_qball', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
       31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 82: 'enemy_block_mimic',
@@ -4786,7 +4787,7 @@
     });
     // 4) 敌人/道具触发器（ba/bb 世界单位）
     (def.enemies || []).forEach(function (en, ei) {
-      var eid = wEnemyId(en.btype);
+      var eid = wEnemyId(en.btype, en.bxtype);
       var euid = 'e' + ei;
       if (eid === 'firebar') {
         // 火焰棒：圆心在第0颗火球=格子中心（ba=(col*29+14.5)*100, bb=(row*29-12+14.5)*100）；

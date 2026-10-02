@@ -119,7 +119,7 @@
     CHICKEN: 31,      // 肌肉鸡
     LASER: 79,        // 激光
     CLOUD_FACE: 80,   // 脸云
-    CLOUD_PLAIN: 81,  // 普通云
+    CLOUD_PLAIN: 81,  // 鬼脸云（axtype=1 时为隐形鬼脸云）
     BLOCK_MIMIC: 82,  // 方块伪装
     SPIKE_BALL: 83,   // 刺球
     FIREBALL: 84,     // 火球
