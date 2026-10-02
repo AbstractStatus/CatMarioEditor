@@ -657,7 +657,7 @@
     enemy_king: 4, enemy_tongue_cat: 5, enemy_robot: 6, enemy_syobon_pad: 7,
     enemy_runner: 8, enemy_flame: 9, enemy_flame_h: 10,
     enemy_moralar: 30, enemy_chicken: 31,
-    enemy_laser: 79, enemy_laser5: 91, enemy_cloud_face: 80, enemy_cloud_plain: 81,
+    enemy_laser: 79, enemy_laser5: 91, enemy_cloud_face: 80,
     enemy_spike_ball: 83, enemy_fireball: 84, fake_pole: 85,
     enemy_peach_cat: 86, firebar: 87, enemy_beam: 90
   };

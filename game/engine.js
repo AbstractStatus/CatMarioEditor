@@ -2338,6 +2338,10 @@
             }
             if (e.atype === 6) e.atm = 10;
 
+            // 鬼脸云(atype=80)致死接触后现形为 81（旧引擎 main.cpp:3656-3659，mhp==0 分支）；
+            // axtype 保持：隐形鬼脸云(80+1) → 现形隐形云(81+1，绘制 grap[130][3])
+            if (e.atype === 80 && p.mhp <= 0) e.atype = 81;
+
             // 伪装方块(atype=82)致命接触瞬间「开花」（旧引擎 main.cpp:3642-3645，
             // 位于 mhp==0 分支）：82→83 露出四周白尖；本体左上移(-1000,-900)，
             // 使 83 形态在(+10,+9)叠加的 30×30 方块仍贴在原格位置。
@@ -2553,7 +2557,10 @@
     xx[0] = e.aa - state.fx; xx[1] = e.ab - state.fy;
     if (xx[0] + e.anobia < -100 || xx[0] > C.FXMAX) return;
     var m = e.amuki === 1;
-    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 91 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82 && e.atype !== 83) {
+    if (e.atype < 200 && e.atype !== 6 && e.atype !== 79 && e.atype !== 91 && e.atype !== 85 && e.atype !== 86 && e.atype !== 30 && e.atype !== 87 && e.atype !== 88 && e.atype !== 82 && e.atype !== 83 &&
+        !(e.atype === 80 && e.axtype === 1) && !(e.atype === 81 && e.axtype === 1)) {
+      // 注：80+1（隐形鬼脸云，接触前不绘制）与 81+1（stealth 精灵 grap[130][3]）
+      // 由下方专用分支处理，本通用分支必须跳过，否则会抢先用 grap[atype][3] 画出
       // 有垂直运动的敌人向下运动时垂直翻转精灵（180°镜像）
       // 白幽灵(atype=3)原版UI朝上，axtype=1天降时同样需垂直翻转180°
       var FLIP_ATYPES = { 9: true, 10: true, 80: true, 81: true, 82: true, 84: true };
@@ -2628,6 +2635,9 @@
         S.draw(ctx, 150, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
       else
         S.draw(ctx, 6, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100), m);
+    } else if (e.atype === 80 && e.axtype === 1) {
+      // 隐形鬼脸云：接触前完全不绘制（旧引擎 main.cpp:949 对 80/81+axtype1 跳过普通绘制，
+      // 且 stealth 绘制分支 973 只覆盖 81+1，故 80+1 无画面输出）
     } else if (e.atype === 81 && e.axtype === 1) {
       S.draw(ctx, 130, 3, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
     } else if (e.atype === 86) {
@@ -3413,7 +3423,7 @@
     5: '吐舌猫', 6: '机器人', 7: '弹簧白猫', 8: '奔跑怪', 9: '弹跳火焰',
     10: '横向火焰', 30: '小猫咪', 31: '肌肉鸡',
     79: '大脸怪',
-    80: '脸云怪', 81: '鬼脸云怪', 82: '伪装方块怪', 83: '刺球', 84: '火球',
+    80: '鬼脸云怪', 81: '鬼脸云怪(现形)', 82: '伪装方块怪', 83: '刺球', 84: '火球',
     85: '假旗杆', 86: '桃色方块猫', 87: '火焰棒', 90: '黄色光束',
     101: '火花', 102: '紫毒蘑菇', 105: '绿问号球', 110: '恶星'
   };

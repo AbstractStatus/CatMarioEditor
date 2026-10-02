@@ -118,8 +118,8 @@
     MORALAR: 30,      // 小猫咪
     CHICKEN: 31,      // 肌肉鸡
     LASER: 79,        // 激光
-    CLOUD_FACE: 80,   // 脸云
-    CLOUD_PLAIN: 81,  // 鬼脸云（axtype=1 时为隐形鬼脸云）
+    CLOUD_FACE: 80,   // 鬼脸云（接触前显示为脸云；axtype=1 隐形鬼脸云）
+    CLOUD_PLAIN: 81,  // 鬼脸云现形态（80 吃人后变成 81，旧引擎不直接放置）
     BLOCK_MIMIC: 82,  // 方块伪装
     SPIKE_BALL: 83,   // 刺球
     FIREBALL: 84,     // 火球

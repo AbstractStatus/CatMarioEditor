@@ -1568,6 +1568,13 @@
           dw2 = Math.round(nd.w / 29 * TILE);
           dh2 = Math.round(nd.h / 29 * TILE);
           dy2 = y + 2 * TILE - dh2;
+        } else if (d.id === 'enemy_cloud_face' || d.id === 'enemy_cloud_stealth') {
+          // 鬼脸云/隐形鬼脸云：精灵与背景脸云同为 70x40（碰撞盒 ENEMY_SIZE 7000x4000），
+          // 按 manifest 逻辑尺寸绘制，避免通用分支拉成 58x29 显得比脸云(背景)小；
+          // 左上对齐放置点（与游戏内 grap[80][3] 绘制一致，高 40 向下溢出）
+          var cd = designSize[d.img] || { w: im2.naturalWidth, h: im2.naturalHeight };
+          dw2 = Math.round(cd.w / 29 * TILE);
+          dh2 = Math.round(cd.h / 29 * TILE);
         } else if (d.id === 'bg_midflag') {
           // 中间旗：格子对齐绘制——高度取整 2 格，占放置行+下一行（顶=放置行行顶，底=下一行行底），
           // 宽度保持原版 40px 比例（左贴格线）；play.html convert 同步 sb=row*29
@@ -4556,10 +4563,10 @@
   }
   function wEnemyId(t, xt) {
     if (t >= 0 && t <= 9) return W_ENEMY0[t];
-    if (t === 81 && (xt | 0) === 1) return 'enemy_cloud_stealth';   // 81+axtype1 = 隐形鬼脸云
+    if (t === 80 && (xt | 0) === 1) return 'enemy_cloud_stealth';   // 80+axtype1 = 隐形鬼脸云
     var m = { 100: 'item_mushroom_red', 101: 'item_flower', 102: 'item_mushroom_purple',
       105: 'block_qball', 110: 'item_star', 10: 'enemy_flame_h', 30: 'enemy_moralar',
-      31: 'enemy_chicken', 80: 'enemy_cloud_face', 81: 'enemy_cloud_plain', 82: 'enemy_block_mimic',
+      31: 'enemy_chicken', 80: 'enemy_cloud_face', 82: 'enemy_block_mimic',
       83: 'enemy_spike_ball',
       84: 'enemy_fireball', 85: 'fake_pole', 86: 'enemy_peach_cat', 87: 'firebar', 88: 'firebar', 90: 'enemy_beam' };
     return m[t] || null;
