@@ -345,6 +345,15 @@ body.dragging #dropTip { display: flex; }
     firebar:              { t: 87,  xt: 5 }   // xt = 火球个数
   };
 
+  // 地面行走类敌人（与 editor.js WALK_DIR_ENEMY_IDS 同表）：支持 moveDir 移动方向。
+  // 'toward'（缺省）= 旧版行为，敌人留在字节网格/普通触发器，引擎生成时面朝玩家；
+  // 'away'= 远离玩家，字节网格无法携带属性，改走 enemies 数组并带 baway:true，
+  // 引擎生成时把「面朝玩家」推断结果翻转一次
+  var WALK_DIR_ENEMY = {
+    enemy_syobon: 1, enemy_turtle: 1, enemy_king: 1,
+    enemy_tongue_cat: 1, enemy_robot: 1, enemy_beam: 1
+  };
+
   // 合并升降台（元素 id=lift）：颜色 color、运动模式 move/prox、接触事件 cev
   var LIFT_DEFAULT_SPEED = 300;   // 往复移动默认速度绝对值（原版 1-2-1 sre=±300）
 
@@ -454,12 +463,21 @@ body.dragging #dropTip { display: flex; }
           // 字节网格 trigger 无法携带属性，改走 enemies 数组并设 followJump
           // （引擎 case 0/1/4 按此属性判定；king 原版 axtype=1 行为由 loadStage 自动迁移）
           var _ebtype = tvByte === 50 ? 0 : (tvByte === 51 ? 1 : 4);
-          enemies.push({ ba: x * 100, bb: y * 100, btype: _ebtype, bxtype: 0, followJump: true, uid: e.uid || null });
+          var _fe = { ba: x * 100, bb: y * 100, btype: _ebtype, bxtype: 0, followJump: true, uid: e.uid || null };
+          if (e.moveDir === 'away') _fe.baway = true;   // 远离玩家（可与跳跃跟随叠加）
+          enemies.push(_fe);
           used++;
         } else if (e.pole && tvByte === 56) {
           // 方块机器人"拔旗杆"变体：字节网格 trigger bxtype 恒 0，改走 enemies 数组带 bxtype:1
           // → spawnEnemy axtype=1（原版 4-2：走到终点杆左侧拔起扔出）
-          enemies.push({ ba: x * 100, bb: y * 100, btype: 6, bxtype: 1, uid: e.uid || null });
+          var _pe = { ba: x * 100, bb: y * 100, btype: 6, bxtype: 1, uid: e.uid || null };
+          if (e.moveDir === 'away') _pe.baway = true;   // 远离玩家（可与拔旗杆叠加）
+          enemies.push(_pe);
+          used++;
+        } else if (e.moveDir === 'away' && (tvByte === 50 || tvByte === 51 || tvByte === 54 || tvByte === 55 || tvByte === 56)) {
+          // 远离玩家：字节网格 trigger 无法携带 baway，改走 enemies 数组（引擎生成时翻转初始朝向）。
+          // 缺省「靠近玩家」不进此分支，保持字节网格 = 旧版行为
+          enemies.push({ ba: x * 100, bb: y * 100, btype: tvByte - 50, bxtype: 0, baway: true, uid: e.uid || null });
           used++;
         } else {
           if (put(r, c, tvByte, e.uid)) used++;
@@ -551,7 +569,10 @@ body.dragging #dropTip { display: flex; }
         } else {
           // bxtype 优先取元素保存的 xt（编辑器导入时透传的旧引擎变体值，如伪装方块怪 82 的外观），缺省用表值
           var bxt = (e.xt != null) ? e.xt : tg.xt;
-          enemies.push({ ba: x * 100, bb: y * 100, btype: tg.t, bxtype: bxt, uid: e.uid || null });
+          var _tgE = { ba: x * 100, bb: y * 100, btype: tg.t, bxtype: bxt, uid: e.uid || null };
+          // 地面行走类（该表内仅巨型馒头怪 atype=90）：远离玩家时携带 baway；缺省靠近玩家=旧版行为
+          if (WALK_DIR_ENEMY[id] && e.moveDir === 'away') _tgE.baway = true;
+          enemies.push(_tgE);
         }
       } else if (id === '_trapzone') {
         // 内部陷阱触发区双区域（stype=106 通用陷阱；105 为原版方块移位机关，不可编辑）：

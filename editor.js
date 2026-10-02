@@ -201,6 +201,7 @@
         if (e.pop) o.pop = e.pop;
         if (e.mass) o.mass = true;
         if (e.follow) o.follow = true;   // 跳跃跟随（解耦属性，block 类通用）
+        if (e.moveDir) o.moveDir = e.moveDir;   // 敌人移动方向（地面行走类；仅 away 落盘，缺省靠近玩家）
         if (e.pole) o.pole = true;   // 机器人拔旗杆变体
         if (e.ori) o.ori = e.ori;
         if (e.count != null) o.count = e.count;
@@ -1972,6 +1973,12 @@
     if (id === 'enemy_syobon' || id === 'enemy_turtle' || id === 'enemy_king') {
       push({ field: 'follow', label: '跳跃跟随', kind: 'bool', tip: '' });
     }
+    // 敌人移动方向（地面行走类敌人；缺省=靠近玩家，与旧版一致）
+    if (WALK_DIR_ENEMY_MAP[id]) {
+      push({ field: 'moveDir', label: '移动方向', kind: 'enum',
+        opts: [['toward', '靠近玩家（默认）'], ['away', '远离玩家']],
+        tip: '敌人（重新）生成时的初始方向：靠近玩家=面朝玩家（旧版行为），远离玩家=背向玩家；撞墙后仍会自动掉头' });
+    }
     // 升降台：与元素主属性面板字段一一对应（参考 editor.js 主面板 lift 分支）
     if (isLiftId(id)) {
       push({ field: 'len', label: '平台长度', kind: 'num', min: 1, max: 50, tip: '格' });
@@ -2872,6 +2879,20 @@
         : '玩家在附近起跳时，该敌人同步起跳（复用尖刺馒头怪的判定与力度）';
       propBody.appendChild(propRow('跳跃跟随', fEnemyFollow, _ekNote));
     }
+    // 敌人移动方向（地面行走类敌人）：生成时面朝玩家（默认，旧版行为）或背向玩家；
+    // 仅决定初始方向，撞墙后仍会自动掉头，离屏回溯重生时按当时玩家位置重新判定
+    var fEnemyDir = null;
+    if (WALK_DIR_ENEMY_MAP[d.id]) {
+      fEnemyDir = document.createElement('select');
+      [['toward', '靠近玩家（默认）'], ['away', '远离玩家']].forEach(function (op) {
+        var o = document.createElement('option');
+        o.value = op[0]; o.textContent = op[1];
+        fEnemyDir.appendChild(o);
+      });
+      fEnemyDir.value = selected.moveDir === 'away' ? 'away' : 'toward';
+      propBody.appendChild(propRow('移动方向', fEnemyDir,
+        '敌人出生时面朝玩家（默认，与旧版一致）或背向玩家；只决定初始方向，撞墙后仍会自动掉头'));
+    }
     // 方块机器人拔旗杆变体（原版 4-2：走到终点杆左侧将其拔起扔出，对应引擎 axtype=1）
     var fRobotPole = null;
     if (d.id === 'enemy_robot') {
@@ -3032,6 +3053,11 @@
       if (fEnemyFollow) {
         if (fEnemyFollow.value === 'yes') selected.follow = true;
         else delete selected.follow;
+      }
+      // 敌人移动方向写回（稀疏存储：靠近玩家=缺省不落盘，仅 away 落盘）
+      if (fEnemyDir) {
+        if (fEnemyDir.value === 'away') selected.moveDir = 'away';
+        else delete selected.moveDir;
       }
       // 机器人拔旗杆写回（稀疏存储）
       if (fRobotPole) {
@@ -4506,6 +4532,15 @@
   // 注：原版管道装饰砖块 v=40(pipe_top)/v=41/43/44(pipe_body) 已由 pipe_mouth/connector 自绘，不再作为独立元素导入
   var W_ENEMY0 = ['enemy_syobon', 'enemy_turtle', 'enemy_shell', 'enemy_ghost', 'enemy_king',
     'enemy_tongue_cat', 'enemy_robot', 'enemy_syobon_pad', 'enemy_runner', 'enemy_flame'];
+  // 支持「移动方向」属性的敌人：出生即在地面按 amuki 左右行走的敌人
+  // （引擎 atype：0=馒头怪 1=龟壳馒头怪 4=尖刺馒头怪 5=吐舌猫怪 6=方块机器人 90=巨型馒头怪）。
+  // 不含静止壳(2)/纵向白幽灵(3)/弹簧(7)/漂浮奔跑怪(8)/弹跳火焰(9)等——它们的初始 amuki 不产生水平移动。
+  // moveDir='toward'=靠近玩家（缺省，与旧版一致：生成时面朝玩家）；'away'=远离玩家（生成时背向玩家）。
+  // 属性稀疏存储：仅 moveDir='away' 落盘
+  var WALK_DIR_ENEMY_IDS = ['enemy_syobon', 'enemy_turtle', 'enemy_king',
+    'enemy_tongue_cat', 'enemy_robot', 'enemy_beam'];
+  var WALK_DIR_ENEMY_MAP = {};
+  WALK_DIR_ENEMY_IDS.forEach(function (id) { WALK_DIR_ENEMY_MAP[id] = 1; });
   var W_BG0 = ['bg_hill_house', 'bg_grass', 'bg_cloud_face', 'bg_tree',
     'bg_cloud_angry', 'bg_tree_round', 'bg_lava'];
   function wBlockId(type, xt) {
@@ -5250,6 +5285,8 @@
       }
       // 跳跃跟随（解耦属性：block 类通用 + 馒头怪系敌人；稀疏存储仅 true 落盘）
       if ((ed.cat === 'block' || e.id === 'enemy_syobon' || e.id === 'enemy_turtle' || e.id === 'enemy_king') && e.follow) out.follow = true;
+      // 敌人移动方向（地面行走类敌人；稀疏存储仅 away 落盘，缺省=靠近玩家）
+      if (WALK_DIR_ENEMY_MAP[e.id] && e.moveDir === 'away') out.moveDir = 'away';
       // 机器人拔旗杆（稀疏存储仅 true 落盘）
       if (e.id === 'enemy_robot' && e.pole) out.pole = true;
       if (e.id === 'platform_hang') {

@@ -543,6 +543,9 @@
       // 未携带属性时自动迁移，保持原版行为不变
       var followJump = (e.followJump != null) ? !!e.followJump : (e.btype === 4 && (e.bxtype || 0) === 1);
       var trig = { ba: e.ba, bb: e.bb, btype: e.btype, bxtype: e.bxtype || 0, bdir: e.bdir || null, bz: 1, btm: 0, spawned: false, uid: e.uid || null, followJump: followJump };
+      // baway：编辑器「移动方向=远离玩家」。生成敌人时把 spawnEnemy 按玩家位置推断的
+      // 初始 amuki 翻转一次；缺省/旧数据无此标记 = 靠近玩家 = 原版行为
+      if (e.baway) trig.baway = true;
       if (e._custom) trig._custom = e._custom;
       state.triggers.push(trig);
     });
@@ -1608,6 +1611,9 @@
             if (tr.uid) spawnedE.uid = tr.uid;   // 敌人实例继承触发器（=编辑器元素）uid
             if (tr._custom) spawnedE._custom = tr._custom;
             if (tr.followJump != null) spawnedE.followJump = !!tr.followJump;  // 跳跃跟随（解耦属性）
+            // 移动方向=远离玩家：spawnEnemy 已按「面朝玩家」设好 amuki（敌人在左→1朝右，
+            // 在右→0朝左），此处翻转一次即背向玩家。仅初始方向，撞墙转向逻辑不变；重生同样生效
+            if (tr.baway) spawnedE.amuki = spawnedE.amuki === 0 ? 1 : 0;
           }
         }
       }
@@ -1809,6 +1815,11 @@
       evBlockMass(obj, isYes(v));
     } else if (f === 'follow') {
       if ('followJump' in obj) obj.followJump = isYes(v);
+    } else if (f === 'moveDir' && 'btype' in obj && 'bz' in obj) {
+      // 敌人移动方向：away=远离玩家（触发器 baway，敌人(重新)生成时翻转初始 amuki）；
+      // toward=靠近玩家（清除标记，恢复原版面朝玩家）。已生成敌人的方向由其撞墙逻辑管理
+      if (v === 'away') obj.baway = true;
+      else delete obj.baway;
     } else if (f === 'spray') {
       obj.spray = isYes(v);                       // 仅标记，不动态创建喷射生成器
     } else if (f === 'sprayTarget') {
