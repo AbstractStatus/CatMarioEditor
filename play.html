@@ -1559,7 +1559,7 @@ body.dragging #dropTip { display: flex; }
     if (saved) {
       var obj = JSON.parse(saved);
       localStorage.removeItem('catmario-editor-playdata');
-      loadLevelObject(obj, '编辑器关卡');
+      loadLevelObject(obj, (obj.name && String(obj.name).trim()) || '编辑器关卡');
     } else {
       loadLevelObject(demoLevel(), '内置示例');
     }

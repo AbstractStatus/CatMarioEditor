@@ -47,6 +47,22 @@ html, body {
   border-color: #4a86f0;
   color: #fff;
 }
+/* 关卡名按钮：名字过长时省略号，视觉上与操作按钮区分 */
+#levelNameBtn {
+  max-width: 260px;
+  border-color: #5a6f4a;
+  color: #b9e08a;
+  font-weight: bold;
+}
+#levelNameBtn:hover { background: #35403a; }
+#levelNameBtn #levelNameText {
+  display: inline-block;
+  max-width: 215px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
 #toolbar .sep {
   width: 1px;
   height: 22px;
@@ -380,6 +396,36 @@ select option, select optgroup {
   padding: 10px 16px; font-size: 12px; color: #8890a0;
   background: #1f222a; border-top: 1px solid #3a4152;
 }
+
+/* ---------- “所有场景”弹窗：分组标题 / 副本徽标 ---------- */
+.scene-group-title {
+  padding: 10px 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8fa0c0;
+  letter-spacing: .5px;
+}
+.scene-empty {
+  padding: 8px 14px 12px;
+  font-size: 12px;
+  color: #6b7388;
+}
+.world-item.scene-item.sel {
+  background: #2c3a5a;
+  border-color: #4a6ea8;
+}
+.scene-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9px;
+  min-width: 38px;
+  text-align: center;
+}
+.scene-badge.kind-copy   { background: #3a5a2c; color: #b9e08a; }
+.scene-badge.kind-custom { background: #4a3a6a; color: #cbb8f0; }
+.scene-badge.kind-file   { background: #5a4a2c; color: #f0d09a; }
 
 /* ---------- 元素属性弹窗 ---------- */
 .prop-dialog { width: min(430px, 92vw); }

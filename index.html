@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>猫里奥关卡编辑器</title>
-<link rel="stylesheet" href="editor.css?v=hd5">
+<link rel="stylesheet" href="editor.css?v=hd7">
 <style>
 /* 加载遮罩：覆盖整个页面，等 manifest 所有图片加载完毕后淡出 */
 #bootMask {
@@ -44,7 +44,7 @@
     <button id="saveBtn" title="将当前关卡保存为 JSON 文件">💾 保存JSON</button>
     <button id="loadBtn" title="读取之前保存的 JSON 关卡（也可直接把 .json 拖进窗口）">📂 读取JSON</button>
     <input type="file" id="fileInput" accept=".json,application/json" multiple style="display:none">
-    <button id="demoBtn" title="从原版猫里奥全部关卡（世界）中选择一个载入">🌍 示例世界</button>
+    <button id="demoBtn" title="从全部场景中选择：原版关卡或修改后保存的副本">🗂 所有场景</button>
     <button id="playBtn" title="把当前关卡转换成游戏数据，在新标签页用新引擎试玩">▶ 试玩</button>
     <button id="clearBtn">🗑 清空</button>
     <span class="sep"></span>
@@ -69,6 +69,7 @@
     <button id="gridBtn" title="显示/隐藏网格">▦ 网格</button>
     <button id="eraserBtn" title="橡皮工具（也可在画布上右键擦除）">🧽 橡皮</button>
     <button id="propBtn" title="编辑选中元素的属性（位置/长度/角度/传送目标等）" style="display:none">⚙ 属性</button>
+    <button id="levelNameBtn" title="当前关卡名（点击修改）">🏷️ <span id="levelNameText">未命名关卡</span></button>
     <span class="sep" id="warpSep" style="display:none"></span>
     <label id="warpLabel" for="warpSel" style="display:none">传送目标：</label>
     <select id="warpSel" style="display:none" title="选中“传送管道口”后设置进入后前往的世界，或游戏结束"></select>
@@ -95,15 +96,15 @@
   </div>
 </div>
 
-<!-- 示例世界选择弹窗 -->
+<!-- 所有场景选择弹窗 -->
 <div id="worldModal" class="world-mask">
   <div class="world-dialog">
     <div class="world-head">
-      <span>🌍 选择要载入的世界（读取自旧引擎全部关卡）</span>
+      <span>🗂 选择要载入的场景（原版关卡 + 修改后的副本）</span>
       <button id="worldClose" title="关闭">✕</button>
     </div>
     <div id="worldList" class="world-list"></div>
-    <div class="world-foot">点击任一世界即可载入编辑器；未修改前点“试玩”将 1:1 还原原版关卡。</div>
+    <div class="world-foot">点击任一场景即可载入编辑器；原版关卡未修改前点“试玩”将 1:1 还原，一旦修改会自动存为“副本”并列在上方。</div>
   </div>
 </div>
 
@@ -137,7 +138,7 @@
 <script src="assets/sprites/manifest.js?v=shell2"></script>
 <script src="elements.js?v=shell26"></script>
 <script src="stages_data.js?v=shell14"></script>
-<script src="editor.js?v=hd37"></script>
+<script src="editor.js?v=hd40"></script>
 <script>
 /* 加载画面：预加载 manifest 中所有切片 PNG，跟踪进度，完成后淡出遮罩。
  * 加载期间屏蔽所有键盘事件（capture 阶段拦截），防止编辑器接收按键放置/删除元素。 */
