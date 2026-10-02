@@ -579,6 +579,33 @@ body.dragging #dropTip { display: flex; }
         // trap = { tw, th, dir, target, count }；sa/sb/sc/sd 由 col/row + tw/th 运行时派生
         // 兼容旧数据：无 tw/th 时由 sc/sd 派生；无 dir/target 时由 stype/sxtype 派生
         var tz = e.trap || {};
+        // 未编辑的原版陷阱(100-104)保真：编辑器导入时保存了原始 pipe 与格子参数签名，
+        // 当前 col/row + 触发区/生成区 + dir/target/count 全部与签名一致时原样输出原生记录，
+        // 避免触发区/生成区被格子取整后产生亚格偏移（1-1 p0 白幽灵生成点偏移 ±13.5px，
+        // 玩家越过 c20 管道时由原版安全变为必被撞死）。任一参数被改动即失配，走下方 stype=106。
+        var tzLegacyRaw = null;
+        if (e.legacyTrap && e.legacyTrap.sig) {
+          var tzSig = e.legacyTrap.sig;
+          if ((c | 0) === (tzSig.col | 0) && (r | 0) === (tzSig.row | 0) &&
+              (tz.tw | 0) === (tzSig.tw | 0) && (tz.th | 0) === (tzSig.th | 0) &&
+              (tz.dir || '') === (tzSig.dir || '') &&
+              (tz.target || '') === (tzSig.target || '') &&
+              Math.max(1, Math.min(12, tz.count | 0)) === (tzSig.count | 0) &&
+              (tz.gcol | 0) === (tzSig.gcol | 0) && (tz.grow | 0) === (tzSig.grow | 0) &&
+              (tz.gtw | 0) === (tzSig.gtw | 0) && (tz.gth | 0) === (tzSig.gth | 0)) {
+            tzLegacyRaw = e.legacyTrap;
+          }
+        }
+        if (tzLegacyRaw) {
+          pipes.push({
+            sa: tzLegacyRaw.sa, sb: tzLegacyRaw.sb,
+            sc: tzLegacyRaw.sc, sd: tzLegacyRaw.sd,
+            stype: tzLegacyRaw.stype, sxtype: tzLegacyRaw.sxtype | 0,
+            sgtype: 0, sr: 0,
+            uid: e.uid || null
+          });
+          used++;
+        } else {
         var tzDir = tz.dir, tzTarget = tz.target, tzLegacyCount = null;
         // 兼容旧数据：若无 dir/target 但有 stype/sxtype，按旧引擎 ayobi 行为转换
         // （dir=运动方向：up=向上冒出，down=天降；与 editor.js legacyTrapToDirTarget 同表）
@@ -637,6 +664,7 @@ body.dragging #dropTip { display: flex; }
           uid: e.uid || null
         });
         used++;
+        }
       } else if (id === 'trap_event' || id === 'block_qball') {
         // 事件触发器（数据驱动）：trap_event = w×h 格隐形 AABB；block_qball = 1×1 可见触碰球。
         // 坐标与方块/敌人一致（y 取 r*29-12 与 loadStage 网格对齐）；events 动作列表原样透传

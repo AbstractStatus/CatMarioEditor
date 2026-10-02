@@ -209,6 +209,7 @@
         if (e.delay != null) o.delay = e.delay;
         if (e.chain) o.chain = e.chain;   // 坠落砖组链式触发目标 uid
         if (e.trap) o.trap = JSON.parse(JSON.stringify(e.trap));   // 内部陷阱触发区原始参数
+        if (e.legacyTrap) o.legacyTrap = JSON.parse(JSON.stringify(e.legacyTrap));   // 未编辑原版陷阱的保真记录+签名
         if (e.bhv) o.bhv = JSON.parse(JSON.stringify(e.bhv));   // 行为属性覆盖（BlockTypes/LiftTypes）
         if (e.trapAnim) o.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));   // 陷阱管道抖动动画覆盖
         if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
@@ -4769,14 +4770,31 @@
         if (!tzLegacy) { skip++; }   // 102/7 消息、102/20 锁镜头、102/30 通关等非生成类不暴露
         else {
           var tzGen = legacyTrapGenRect(p) || {};
+          var tzTwImp = Math.max(1, Math.round(p.sc / 2900));
+          var tzThImp = Math.max(1, Math.round(p.sd / 2900));
+          // 未编辑的原版陷阱保真：保存原始 pipe 记录 + 导入时的格子参数签名。
+          // 试玩转换（play.html convert）若发现当前参数仍与签名一致，原样输出原生
+          // stype(100-104)，避免触发区/生成区被格子取整后产生亚格偏移（如 1-1 p0
+          // 白幽灵生成点偏移 ±13.5px 导致越管轨迹上玩家必死）。一旦用户改动方向/
+          // 对象/个数/任一矩形，签名失配，自动回退到通用 stype=106 双区域模型。
+          var tzSig = {
+            col: col, row: row, tw: tzTwImp, th: tzThImp,
+            dir: tzLegacy.dir, target: tzLegacy.target, count: tzLegacy.count,
+            gcol: tzGen.gcol, grow: tzGen.grow, gtw: tzGen.gtw, gth: tzGen.gth
+          };
           add('_trapzone', col, row, {
             trap: {
               dir: tzLegacy.dir, target: tzLegacy.target,
-              tw: Math.max(1, Math.round(p.sc / 2900)),
-              th: Math.max(1, Math.round(p.sd / 2900)),
+              tw: tzTwImp,
+              th: tzThImp,
               count: tzLegacy.count,
               gcol: tzGen.gcol, grow: tzGen.grow,
               gtw: tzGen.gtw, gth: tzGen.gth
+            },
+            legacyTrap: {
+              stype: p.stype, sxtype: p.sxtype || 0,
+              sa: p.sa, sb: p.sb, sc: p.sc, sd: p.sd,
+              sig: tzSig
             }
           }, puid);
         }
@@ -5351,6 +5369,17 @@
           target: tzdSer.target,
           count: tzdSer.count
         };
+      }
+      // 未编辑原版陷阱保真记录（worldToElements 导入 100-104 陷阱时写入）：
+      // 仅接受结构完整的数据；convert 端再用 sig 与当前格子参数比对决定是否原样输出
+      if (e.id === '_trapzone' && e.legacyTrap && typeof e.legacyTrap === 'object') {
+        var ltSer = e.legacyTrap;
+        if (typeof ltSer.stype === 'number' && ltSer.stype >= 100 && ltSer.stype <= 104 &&
+            typeof ltSer.sa === 'number' && typeof ltSer.sb === 'number' &&
+            typeof ltSer.sc === 'number' && typeof ltSer.sd === 'number' &&
+            ltSer.sig && typeof ltSer.sig === 'object') {
+          out.legacyTrap = JSON.parse(JSON.stringify(ltSer));
+        }
       }
       // 事件触发器：trap_event 宽高(格) + 两者共用 events 动作列表
       if (e.id === 'trap_event') {
