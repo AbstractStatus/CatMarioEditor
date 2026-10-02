@@ -143,5 +143,66 @@ check(scenarioThrow(85, 3000), '机器人举起了假旗杆(abrocktm>0)');
   check(st.particles.filter(q => q.egtype === 4).length === 0, 'axtype=0 机器人无杆粒子生成');
 })();
 
+// 场景6：两个方块机器人相遇，随机挑一个作为被扔对象，另一个做扔出动作
+// 两个机器人放在玩家右侧，A(ba=40000,baway=1→向右走)、B(ba=42000,无baway→向左走)，
+// 二者相向而行。玩家留在 spawn(ma=5600) 远离，不干扰。相遇后应有一个机器人 abrocktm>0 被举起。
+(function () {
+  const def = makeDef({
+    enemies: [
+      { ba: 40000, bb: 32000, btype: 6, bxtype: 0, baway: true },
+      { ba: 42000, bb: 32000, btype: 6, bxtype: 0 }
+    ]
+  });
+  currentDef = def;
+  boot();
+  const bots = () => st.enemies.filter(e => e.atype === 6 && e.aa > -800000);
+  let oneLifted = false;
+  let frames = Math.round(120 * C.FPS / 30);
+  for (let i = 0; i < frames; i++) {
+    E._stepFrame();
+    const bs = bots();
+    if (bs.length < 2) break;
+    // 任一机器人被举起（abrocktm>0）即视为相遇投掷触发
+    if (bs[0].abrocktm > 0 || bs[1].abrocktm > 0) { oneLifted = true; break; }
+    if (st.player.mtype === C.MTYPE.DEAD) break;
+  }
+  check(oneLifted, '两机器人相遇后其中一个被举起(abrocktm>0)');
+})();
+
+// 场景7：多次相遇验证随机分布——运行多次，统计左侧/右侧机器人被扔的次数，
+// 验证随机性（不要求严格 50/50，但不应永远是同一侧）。
+(function () {
+  let leftThrown = 0, rightThrown = 0, trials = 0;
+  const TRIES = 20;
+  for (let t = 0; t < TRIES; t++) {
+    const def = makeDef({
+      enemies: [
+        { ba: 40000, bb: 32000, btype: 6, bxtype: 0, baway: true },
+        { ba: 42000, bb: 32000, btype: 6, bxtype: 0 }
+      ]
+    });
+    currentDef = def;
+    boot();
+    let frames = Math.round(120 * C.FPS / 30);
+    let resolved = false;
+    for (let i = 0; i < frames && !resolved; i++) {
+      E._stepFrame();
+      const bs = st.enemies.filter(e => e.atype === 6 && e.aa > -800000);
+      if (bs.length < 2) break;
+      // abrocktm>0 持续多帧，比 atm=200 更可靠；被举起的一方即被扔者
+      if (bs[0].abrocktm > 0 || bs[1].abrocktm > 0) {
+        trials++;
+        if (bs[1].abrocktm > 0) rightThrown++;   // 右机器人被扔
+        else leftThrown++;
+        resolved = true;
+      }
+      if (st.player.mtype === C.MTYPE.DEAD) break;
+    }
+  }
+  check(trials > 0, '多次相遇均有扔出动作发生');
+  check(leftThrown > 0 && rightThrown > 0, '随机性：左/右机器人都有被扔的情况');
+  console.log('    分布：左被扔 ' + leftThrown + ' 次，右被扔 ' + rightThrown + ' 次');
+})();
+
 console.log('\n合计: ' + (pass + fail) + ' 通过: ' + pass + ' 失败: ' + fail);
 process.exit(fail > 0 ? 1 : 0);

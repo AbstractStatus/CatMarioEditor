@@ -2061,6 +2061,29 @@
           for (var ri = 0; ri < state.enemies.length; ri++) {
             var re = state.enemies[ri];
             if (re === e || re.aa < -800000 || re.abrocktm > 0) continue;
+            // 被举起的机器人不再扔其他敌人
+            if (e.abrocktm > 0) break;
+            // 方块机器人相遇：随机挑 1 个作为被扔对象，另一个做扔出动作
+            // 由 aa 较小的一侧处理相遇，避免双方在各自循环中重复触发
+            if (re.atype === 6) {
+              if (e.aa > re.aa) continue;
+              if (e.atm >= 10 || re.atm >= 10) continue;
+              if (e.aa + e.anobia > re.aa + 500 && e.aa < re.aa + re.anobia - 500 &&
+                  e.ab + e.anobib > re.ab - 800 &&
+                  e.ab + e.anobib < re.ab + 6300) {
+                if (Math.random() < 0.5) {
+                  // e 扔 re
+                  re.amuki = 1; re.aa = e.aa + 300; re.ab = e.ab - 3000; re.abrocktm = 120;
+                  e.atm = 200; e.amuki = 1;
+                } else {
+                  // re 扔 e
+                  e.amuki = 1; e.aa = re.aa + 300; e.ab = re.ab - 3000; e.abrocktm = 120;
+                  re.atm = 200; re.amuki = 1;
+                }
+                break;
+              }
+              continue;
+            }
             var canThrowEnemy = re.atype >= 100 ||
               re.atype === 0 || re.atype === 1 || re.atype === 4 || re.atype === 85;
             if (!canThrowEnemy) continue;
