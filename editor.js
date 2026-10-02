@@ -2791,6 +2791,67 @@
       });
       propBody.appendChild(pmTgtRow);
       propBody.appendChild(pmFreqRow);
+
+      // 陷阱管道：抖动动画参数（仅 entry=trap 时显示）
+      var pmEntryVal0 = selected.entry || d.entry || 'none';
+      var ta0 = selected.trapAnim || {};
+      var sh0 = (ta0.shakes && ta0.shakes[0]) || {};
+      fTrapAnimAmp = numInput(0, 9999, sh0.amp != null ? sh0.amp : 200);
+      var pmTrapAmpRow = propRow('抖动幅度', fTrapAnimAmp, '第一段抖动像素幅度（原版默认 200）');
+      pmTrapAmpRow.style.display = pmEntryVal0 === 'trap' ? '' : 'none';
+      propBody.appendChild(pmTrapAmpRow);
+      fTrapAnimRiseMax = numInput(0, 9999, (ta0.rise && ta0.rise.max) || 1600);
+      var pmTrapRiseRow = propRow('上升速度上限', fTrapAnimRiseMax, '管道上升阶段最大速度（原版默认 1600）');
+      pmTrapRiseRow.style.display = pmEntryVal0 === 'trap' ? '' : 'none';
+      propBody.appendChild(pmTrapRiseRow);
+
+      // 传送管道：传送目标（仅 entry=warp 时显示；选项=游戏结束 + 我的场景 + 原版关卡）
+      fWarp = document.createElement('select');
+      var pmOptEnd = document.createElement('option');
+      pmOptEnd.value = '__end__'; pmOptEnd.textContent = '🏁 游戏结束（通关）';
+      fWarp.appendChild(pmOptEnd);
+      loadSceneLib();
+      if (sceneLib.length) {
+        var pmOgMine = document.createElement('optgroup'); pmOgMine.label = '📝 我的场景';
+        sceneLib.forEach(function (r) {
+          var o = document.createElement('option');
+          o.value = 'sc:' + r.key; o.textContent = '📝 ' + r.name;
+          pmOgMine.appendChild(o);
+        });
+        fWarp.appendChild(pmOgMine);
+      }
+      var pmOgStg = document.createElement('optgroup'); pmOgStg.label = '🌍 原版关卡';
+      (window.STAGES || []).forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id; o.textContent = '🌍 ' + s.id + ' ' + s.name;
+        pmOgStg.appendChild(o);
+      });
+      fWarp.appendChild(pmOgStg);
+      var pmWv = selected.warp && !selected.warp.end ? (selected.warp.id || '__end__') : '__end__';
+      var pmWExists = false;
+      for (var wi = 0; wi < fWarp.options.length; wi++) {
+        if (fWarp.options[wi].value === pmWv) { pmWExists = true; break; }
+      }
+      if (!pmWExists) {
+        var staleOpt = document.createElement('option');
+        staleOpt.value = pmWv;
+        staleOpt.textContent = '⚠ 目标已失效：' + (pmWv.indexOf('sc:') === 0 ? pmWv.slice(3) : pmWv);
+        fWarp.appendChild(staleOpt);
+      }
+      fWarp.value = pmWv;
+      var pmWarpRow = propRow('传送目标', fWarp, '进入管道后前往：游戏结束 / 我的场景 / 原版关卡');
+      pmWarpRow.style.display = pmEntryVal0 === 'warp' ? '' : 'none';
+      propBody.appendChild(pmWarpRow);
+
+      // 进入事件切换时联动显隐陷阱字段与传送目标
+      fPmEntry.addEventListener('change', function () {
+        var v = fPmEntry.value;
+        var isTrap = v === 'trap';
+        var isWarp = v === 'warp';
+        pmTrapAmpRow.style.display = isTrap ? '' : 'none';
+        pmTrapRiseRow.style.display = isTrap ? '' : 'none';
+        pmWarpRow.style.display = isWarp ? '' : 'none';
+      });
     }
     // 陷阱触发区：方向 + 对象 + 触发区宽高 + 生成区独立位置/尺寸 + 生成个数
     var fTzDir = null, fTzTarget = null, fTzW = null, fTzH = null, fTzGCol = null, fTzGRow = null, fTzGTw = null, fTzGTh = null, fTzCount = null;
@@ -3077,15 +3138,6 @@
       fBhvDamage = numInput(1, 999, sb0.damage != null ? sb0.damage : 1);
       propBody.appendChild(propRow('伤害值', fBhvDamage, '每次触碰扣除的 HP 数（原版默认 1）'));
     }
-    // 陷阱管道：抖动动画参数覆盖（pipe_mouth entry=trap 时生效）
-    if (d.id === 'pipe_mouth' && (selected.entry || d.entry) === 'trap') {
-      var ta0 = selected.trapAnim || {};
-      var sh0 = (ta0.shakes && ta0.shakes[0]) || {};
-      fTrapAnimAmp = numInput(0, 9999, sh0.amp != null ? sh0.amp : 200);
-      propBody.appendChild(propRow('抖动幅度', fTrapAnimAmp, '第一段抖动像素幅度（原版默认 200）'));
-      fTrapAnimRiseMax = numInput(0, 9999, (ta0.rise && ta0.rise.max) || 1600);
-      propBody.appendChild(propRow('上升速度上限', fTrapAnimRiseMax, '管道上升阶段最大速度（原版默认 1600）'));
-    }
     // 敌人跳跃跟随（解耦属性）：普通馒头怪/龟壳馒头怪/尖刺馒头怪 可配置玩家起跳时同步起跳
     // （尖刺馒头怪原版硬编码为 axtype=1，现独立为 follow 属性；另两个原版无此行为）
     var fEnemyFollow = null;
@@ -3321,6 +3373,10 @@
         } else {
           // 非传送：清掉 warp 避免 play.html 误传
           delete selected.warp;
+        }
+        if (newEntry !== 'trap') {
+          // 非陷阱：清掉 trapAnim 避免冗余落盘
+          delete selected.trapAnim;
         }
       }
       if (fPmDir) selected.dir = fPmDir.value;

@@ -1483,6 +1483,18 @@ body.dragging #dropTip { display: flex; }
       GameEngine.backToTitle();
       return false;   // 宿主自行处理结局，引擎不重载
     }
+    // 编辑器“我的场景”库中的自定义关卡（id 形如 'sc:sc_xxx'）
+    if (warp.id && warp.id.indexOf('sc:') === 0) {
+      var rec = findSceneRecord(warp.id.slice(3));
+      if (rec) {
+        enterSceneRecord(rec);
+        setStatus('✈ 已传送到场景「' + rec.name + '」', 'ok');
+        return true;
+      }
+      setStatus('传送失败：找不到目标场景「' + warp.id.slice(3) + '」（可能已被删除）', 'err');
+      GameEngine.backToTitle();
+      return false;
+    }
     var stages = window.STAGES || [];
     var target = null;
     for (var i = 0; i < stages.length; i++) {
