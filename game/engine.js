@@ -1138,9 +1138,19 @@
                 if (p.md < 0) p.md = -p.md * 2 / 3;
                 // 顶方块行为：由 BlockTypes 注册表驱动（bhv 属性可覆盖默认参数）
                 var bhvButt = BlockTypes.resolve(b);
-                if (bhvButt && bhvButt.buttBreak && p.mzimen === 0) {
-                  var bc2 = bhvButt.breakCfg || {};
-                  if (bc2.sound != null && bc2.sound >= 0) A.playSE(bc2.sound);
+                // 作弊模式：无视方块类型顶到即碎；唯独隐藏块（ttype=7/114，以及无 showQ
+                // 的隐藏量产块 110）第一下走原行为（弹金币/出道具/启动量产），第二下才碎。
+                // 第一下后块会变形（→3/115/111/113），用块实例标志跨类型记住"已顶过一次"。
+                var cheatHiddenFirst = false;
+                if (state.cheat) {
+                  var isHiddenNow = b.ttype === 7 || b.ttype === 114 || (b.ttype === 110 && !b.showQ);
+                  if (isHiddenNow && !b._cheatBumpOnce) { cheatHiddenFirst = true; b._cheatBumpOnce = 1; }
+                }
+                var cheatWillBreak = state.cheat && !cheatHiddenFirst;
+                if ((cheatWillBreak || (!state.cheat && bhvButt && bhvButt.buttBreak)) && p.mzimen === 0) {
+                  var bc2 = (bhvButt && bhvButt.breakCfg) || {};
+                  // 作弊顶碎无 breakCfg 的方块时缺省播放碎砖音效（SE 3）
+                  A.playSE(bc2.sound != null ? bc2.sound : 3);
                   var parts2 = bc2.parts != null ? bc2.parts : 2;
                   var vx2 = bc2.vx != null ? bc2.vx : 300;
                   var vy2 = bc2.vy != null ? bc2.vy : -1000;
@@ -1157,14 +1167,17 @@
                     spawnParticle(b.ta + 1200, b.tb + 1200, -vx2 * 0.8, vy2 * 0.7, 0, grav2, bw2, bh2, 1, bl2);
                   }
                   b.ta = -800000;
+                  // 作弊顶碎后屏蔽本块后续顶击触发（金币/道具/隐藏块/提示块等原行为不再执行）
+                  if (cheatWillBreak) xx[17] = 0;
                 }
-                if (bhvButt && bhvButt.buttCoin && (!bhvButt.coinNoStand || p.mzimen === 0)) {
+                // 隐藏块作弊第一下：保留金币弹出等原顶击行为（xx[17]=1 仍驱动 ttype=110/114 专项处理）
+                if ((!state.cheat || cheatHiddenFirst) && bhvButt && bhvButt.buttCoin && (!bhvButt.coinNoStand || p.mzimen === 0)) {
                   var cc = bhvButt.coinCfg || {};
                   if (cc.sound != null && cc.sound >= 0) A.playSE(cc.sound);
                   spawnParticle(b.ta + 10, b.tb, cc.vx != null ? cc.vx : 0, cc.vy != null ? cc.vy : -800, 0, cc.grav != null ? cc.grav : 40, cc.w != null ? cc.w : 3000, cc.h != null ? cc.h : 3000, 0, cc.life != null ? cc.life : 16);
                   b.ttype = bhvButt.usedType != null ? bhvButt.usedType : 3;
                 }
-                if (bhvButt && bhvButt.damage > 0) {
+                if (!state.cheat && bhvButt && bhvButt.damage > 0) {
                   // 原版 main.cpp:2170 顶到尖刺块(ttype10)：「被刺死了!!」
                   sayPlayer(bhvButt.msgType != null ? bhvButt.msgType : 3,
                             bhvButt.msgTm != null ? bhvButt.msgTm : 30);
