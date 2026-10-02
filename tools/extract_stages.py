@@ -247,6 +247,32 @@ def parse_lifts(body):
     return lifts
 
 
+# 通关后的默认下一关（依据旧引擎 main.cpp）：
+#   普通终点(byte99→stype300) → stb++；1-4 终点旗杆 stype102/sxtype30 → sta++ → 2-1
+#   （1-4 的剑 ttype140 → mtype301 是假结局陷阱，不是正路）
+#   子关链由管道 stc++ 推进：1-2→1-2-1→1-2-2、2-2→2-2-1→2-2-2、2-4→2-4-1→2-4-2
+#   1-3-1 地下房直接 stc=0、1-3-5 空中区 stc++→6 后归一为 0，均回到 1-3
+#   2-4-2 取剑 → mtype301 → 全通关结局，无下一关（next=None → 编辑器默认游戏结束）
+NEXT_STAGE = {
+    "1-1": "1-2",
+    "1-2": "1-2-1",
+    "1-2-1": "1-2-2",
+    "1-2-2": "1-3",
+    "1-3": "1-4",
+    "1-3-1": "1-3",
+    "1-3-5": "1-3",
+    "1-4": "2-1",
+    "2-1": "2-2",
+    "2-2": "2-2-1",
+    "2-2-1": "2-2-2",
+    "2-2-2": "2-3",
+    "2-3": "2-4",
+    "2-4": "2-4-1",
+    "2-4-1": "2-4-2",
+    # "2-4-2": 无（全部通关结局）
+}
+
+
 def stage_name(sta, stb, stc, stagecolor):
     theme = {1: "地上", 2: "地下", 3: "空中", 4: "城堡"}.get(stagecolor, "")
     base = "%d-%d" % (sta, stb)
@@ -319,6 +345,7 @@ def main():
         stages.append({
             "id": sid,
             "name": stage_name(sta, stb, stc, stagecolor),
+            "next": NEXT_STAGE.get(sid),
             "sta": sta, "stb": stb, "stc": stc,
             "stagecolor": stagecolor, "bgm": bgm, "scrollx": scrollx,
             "grid": grid,
@@ -336,7 +363,7 @@ def main():
 
     with open(OUT, "w", encoding="utf-8") as f:
         f.write("// 由 tools/extract_stages.py 自动生成：原版猫里奥全部关卡数据（新引擎 def 结构）\n")
-        f.write("// 每关：{id,name,sta,stb,stc,stagecolor,bgm,scrollx,grid[17][1001],blocks,pipes,enemies,lifts,spawn}\n")
+        f.write("// 每关：{id,name,next,sta,stb,stc,stagecolor,bgm,scrollx,grid[17][1001],blocks,pipes,enemies,lifts,spawn}\n")
         f.write("window.STAGES = ")
         f.write(json.dumps(stages, ensure_ascii=False, separators=(",", ":")))
         f.write(";\n")

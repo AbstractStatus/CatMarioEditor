@@ -265,7 +265,7 @@ body.dragging #dropTip { display: flex; }
 <script src="levels.js?v=custom3"></script>
 <script src="engine.js?v=hd58"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
-<script src="../stages_data.js?v=shell14"></script>
+<script src="../stages_data.js?v=shell15"></script>
 <script>
 (function () {
   'use strict';
@@ -1004,6 +1004,33 @@ body.dragging #dropTip { display: flex; }
     }
     return null;
   }
+  // 编辑器“我的场景”库（localStorage，与 editor.js 的 SCENES_KEY 同源）
+  var SCENES_KEY = 'catmario-editor-scenes';
+  function findSceneRecord(key) {
+    try {
+      var raw = localStorage.getItem(SCENES_KEY);
+      var arr = raw ? JSON.parse(raw) : null;
+      if (!Array.isArray(arr)) return null;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].key === key && arr[i].data) return arr[i];
+      }
+    } catch (e) { /* 场景库不可读时按未找到处理 */ }
+    return null;
+  }
+  // 载入场景库中的自定义关卡（编辑器 JSON → 新引擎 def）
+  function enterSceneRecord(rec) {
+    rec.data.name = rec.name;
+    var conv = convert(rec.data);
+    setCurrentStage(conv, false);
+    if (window.AudioSys) {
+      var bgmMap = {}, sfxMap = {};
+      (rec.data.customBgm || []).forEach(function (b) { bgmMap[b.id] = b.dataUrl; });
+      (rec.data.customSfx || []).forEach(function (s) { sfxMap[s.id] = s.dataUrl; });
+      AudioSys.setCustomBgm(bgmMap);
+      AudioSys.setCustomSfx(sfxMap);
+    }
+    return conv;
+  }
   // 切换到指定世界（传送管道/显式下一关）
   function enterStage(target) {
     setCurrentStage(target, !!(target && target.sta));
@@ -1250,6 +1277,13 @@ body.dragging #dropTip { display: flex; }
       });
       if (_qballEvs.length) conv.eventTriggers = (conv.eventTriggers || []).concat(_qballEvs);
     }
+    // 6) 通关后去向：原版 def 携带 next（stages_data.js，依据旧引擎的默认下一关），
+    //    无 next（如 2-4-2 全通关结局）默认游戏结束。坐标链解析到的关卡同样生效。
+    if (!conv.nextLevel) {
+      conv.nextLevel = conv.next
+        ? { end: false, id: conv.next }
+        : { end: true, id: null };
+    }
     conv._injected = true;
     return conv;
   }
@@ -1473,18 +1507,27 @@ body.dragging #dropTip { display: flex; }
     }
     if (!nextLevel.id) {
       // {end:false, id:null} = 默认进入下一关：引擎 stb++ 后由 Levels.get 按坐标解析
-      // （原版世界链命中下一大关；自定义关坐标不命中，回退重载自身）
+      // （旧档兼容；编辑器已改为每个关卡显式配置下一关或游戏结束）
       return true;
     }
     var target = findStageById(nextLevel.id);
-    if (!target) {
-      setStatus('找不到下一关世界「' + nextLevel.id + '」', 'err');
-      GameEngine.backToTitle();
-      return false;
+    if (target) {
+      enterStage(target);
+      setStatus('✈ 进入世界 ' + target.id + '（' + target.name + '）', 'ok');
+      return true;
     }
-    enterStage(target);
-    setStatus('✈ 进入世界 ' + target.id + '（' + target.name + '）', 'ok');
-    return true;
+    // 编辑器“我的场景”库中的自定义关卡（id 形如 'sc:sc_xxx'）
+    if (nextLevel.id.indexOf('sc:') === 0) {
+      var rec = findSceneRecord(nextLevel.id.slice(3));
+      if (rec) {
+        enterSceneRecord(rec);
+        setStatus('✈ 进入场景「' + rec.name + '」', 'ok');
+        return true;
+      }
+    }
+    setStatus('找不到下一关「' + nextLevel.id + '」（可能已被删除）', 'err');
+    GameEngine.backToTitle();
+    return false;
   });
 
   // 首次用户交互解锁音频（与 game/index.html 一致）

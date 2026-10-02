@@ -55,7 +55,7 @@
     cols: 120,
     theme: 'overworld',
     bgm: 100,         // 本关 BGM ID（关卡级设置，不放画布；100/103/104/105/106 或自定义 200+）
-    nextLevel: { end: false, id: null },  // 通关后去向：{end:false,id:null}=下一关，{end:true}=游戏结束，{id:'1-3'}=指定世界
+    nextLevel: { end: true, id: null },  // 通关后去向：{end:true}=游戏结束，{id:'1-3'}=指定世界（可为原版id或'sc:'+场景库key）；载入原版关卡时按 next 自动配置
     hintTexts: {},    // 提示块自定义文本 {txtype: ["line1","line2",...]}
     customBgm: [],    // 自定义 BGM 列表 [{id, name, dataUrl}]
     customSfx: [],    // 自定义音效列表 [{id, name, dataUrl}]
@@ -192,7 +192,7 @@
       cols: state.cols,
       theme: state.theme,
       bgm: state.bgm,
-      nextLevel: state.nextLevel ? { end: !!state.nextLevel.end, id: state.nextLevel.id || null } : { end: false, id: null },
+      nextLevel: state.nextLevel ? { end: !!state.nextLevel.end, id: state.nextLevel.id || null } : { end: true, id: null },
       hintTexts: state.hintTexts ? JSON.parse(JSON.stringify(state.hintTexts)) : {},
       customBgm: state.customBgm ? JSON.parse(JSON.stringify(state.customBgm)) : [],
       customSfx: state.customSfx ? JSON.parse(JSON.stringify(state.customSfx)) : [],
@@ -250,7 +250,7 @@
     state.cols = prev.cols;
     state.theme = prev.theme;
     state.bgm = prev.bgm || 100;
-    state.nextLevel = prev.nextLevel || { end: false, id: null };
+    state.nextLevel = prev.nextLevel || { end: true, id: null };
     state.hintTexts = prev.hintTexts || {};
     state.customBgm = prev.customBgm || [];
     state.customSfx = prev.customSfx || [];
@@ -1956,35 +1956,68 @@
   });
 
   // ---------- 下一关配置 ----------
+  // 选项与“🗂 所有场景”弹窗一致：🏁 游戏结束 + 📝 我的场景（场景库）+ 🌍 原版关卡（STAGES）。
+  // 原版关卡的默认去向来自 stages_data.js 的 next 字段（载入时写入 state.nextLevel）。
   var nextLevelSel = document.getElementById('nextLevelSel');
-  var _nextLevelBuilt = false;
+  var _nextSig = null;
+  function nextOptionsSig() {
+    loadSceneLib();
+    return 'sc:' + sceneLib.map(function (r) { return r.key + '@' + r.savedAt; }).join('|') +
+      '#st:' + (window.STAGES || []).map(function (s) { return s.id; }).join('|');
+  }
+  function addOpt(value, text) {
+    var o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    nextLevelSel.appendChild(o);
+    return o;
+  }
+  function addGroup(label) {
+    var g = document.createElement('optgroup');
+    g.label = label;
+    nextLevelSel.appendChild(g);
+    return g;
+  }
   function buildNextLevelSel() {
-    if (_nextLevelBuilt) return;
-    _nextLevelBuilt = true;
-    var html = '<option value="__next__">▶ 进入下一关（默认）</option>';
-    html += '<option value="__end__">🏁 游戏结束</option>';
-    (window.STAGES || []).forEach(function (s) {
-      html += '<option value="' + s.id + '">🌍 ' + s.name + '</option>';
-    });
-    nextLevelSel.innerHTML = html;
+    var sig = nextOptionsSig();
+    if (_nextSig === sig) return;   // 场景库无变化时不重建（本函数随渲染帧轮询）
+    _nextSig = sig;
+    nextLevelSel.innerHTML = '';
+    addOpt('__end__', '🏁 游戏结束');
+    if (sceneLib.length) {
+      addGroup('📝 我的场景');
+      sceneLib.forEach(function (r) { addOpt('sc:' + r.key, '📝 ' + r.name); });
+    }
+    addGroup('🌍 原版关卡');
+    (window.STAGES || []).forEach(function (s) { addOpt(s.id, '🌍 ' + s.name); });
+  }
+  function findNextOptionLabel(val) {
+    for (var i = 0; i < nextLevelSel.options.length; i++) {
+      if (nextLevelSel.options[i].value === val) return nextLevelSel.options[i].textContent;
+    }
+    return null;
   }
   function updateNextLevelSel() {
     if (!nextLevelSel) return;
     buildNextLevelSel();
-    var nl = state.nextLevel || { end: false, id: null };
-    var val = nl.end ? '__end__' : (nl.id || '__next__');
+    var nl = state.nextLevel || { end: true, id: null };
+    var val = nl.end || !nl.id ? '__end__' : nl.id;
     var exists = false;
     for (var i = 0; i < nextLevelSel.options.length; i++) if (nextLevelSel.options[i].value === val) { exists = true; break; }
-    nextLevelSel.value = exists ? val : '__next__';
+    if (!exists) {
+      // 目标已不在场景库/原版列表（如场景被删）：补一条失效项，让当前配置仍可见，便于改选
+      var stale = addOpt(val, '⚠ 目标已失效：' + (val.indexOf('sc:') === 0 ? val.slice(3) : val));
+      stale.dataset.stale = '1';
+    }
+    if (nextLevelSel.value !== val) nextLevelSel.value = val;
   }
   nextLevelSel.addEventListener('change', function () {
-    pushHistory();
     var v = nextLevelSel.value;
-    state.nextLevel = (v === '__end__') ? { end: true, id: null }
-      : (v === '__next__') ? { end: false, id: null }
-      : { end: false, id: v };
+    pushHistory();
+    state.nextLevel = (v === '__end__') ? { end: true, id: null } : { end: false, id: v };
     persist();
-    hintEl.textContent = '通关后去向已设为：' + (v === '__end__' ? '游戏结束' : v === '__next__' ? '进入下一关' : '世界 ' + v);
+    var label = findNextOptionLabel(v) || v;
+    hintEl.textContent = '通关后去向已设为：' + (v === '__end__' ? '🏁 游戏结束' : label);
   });
 
   // ---------- 元素属性弹窗 ----------
@@ -5205,6 +5238,10 @@
       }
     });
     state._worldDef = stage;   // 未编辑前试玩 1:1 还原原版
+    // 通关后默认去向：按 stages_data.js 的 next（旧引擎链路）；无 next（2-4-2）则游戏结束
+    state.nextLevel = stage.next
+      ? { end: false, id: stage.next }
+      : { end: true, id: null };
     state.name = stage.name || DEFAULT_LEVEL_NAME;
     state._exampleOrigName = state.name;   // 首次编辑时自动改为「xxx的副本」
     state._sceneKey = null;
@@ -5273,6 +5310,7 @@
         if (confirm('确定删除场景「' + r.name + '」？\n（仅删除浏览器中的自动保存，不影响已用“保存JSON”导出的文件）')) {
           deleteScene(r.key);
           buildSceneList();
+          updateNextLevelSel();   // 场景库变化：刷新“通关后”下拉分组
           hintEl.textContent = '已删除场景「' + r.name + '」';
         }
       });
@@ -5300,8 +5338,8 @@
     buildSceneList();
     worldModal.classList.add('show');
   });
-  document.getElementById('worldClose').addEventListener('click', function () { worldModal.classList.remove('show'); });
-  worldModal.addEventListener('click', function (ev) { if (ev.target === worldModal) worldModal.classList.remove('show'); });
+  document.getElementById('worldClose').addEventListener('click', function () { worldModal.classList.remove('show'); updateNextLevelSel(); });
+  worldModal.addEventListener('click', function (ev) { if (ev.target === worldModal) { worldModal.classList.remove('show'); updateNextLevelSel(); } });
 
   // 试玩：把当前关卡交给 play.html（新引擎 game/engine.js，JSON 直接转关卡定义）
   document.getElementById('playBtn').addEventListener('click', function () {
@@ -5675,7 +5713,10 @@
     var isCustom = state.customBgm.some(function (b) { return b.id === bgmId; });
     if (isOrig || isCustom) state.bgm = bgmId;
     else if (bgmFromEl != null) state.bgm = bgmFromEl;
-    state.nextLevel = data.nextLevel || { end: false, id: null };
+    // 通关后去向：仅认显式目标 id；旧档的 {end:false,id:null}（“进入下一关”）已移除，归一为游戏结束
+    state.nextLevel = (data.nextLevel && !data.nextLevel.end && data.nextLevel.id)
+      ? { end: false, id: String(data.nextLevel.id) }
+      : { end: true, id: null };
     state.hintTexts = data.hintTexts || {};
     state.name = (typeof data.name === 'string' && data.name.trim()) ? data.name.trim() : DEFAULT_LEVEL_NAME;
     state._exampleOrigName = null;   // 外部载入默认非示例；loadWorld/loadDemo 在其后显式设置
@@ -5748,6 +5789,7 @@
   function loadDemo() {
     var E = [{"id":"block_ground_top","col":0,"row":13},{"id":"block_ground_fill","col":0,"row":14},{"id":"bg_hill_house","col":1,"row":10},{"id":"block_ground_top","col":1,"row":13},{"id":"block_ground_fill","col":1,"row":14},{"id":"block_ground_top","col":2,"row":13},{"id":"block_ground_fill","col":2,"row":14},{"id":"block_ground_top","col":3,"row":13},{"id":"block_ground_fill","col":3,"row":14},{"id":"block_ground_top","col":4,"row":13},{"id":"block_ground_fill","col":4,"row":14},{"id":"block_ground_top","col":5,"row":13},{"id":"block_ground_fill","col":5,"row":14},{"id":"bg_cloud_face","col":6,"row":3},{"id":"block_ground_top","col":6,"row":13},{"id":"block_ground_fill","col":6,"row":14},{"id":"block_ground_top","col":7,"row":13},{"id":"block_ground_fill","col":7,"row":14},{"id":"block_ground_top","col":8,"row":13},{"id":"block_ground_fill","col":8,"row":14},{"id":"block_ground_top","col":9,"row":13},{"id":"block_ground_fill","col":9,"row":14},{"id":"enemy_syobon","col":10,"row":12},{"id":"block_ground_top","col":10,"row":13},{"id":"block_ground_fill","col":10,"row":14},{"id":"block_ground_top","col":11,"row":13},{"id":"block_ground_fill","col":11,"row":14},{"id":"block_brick","col":12,"row":9},{"id":"block_ground_top","col":12,"row":13},{"id":"block_ground_fill","col":12,"row":14},{"id":"block_hidden","col":13,"row":10},{"id":"block_ground_top","col":13,"row":13},{"id":"block_ground_fill","col":13,"row":14},{"id":"block_brick","col":14,"row":9},{"id":"block_ground_top","col":14,"row":13},{"id":"block_ground_fill","col":14,"row":14},{"id":"block_question","col":15,"row":9},{"id":"block_ground_top","col":15,"row":13},{"id":"block_ground_fill","col":15,"row":14},{"id":"block_brick","col":16,"row":9},{"id":"enemy_syobon","col":16,"row":12},{"id":"block_ground_top","col":16,"row":13},{"id":"block_ground_fill","col":16,"row":14},{"id":"block_ground_top","col":17,"row":13},{"id":"block_ground_fill","col":17,"row":14},{"id":"block_ground_top","col":18,"row":13},{"id":"block_ground_fill","col":18,"row":14},{"id":"bg_grass","col":19,"row":12},{"id":"block_ground_top","col":19,"row":13},{"id":"block_ground_fill","col":19,"row":14},{"id":"pipe_mouth","col":20,"row":10,"length":2,"dir":"up","entry":"none"},{"id":"pipe_mouth","col":29,"row":9,"length":3,"dir":"up","entry":"trap"},{"id":"block_ground_top","col":20,"row":13},{"id":"block_ground_fill","col":20,"row":14},{"id":"block_ground_top","col":21,"row":13},{"id":"block_ground_fill","col":21,"row":14},{"id":"bg_cloud_face","col":22,"row":2},{"id":"block_ground_top","col":22,"row":13},{"id":"block_ground_fill","col":22,"row":14},{"id":"block_ground_top","col":23,"row":13},{"id":"block_ground_fill","col":23,"row":14},{"id":"block_ground_top","col":24,"row":13},{"id":"block_ground_fill","col":24,"row":14},{"id":"block_ground_top","col":25,"row":13},{"id":"block_ground_fill","col":25,"row":14},{"id":"bg_grass","col":26,"row":12},{"id":"block_ground_top","col":26,"row":13},{"id":"block_ground_fill","col":26,"row":14},{"id":"block_ground_top","col":27,"row":13},{"id":"block_ground_fill","col":27,"row":14},{"id":"block_ground_top","col":28,"row":13},{"id":"block_ground_fill","col":28,"row":14},{"id":"block_ground_top","col":29,"row":13},{"id":"block_ground_fill","col":29,"row":14},{"id":"block_ground_top","col":30,"row":13},{"id":"block_ground_fill","col":30,"row":14},{"id":"block_ground_top","col":31,"row":13},{"id":"block_ground_fill","col":31,"row":14},{"id":"block_ground_top","col":32,"row":13},{"id":"block_ground_fill","col":32,"row":14},{"id":"bg_hill_house","col":33,"row":10},{"id":"block_ground_top","col":33,"row":13},{"id":"block_ground_fill","col":33,"row":14},{"id":"block_ground_top","col":34,"row":13},{"id":"block_ground_fill","col":34,"row":14},{"id":"block_ground_top","col":35,"row":13},{"id":"block_ground_fill","col":35,"row":14},{"id":"block_ground_top","col":36,"row":13},{"id":"block_ground_fill","col":36,"row":14},{"id":"block_ground_top","col":37,"row":13},{"id":"block_ground_fill","col":37,"row":14},{"id":"block_ground_top","col":38,"row":13},{"id":"block_ground_fill","col":38,"row":14},{"id":"block_ground_top","col":39,"row":13},{"id":"block_ground_fill","col":39,"row":14},{"id":"block_hidden","col":40,"row":9},{"id":"block_ground_top","col":43,"row":13},{"id":"block_ground_fill","col":43,"row":14},{"id":"block_ground_top","col":44,"row":13},{"id":"block_ground_fill","col":44,"row":14},{"id":"block_ground_top","col":45,"row":13},{"id":"block_ground_fill","col":45,"row":14},{"id":"block_brick","col":46,"row":9},{"id":"bg_grass","col":46,"row":12},{"id":"block_ground_top","col":46,"row":13},{"id":"block_ground_fill","col":46,"row":14},{"id":"block_ground_top","col":47,"row":13},{"id":"block_ground_fill","col":47,"row":14},{"id":"enemy_syobon","col":48,"row":7},{"id":"block_brick","col":48,"row":9},{"id":"block_ground_top","col":48,"row":13},{"id":"block_ground_fill","col":48,"row":14},{"id":"block_ground_top","col":49,"row":13},{"id":"block_ground_fill","col":49,"row":14},{"id":"block_ground_top","col":50,"row":13},{"id":"block_ground_fill","col":50,"row":14},{"id":"block_ground_top","col":51,"row":13},{"id":"block_ground_fill","col":51,"row":14},{"id":"enemy_syobon","col":52,"row":3},{"id":"block_brick","col":52,"row":5},{"id":"block_ground_top","col":52,"row":13},{"id":"block_ground_fill","col":52,"row":14},{"id":"block_brick","col":53,"row":5},{"id":"block_ground_top","col":53,"row":13},{"id":"block_ground_fill","col":53,"row":14},{"id":"block_brick","col":57,"row":5},{"id":"block_ground_top","col":57,"row":13},{"id":"block_ground_fill","col":57,"row":14},{"id":"block_brick","col":58,"row":5},{"id":"block_ground_top","col":58,"row":13},{"id":"block_ground_fill","col":58,"row":14},{"id":"block_brick","col":59,"row":5},{"id":"block_ground_top","col":59,"row":13},{"id":"block_ground_fill","col":59,"row":14},{"id":"block_ground_top","col":60,"row":13},{"id":"block_ground_fill","col":60,"row":14},{"id":"enemy_syobon","col":61,"row":12},{"id":"block_ground_top","col":61,"row":13},{"id":"block_ground_fill","col":61,"row":14},{"id":"block_ground_top","col":62,"row":13},{"id":"block_ground_fill","col":62,"row":14},{"id":"enemy_syobon","col":63,"row":12},{"id":"block_ground_top","col":63,"row":13},{"id":"block_ground_fill","col":63,"row":14},{"id":"bg_cloud_face","col":64,"row":1},{"id":"block_ground_top","col":64,"row":13},{"id":"block_ground_fill","col":64,"row":14},{"id":"block_ground_top","col":65,"row":13},{"id":"block_ground_fill","col":65,"row":14},{"id":"bg_midflag","col":66,"row":7},{"id":"block_brick","col":66,"row":9},{"id":"enemy_turtle","col":66,"row":12},{"id":"block_ground_top","col":66,"row":13},{"id":"block_ground_fill","col":66,"row":14},{"id":"block_ground_top","col":67,"row":13},{"id":"block_ground_fill","col":67,"row":14},{"id":"block_ground_top","col":68,"row":13},{"id":"block_ground_fill","col":68,"row":14},{"id":"block_ground_top","col":69,"row":13},{"id":"block_ground_fill","col":69,"row":14},{"id":"block_ground_top","col":70,"row":13},{"id":"block_ground_fill","col":70,"row":14},{"id":"block_question","col":71,"row":9},{"id":"block_ground_top","col":71,"row":13},{"id":"block_ground_fill","col":71,"row":14},{"id":"block_question","col":74,"row":5},{"id":"block_question","col":74,"row":9},{"id":"block_question","col":77,"row":9},{"id":"block_ground_top","col":77,"row":13},{"id":"block_ground_fill","col":77,"row":14},{"id":"bg_grass","col":78,"row":12},{"id":"block_ground_top","col":78,"row":13},{"id":"block_ground_fill","col":78,"row":14},{"id":"block_ground_top","col":79,"row":13},{"id":"block_ground_fill","col":79,"row":14},{"id":"block_ground_top","col":80,"row":13},{"id":"block_ground_fill","col":80,"row":14},{"id":"block_ground_top","col":81,"row":13},{"id":"block_ground_fill","col":81,"row":14},{"id":"block_stair","col":82,"row":12},{"id":"block_ground_top","col":82,"row":13},{"id":"block_ground_fill","col":82,"row":14},{"id":"block_stair","col":83,"row":11},{"id":"block_stair","col":83,"row":12},{"id":"block_ground_top","col":83,"row":13},{"id":"block_ground_fill","col":83,"row":14},{"id":"block_stair","col":84,"row":10},{"id":"block_stair","col":84,"row":11},{"id":"block_stair","col":84,"row":12},{"id":"block_ground_top","col":84,"row":13},{"id":"block_ground_fill","col":84,"row":14},{"id":"block_stair","col":88,"row":10},{"id":"block_stair","col":88,"row":11},{"id":"block_stair","col":88,"row":12},{"id":"block_ground_top","col":88,"row":13},{"id":"block_ground_fill","col":88,"row":14},{"id":"block_hidden","col":89,"row":6},{"id":"block_stair","col":89,"row":11},{"id":"block_stair","col":89,"row":12},{"id":"block_ground_top","col":89,"row":13},{"id":"block_ground_fill","col":89,"row":14},{"id":"block_hidden","col":90,"row":10},{"id":"block_ground_top","col":90,"row":13},{"id":"block_ground_fill","col":90,"row":14},{"id":"block_hidden","col":91,"row":10},{"id":"block_ground_top","col":91,"row":13},{"id":"block_ground_fill","col":91,"row":14},{"id":"block_hidden","col":92,"row":10},{"id":"block_ground_top","col":92,"row":13},{"id":"block_ground_fill","col":92,"row":14},{"id":"block_hidden","col":93,"row":10},{"id":"block_ground_top","col":93,"row":13},{"id":"block_ground_fill","col":93,"row":14},{"id":"block_hidden","col":94,"row":10},{"id":"pipe_mouth","col":95,"row":10,"length":2,"dir":"up","entry":"none"},{"id":"block_ground_top","col":95,"row":13},{"id":"block_ground_fill","col":95,"row":14},{"id":"block_ground_top","col":96,"row":13},{"id":"block_ground_fill","col":96,"row":14},{"id":"block_ground_top","col":97,"row":13},{"id":"block_ground_fill","col":97,"row":14},{"id":"block_ground_top","col":98,"row":13},{"id":"block_ground_fill","col":98,"row":14},{"id":"block_brick","col":99,"row":9},{"id":"block_ground_top","col":99,"row":13},{"id":"block_ground_fill","col":99,"row":14},{"id":"block_brick","col":100,"row":9},{"id":"block_ground_top","col":100,"row":13},{"id":"block_ground_fill","col":100,"row":14},{"id":"block_question","col":101,"row":9},{"id":"enemy_syobon","col":101,"row":12},{"id":"block_ground_top","col":101,"row":13},{"id":"block_ground_fill","col":101,"row":14},{"id":"block_brick","col":102,"row":9},{"id":"block_ground_top","col":102,"row":13},{"id":"block_ground_fill","col":102,"row":14},{"id":"enemy_syobon","col":103,"row":12},{"id":"block_ground_top","col":103,"row":13},{"id":"block_ground_fill","col":103,"row":14},{"id":"block_ground_top","col":104,"row":13},{"id":"block_ground_fill","col":104,"row":14},{"id":"block_ground_top","col":105,"row":13},{"id":"block_ground_fill","col":105,"row":14},{"id":"pipe_mouth","col":106,"row":11,"length":1,"dir":"up","entry":"none"},{"id":"block_ground_top","col":106,"row":13},{"id":"block_ground_fill","col":106,"row":14},{"id":"block_ground_top","col":107,"row":13},{"id":"block_ground_fill","col":107,"row":14},{"id":"block_stair","col":108,"row":12},{"id":"block_ground_top","col":108,"row":13},{"id":"block_ground_fill","col":108,"row":14},{"id":"block_stair","col":109,"row":11},{"id":"block_stair","col":109,"row":12},{"id":"block_ground_top","col":109,"row":13},{"id":"block_ground_fill","col":109,"row":14},{"id":"block_stair","col":110,"row":10},{"id":"block_stair","col":110,"row":11},{"id":"block_stair","col":110,"row":12},{"id":"block_ground_top","col":110,"row":13},{"id":"block_ground_fill","col":110,"row":14},{"id":"block_stair","col":111,"row":9},{"id":"block_stair","col":111,"row":10},{"id":"block_stair","col":111,"row":11},{"id":"block_stair","col":111,"row":12},{"id":"block_ground_top","col":111,"row":13},{"id":"block_ground_fill","col":111,"row":14},{"id":"block_stair","col":112,"row":8},{"id":"block_stair","col":112,"row":9},{"id":"block_stair","col":112,"row":10},{"id":"block_stair","col":112,"row":11},{"id":"block_stair","col":112,"row":12},{"id":"block_ground_top","col":112,"row":13},{"id":"block_ground_fill","col":112,"row":14},{"id":"block_stair","col":113,"row":7},{"id":"block_stair","col":113,"row":8},{"id":"block_stair","col":113,"row":9},{"id":"block_stair","col":113,"row":10},{"id":"block_stair","col":113,"row":11},{"id":"block_stair","col":113,"row":12},{"id":"block_ground_top","col":113,"row":13},{"id":"block_ground_fill","col":113,"row":14},{"id":"block_stair","col":114,"row":6},{"id":"block_stair","col":114,"row":7},{"id":"block_stair","col":114,"row":8},{"id":"block_stair","col":114,"row":9},{"id":"block_stair","col":114,"row":10},{"id":"block_stair","col":114,"row":11},{"id":"block_stair","col":114,"row":12},{"id":"block_ground_top","col":114,"row":13},{"id":"block_ground_fill","col":114,"row":14},{"id":"block_stair","col":115,"row":5},{"id":"block_stair","col":115,"row":6},{"id":"block_stair","col":115,"row":7},{"id":"block_stair","col":115,"row":8},{"id":"block_stair","col":115,"row":9},{"id":"block_stair","col":115,"row":10},{"id":"block_stair","col":115,"row":11},{"id":"block_stair","col":115,"row":12},{"id":"block_ground_top","col":115,"row":13},{"id":"block_ground_fill","col":115,"row":14},{"id":"block_stair","col":116,"row":5},{"id":"block_stair","col":116,"row":6},{"id":"block_stair","col":116,"row":7},{"id":"block_stair","col":116,"row":8},{"id":"block_stair","col":116,"row":9},{"id":"block_stair","col":116,"row":10},{"id":"block_stair","col":116,"row":11},{"id":"block_stair","col":116,"row":12},{"id":"block_ground_top","col":116,"row":13},{"id":"block_ground_fill","col":116,"row":14},{"id":"block_ground_top","col":117,"row":13},{"id":"block_ground_fill","col":117,"row":14},{"id":"block_ground_top","col":118,"row":13},{"id":"block_ground_fill","col":118,"row":14},{"id":"block_ground_top","col":119,"row":13},{"id":"block_ground_fill","col":119,"row":14},{"id":"block_ground_top","col":120,"row":13},{"id":"block_ground_fill","col":120,"row":14},{"id":"block_ground_top","col":121,"row":13},{"id":"block_ground_fill","col":121,"row":14},{"id":"block_ground_top","col":122,"row":13},{"id":"block_ground_fill","col":122,"row":14},{"id":"goal_pole","col":123,"row":2},{"id":"block_stair","col":123,"row":12},{"id":"block_ground_top","col":123,"row":13},{"id":"block_ground_fill","col":123,"row":14},{"id":"bg_grass","col":124,"row":12},{"id":"block_ground_top","col":124,"row":13},{"id":"block_ground_fill","col":124,"row":14},{"id":"block_ground_top","col":125,"row":13},{"id":"block_ground_fill","col":125,"row":14},{"id":"block_ground_top","col":126,"row":13},{"id":"block_ground_fill","col":126,"row":14},{"id":"block_ground_top","col":127,"row":13},{"id":"block_ground_fill","col":127,"row":14},{"id":"bg_tree","col":128,"row":10},{"id":"block_ground_top","col":128,"row":13},{"id":"block_ground_fill","col":128,"row":14},{"id":"block_ground_top","col":129,"row":13},{"id":"block_ground_fill","col":129,"row":14},{"id":"block_q_mushroom","col":8,"row":9},{"id":"block_q_poison","col":13,"row":9},{"id":"block_q_enemy","col":14,"row":5},{"id":"block_q_badstar","col":35,"row":8},{"id":"block_q_poison_mass","col":47,"row":9},{"id":"block_q_coin_mass","col":59,"row":9},{"id":"block_q_badstar","col":67,"row":9},{"id":"enemy_syobon","col":27,"row":9},{"id":"enemy_cloud_face","col":103,"row":5},{"id":"player_start","col":1,"row":12},{"id":"bgm_field","col":0,"row":0}];
     loadData({ cols: 130, theme: "overworld", elements: E });
+    state.nextLevel = { end: false, id: '1-2' };   // 内置示例对应原版 1-1，通关后进入 1-2
     state.name = '原版 1-1 示例关卡';
     state._exampleOrigName = state.name;   // 内置示例同样在首次修改后变为「xxx的副本」
     occupyLevelName(state.name);
