@@ -5323,8 +5323,8 @@
     (window.STAGES || []).forEach(function (s) {
       var item = document.createElement('div');
       item.className = 'world-item scene-item' + (state._worldDef === s ? ' sel' : '');
-      item.innerHTML = '<span class="wid">' + s.id + '</span>' +
-        '<span class="wname">' + s.name + '</span>' +
+      // name 本身已含编号（如「1-1 地上」），不再单独显示 id
+      item.innerHTML = '<span class="wname">' + s.name + '</span>' +
         '<span class="wmeta">' + (W_THEME_NAME[s.stagecolor] || '') + ' · BGM ' + s.bgm + '</span>';
       item.addEventListener('click', function () {
         worldModal.classList.remove('show');
