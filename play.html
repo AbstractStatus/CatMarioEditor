@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -261,9 +261,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd3"></script>
 <script src="audio.js?v=custom8"></script>
 <script src="input.js?v=custom5"></script>
-<script src="elements.js?v=evlog26"></script>
+<script src="elements.js?v=evlog27"></script>
 <script src="levels.js?v=custom3"></script>
-<script src="engine.js?v=hd58"></script>
+<script src="engine.js?v=hd59"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell15"></script>
 <script>
@@ -308,8 +308,8 @@ body.dragging #dropTip { display: flex; }
     b2_pswitch:     { type: 400 },          // P 开关
     b2_on:          { type: 130 },
     b2_off:         { type: 131 },
-    b2_note_peach:  { type: 117, xt: 1 },   // 桃色音符块
-    b2_note_white:  { type: 117, xt: 0 },   // 白色音符块
+    b2_note_peach:  { type: 117, xt: 0 },   // 隐形音符块：触碰显形桃色+匀速弹上传送 stc+=5（原版 txtype 0→1，main.cpp:2119/1861）
+    b2_note_white:  { type: 117, xt: 3 },   // 白色音符块：可见普通大跳不传送（原版 txtype>=2 → 3，main.cpp:2122）
     b2_sword:       { type: 140 },
     b2_blade:       { type: 141 },
     b2_pineapple:   { type: 142 },
@@ -1039,11 +1039,15 @@ body.dragging #dropTip { display: flex; }
   // 坐标能在原版 STAGES 命中时返回对应关；自定义关或数据缺失时回退当前关
   window.Levels = window.Levels || {};
   window.Levels.get = function (sta, stb, stc) {
+    // 原版 main.cpp:4450：1-3 空中区返回管道（stc++ → 6）重置为地上(0)；
+    // 返回时按原版 stagepoint 语义（main.cpp:4551）从空中落回关卡开头（ma=4500, mb=-3000）
+    var returnFromSky = false;
+    if (sta === 1 && stb === 3 && (stc || 0) === 6) { stc = 0; returnFromSky = true; }
     if (isWorldChain) {
       // 若 levelConv 与目标关卡同坐标且携带 eventTriggers（_worldDef 分支注入），
       // 优先返回 levelConv：findStageByCoord 返回 STAGES 原始对象，未经 _worldDef
       // 分支的 eventTriggers/uid 注入，引擎 loadStage 读不到 eventTriggers 和 uid
-      if (levelConv && levelConv.sta === sta && levelConv.stb === stb &&
+      if (!returnFromSky && levelConv && levelConv.sta === sta && levelConv.stb === stb &&
           (levelConv.stc || 0) === (stc || 0) &&
           (levelConv.eventTriggers || levelConv._hasInjections)) {
         return levelConv;
@@ -1053,6 +1057,10 @@ body.dragging #dropTip { display: flex; }
         // STAGES 原始关卡首次被坐标链解析到时注入 uid/events/eventTriggers
         // （幂等），否则进管/通关后问号球不显示、触碰事件缺失
         injectWorldDef(t);
+        if (returnFromSky) {
+          // 浅拷贝覆盖出生点，避免污染共享 STAGES 原始对象
+          t = Object.assign({}, t, { spawn: { ma: 4500, mb: -3000 } });
+        }
         levelConv = t;
         return t;
       }

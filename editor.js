@@ -4868,7 +4868,10 @@
       return { id: 'block_hidden', extra: { pop: hS[xt] || 'poison' } };
     }
     if (type === 115) return { id: 'block_breakable' };
-    if (type === 117) return { id: xt === 1 ? 'b2_note_peach' : 'b2_note_white' };
+    // 音符块 117：txtype 0/1=隐形弹跳块（触碰后显形桃色+匀速弹上传送 stc+=5，原版 main.cpp:2119/1861）
+    //          txtype>=2/3=白色普通大跳块（触碰显形白色，不传送，原版 main.cpp:2122）
+    // 1-3 的 b2/b3/b4 为 txtype=0 → 应显示桃色
+    if (type === 117) return { id: xt >= 2 ? 'b2_note_white' : 'b2_note_peach' };
     if (type === 120) return { id: 'item_jumppad' };
     if (type === 130) return { id: 'b2_on' };
     if (type === 131) return { id: 'b2_off' };

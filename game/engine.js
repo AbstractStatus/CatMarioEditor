@@ -1011,6 +1011,27 @@
       }
     }
 
+    // 音符块弹跳上升+传送（原版 main.cpp:1861-1869）：mtype=2 期间每帧重置 md=-1500 匀速上升、
+    // 锁输入，冲出屏幕顶（mb<=-6000）后 stc+=5 切换到上空子关（如 1-3 地上(0)→空中区(5)）
+    if (p.mtype === C.MTYPE.NOTE) {
+      p.mtm += C._DT;
+      p.mkeytm = 2;
+      p.md = -1500;
+      if (p.mb <= -6000) {
+        p.mtype = 0; p.mtm = 0; p.mkeytm = 0;
+        A.bgmStop();
+        state.checkpoint = null;
+        state.stc += 5;   // 原版 stc+=5：如 1-3 地上(0)→空中区(5)
+        startGame();
+        state.proc = C.PROC.STAGE_START; state.maintm = 0;
+      }
+    }
+    // 跳台弹飞（原版 main.cpp:1872-1875）：匀速上升，冲出屏幕顶即死亡
+    if (p.mtype === C.MTYPE.JUMP_PAD) {
+      p.md = -2400;
+      if (p.mb <= -6000) { p.mb = -80000000; markHurt('jump-pad', null); p.mhp = 0; }
+    }
+
     // 移动
     // 锁键计时：60Hz(_DT=0.5) 下偶数初值(如抛投的 24)按 >=1 递减会卡在 0.5 永不解锁，
     // 导致抛出后玩家永久无法移动；改为 >0 递减并夹到 0（30Hz 整数行为不变）
@@ -1021,11 +1042,14 @@
     p.ma += p.mc * C._DT; p.mb += p.md * C._DT;
     if (p.mc < 0) p.mactp += -p.mc * C._DT;
     else p.mactp += p.mc * C._DT;
-    if (p.mtype <= 9 || p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE ||
+    if ((p.mtype <= 9 && p.mtype !== C.MTYPE.NOTE && p.mtype !== C.MTYPE.JUMP_PAD) ||
+        p.mtype === C.MTYPE.DEAD || p.mtype === C.MTYPE.GOAL_SLIDE ||
         p.mtype === C.MTYPE.ENDING || p.mtype === C.MTYPE.ENDING2) {
       // 帧率一致性补偿：匀加速下显式欧拉（先位移后加重力）的位移误差 = -g·T·DT/2，
       // 30Hz(DT=1) 为原版手感基准（误差率最大），非 30Hz 补回 g·DT·(1-DT)/2，
       // 使跳跃/坠落轨迹与 30Hz 逐帧一致（DT=1 时补偿=0，30Hz 行为分毫不变）
+      // 注：mtype=2/3（音符弹升/跳台弹飞）每帧强制重置 md，重力增量下帧即被丢弃，
+      // 与原版 main.cpp:2021/2025 顺序一致——无匀加速误差，不参与补偿
       p.mb -= C.GRAVITY * C._DT * (1 - C._DT) / 2;
       p.md += C.GRAVITY * C._DT;
     }
@@ -1124,7 +1148,15 @@
                 A.bgmStop();
               } else if (bhvStand.bounceMd != null) {
                 if (bhvStand.bounceSound != null) A.playSE(bhvStand.bounceSound);
-                p.md = bhvStand.bounceMd; p.mtype = bhvStand.mtype != null ? bhvStand.mtype : C.MTYPE.NOTE; p.mtm = 0;
+                if (b.ttype === 117 && b.txtype >= 2) {
+                  // 原版 main.cpp:2122：txtype>=2 音符块=白色普通大跳（不进入上升/传送状态），显形为白色
+                  p.mtype = 0; p.md = -1600; b.txtype = 3; p.mtm = 0;
+                } else {
+                  // 原版 main.cpp:2121：弹起（mtype=2 音符上升+传送 / mtype=3 跳台弹飞）
+                  p.md = bhvStand.bounceMd; p.mtype = bhvStand.mtype != null ? bhvStand.mtype : C.MTYPE.NOTE; p.mtm = 0;
+                  // 原版 main.cpp:2123：txtype 0→1，隐形音符块触碰后显形为桃色
+                  if (b.ttype === 117 && b.txtype === 0) b.txtype = 1;
+                }
               }
             }
           }
@@ -3448,6 +3480,7 @@
     'poison-mushroom': '毒蘑菇：吃下紫毒蘑菇',
     'bad-star': '坏星：碰到恶魔星',
     'fall-brick': '坠落砖组：被运动中的砖组砸中',
+    'jump-pad': '弹簧跳台：被弹飞出世界顶部',
     'suicide': '自杀：按 O 键主动结束生命',
     'unknown': '未知原因'
   };
