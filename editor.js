@@ -1964,7 +1964,7 @@
     var html = '<option value="__next__">▶ 进入下一关（默认）</option>';
     html += '<option value="__end__">🏁 游戏结束</option>';
     (window.STAGES || []).forEach(function (s) {
-      html += '<option value="' + s.id + '">🌍 ' + s.id + ' ' + s.name + '</option>';
+      html += '<option value="' + s.id + '">🌍 ' + s.name + '</option>';
     });
     nextLevelSel.innerHTML = html;
   }
