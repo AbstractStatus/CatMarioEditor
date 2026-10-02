@@ -1,5 +1,5 @@
 'use strict';
-// 方块机器人投掷测试：验证机器人能扔 蘑菇/馒头怪/假旗杆/终点旗杆
+// 方块机器人投掷测试：验证机器人能扔 蘑菇/馒头怪/龟壳馒头怪/尖刺馒头怪/假旗杆/终点旗杆
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -69,6 +69,12 @@ check(scenarioThrow(100, 32000), '机器人举起了蘑菇(abrocktm>0)');
 
 // 场景2：机器人扔馒头怪(atype=0)
 check(scenarioThrow(0, 32000), '机器人举起了馒头怪(abrocktm>0)');
+
+// 场景2b：机器人扔龟壳馒头怪(atype=1，高 4300)
+check(scenarioThrow(1, 32000), '机器人举起了龟壳馒头怪(abrocktm>0)');
+
+// 场景2c：机器人扔尖刺馒头怪(atype=4，高 3500)
+check(scenarioThrow(4, 32000), '机器人举起了尖刺馒头怪(abrocktm>0)');
 
 // 场景3：机器人扔假旗杆(atype=85，高 30000)
 check(scenarioThrow(85, 3000), '机器人举起了假旗杆(abrocktm>0)');

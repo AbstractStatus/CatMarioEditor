@@ -2030,12 +2030,15 @@
             }
           }
           if (e.atm >= 220) { e.atm = 0; e.amuki = 0; }
-          // 他の敵を投げる：碰到道具类敌人(atype>=100)、馒头怪(atype=0)或假旗杆(atype=85)时举过头顶再抛出
+          // 他の敵を投げる：碰到道具类敌人(atype>=100)、馒头怪系(atype=0/1/4)或假旗杆(atype=85)时举过头顶再抛出
           // （abrocktm=120：先上升 20 帧，到 100 时按通用逻辑 ad=-1200/ac=700 弹出）
+          // 馒头怪系：0=馒头怪、1=龟壳馒头怪、4=尖刺馒头怪（原版 main.cpp:3081 仅扔 atype>=100，
+          // 0/1/4/85 为本引擎扩展；举起期间 abrocktm>0 已停用行走/重力/玩家碰撞，通用投掷流程对各 atype 一致）
           for (var ri = 0; ri < state.enemies.length; ri++) {
             var re = state.enemies[ri];
             if (re === e || re.aa < -800000 || re.abrocktm > 0) continue;
-            var canThrowEnemy = re.atype >= 100 || re.atype === 0 || re.atype === 85;
+            var canThrowEnemy = re.atype >= 100 ||
+              re.atype === 0 || re.atype === 1 || re.atype === 4 || re.atype === 85;
             if (!canThrowEnemy) continue;
             // 垂直窗口：假旗杆(85)杆高 30000，机器人只需与杆身纵向重叠即可抓起；
             // 其余敌人维持原版「脚底不超过敌人顶部+6300」
