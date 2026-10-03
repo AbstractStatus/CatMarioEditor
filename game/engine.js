@@ -3000,6 +3000,7 @@
 
     if (state.proc !== C.PROC.GAME) return;
 
+    PF.b('r.bg');
     // 背景层（原版用 16000 单位的包围盒做剔除，避免宽元素被过早剔除）
     state.bg.forEach(function (n) {
       xx[0] = n.na - state.fx; xx[1] = n.nb - state.fy;
@@ -3031,7 +3032,9 @@
         }
       }
     });
+    PF.e('r.bg');
 
+    PF.b('r.particles');
     // 粒子
     state.particles.forEach(function (p) {
       xx[0] = p.ea - state.fx; xx[1] = p.eb - state.fy;
@@ -3057,7 +3060,9 @@
         ctx.beginPath(); ctx.arc(px + 15, py, 10, 0, Math.PI * 2); ctx.stroke();
       }
     });
+    PF.e('r.particles');
 
+    PF.b('r.lifts');
     // 升降台
     state.lifts.forEach(function (l) {
       if (l.sra < -8000000) return;   // 已消失（srsp=1 踩碎后）
@@ -3093,6 +3098,9 @@
       }
     });
 
+    PF.e('r.lifts');
+
+    PF.b('r.blocks');
     // 正从问号块/砖块中被顶出（abrocktm>0）的道具/敌人：先于方块绘制，
     // 让不透明方块遮挡其尚在砖块内的部分，只露出砖块上方，避免“顶出时透视”
     state.enemies.forEach(function (e) {
@@ -3152,7 +3160,9 @@
         S.draw(ctx, 14, 5, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100));
       }
     });
+    PF.e('r.blocks');
 
+    PF.b('r.player');
     // 玩家
     var p = state.player;
     var pmx = p.ma - state.fx;
@@ -3180,12 +3190,17 @@
       }
     });
 
+    PF.e('r.player');
+
+    PF.b('r.enemies');
     // 敌人（顶出中的 abrocktm>0 已在方块之前绘制，此处跳过，避免透视）
     state.enemies.forEach(function (e) {
       if (e.abrocktm > 0) return;
       drawEnemy(ctx, e);
     });
+    PF.e('r.enemies');
 
+    PF.b('r.pipes');
     // 管道/墙体：放在玩家、敌人之后绘制（对应原版 main.cpp 的“描画上書き(土管)”），
     // 不透明绿色管体盖住正在进入/探出管道的玩家与敌人，避免透视
     state.pipes.forEach(function (s) {
@@ -3200,8 +3215,14 @@
       }
     });
 
+    PF.e('r.pipes');
+
+    PF.b('r.bubbles');
     // 台词气泡（玩家/敌人；居中提示块消息框在其后绘制）
     renderBubbles(ctx);
+    PF.e('r.bubbles');
+
+    PF.b('r.ui');
 
     // 调试状态文字（仅 CHEAT 模式显示，不显示 SCORE/POS）
     if (state.cheat) {
@@ -3257,7 +3278,288 @@
       ctx.fillStyle = '#c8d8ff';
       ctx.fillText('P 继续 ｜ F 单步下一帧', C.CANVAS_W / 2, C.CANVAS_H / 2 + 22);
     }
+    PF.e('r.ui');
   }
+
+  // ==================== 性能观测（Perf） ====================
+  // 目的：排查卡顿/丢帧。默认关闭，关闭时插桩点仅一次函数调用 + 判空（纳秒级）。
+  // 开启方式：
+  //   URL  ?perf=1      采集帧统计 + 画面左上实时指标
+  //   URL  ?perf=trace  额外打 performance.mark/measure（Chrome DevTools→Performance
+  //                    录制时间线中可见 L.*/f.*/r.* 分段，即 Web 版 systrace）
+  //   快捷键 `（反引号 192）循环 关→统计→trace→关；V 输出报告到控制台
+  //   GameEngine.perfReport() / GameEngine.perfToggle()
+  // 设计：
+  //   - 慢帧（loop 工作 > 1000/FPS）只保留耗时 Top30 完整快照，绝不在帧内 console 输出；
+  //   - 最近 1800 rAF 的帧间隔/工作耗时存环形缓冲，报告时排序取 p50/p95/p99；
+  //   - 开启后才包装 ctx 的 drawImage/fillText 等统计调用次数，关闭即恢复原生引用；
+  //   - PerformanceObserver('longtask') 记录 >50ms 主线程阻塞（初始化时无条件挂，零轮询）。
+  var PF = (function () {
+    var HIST = 1800, SLOW_MAX = 30, LT_MAX = 50;
+    var ctx = null;
+    var on = false, traceOn = false;
+    var budget = 1000 / 60;
+    var rafN = 0;
+    var startWall = 0;
+    var histDt = new Array(HIST), histWork = new Array(HIST), histSteps = new Array(HIST);
+    var hIdx = 0, hCount = 0;
+    var cur = null;                        // 当前 rAF 采集上下文（null=不在 rAF 内）
+    var stack = [];
+    var segTot = {}, segMax = {}, segN = {};
+    var slow = [];
+    var longTasks = [];
+    var dropRaf = 0, catchUp = 0, maxSteps = 0, physSteps = 0, slowCount = 0;
+    var entPeak = { enemies: 0, particles: 0, blocks: 0, lifts: 0, pipes: 0 };
+    var callsPeak = { drawImage: 0, fillText: 0, fillRect: 0, strokeRect: 0 };
+    var emaFps = 0, emaWork = 0, p95Cache = 0, overlayTick = 0;
+    var orig = {};
+    var CALL_APIS = ['drawImage', 'fillText', 'fillRect', 'strokeRect'];
+    var ZERO_CALLS = function () { return { drawImage: 0, fillText: 0, fillRect: 0, strokeRect: 0 }; };
+    // 报告分组：顶层段 + 嵌套子段（f.* 在 L.physics 内，r.* 在 L.render 内）
+    var GROUPS = [
+      ['L.physics', ['f.player', 'f.collide', 'f.trigger', 'f.enemies', 'f.particles', 'f.camera']],
+      ['L.render', ['r.bg', 'r.particles', 'r.lifts', 'r.blocks', 'r.player', 'r.enemies', 'r.pipes', 'r.bubbles', 'r.ui']],
+      ['L.resize', []]
+    ];
+
+    function patch(wrap) {
+      if (!ctx) return;
+      if (wrap) {
+        if (!orig.drawImage) CALL_APIS.forEach(function (m) { orig[m] = ctx[m]; });
+        CALL_APIS.forEach(function (m) {
+          ctx[m] = function () {
+            if (cur) cur.calls[m]++;
+            return orig[m].apply(ctx, arguments);
+          };
+        });
+      } else if (orig.drawImage) {
+        CALL_APIS.forEach(function (m) { ctx[m] = orig[m]; });
+      }
+    }
+
+    function reset() {
+      rafN = 0; hIdx = 0; hCount = 0;
+      segTot = {}; segMax = {}; segN = {};
+      slow = [];
+      dropRaf = 0; catchUp = 0; maxSteps = 0; physSteps = 0; slowCount = 0;
+      entPeak = { enemies: 0, particles: 0, blocks: 0, lifts: 0, pipes: 0 };
+      callsPeak = ZERO_CALLS();
+      emaFps = 0; emaWork = 0; p95Cache = 0;
+      startWall = performance.now();
+    }
+
+    function setEnabled(v, withTrace) {
+      on = !!v;
+      if (withTrace !== undefined) traceOn = on && !!withTrace;
+      if (on) { reset(); patch(true); }
+      else { patch(false); cur = null; stack.length = 0; }
+    }
+
+    // 反引号三态：关 → 统计 → trace → 关
+    function toggle() {
+      if (!on) setEnabled(true, false);
+      else if (!traceOn) { traceOn = true; reset(); }
+      else setEnabled(false);
+      return { on: on, trace: traceOn };
+    }
+
+    function setBudget(ms) { budget = ms; }
+
+    function attach(context) { ctx = context; }
+
+    function initLongTask() {
+      if (typeof PerformanceObserver === 'undefined') return;
+      try {
+        var po = new PerformanceObserver(function (list) {
+          list.getEntries().forEach(function (en) {
+            longTasks.push({ t: en.startTime, dur: en.duration });
+            if (longTasks.length > LT_MAX) longTasks.shift();
+          });
+        });
+        po.observe({ entryTypes: ['longtask'] });
+      } catch (err) { /* 不支持则忽略 */ }
+    }
+
+    function initFromUrl() {
+      initLongTask();
+      var m = /[?&]perf=(trace|1|true|on)\b/.exec(window.location && window.location.search || '');
+      if (m) setEnabled(true, m[1] === 'trace');
+    }
+
+    // ---- rAF 生命周期 ----
+    function rafBegin(delta) {
+      if (!on) return;
+      cur = { dt: delta, seg: {}, calls: ZERO_CALLS(), t0: performance.now() };
+      stack.length = 0;
+      rafN++;
+    }
+    function b(name) {
+      if (!cur) return;                    // 脱离 rAF 的调用（如暂停下单步 frame）不统计
+      stack.push({ n: name, t: performance.now() });
+      if (traceOn) performance.mark(name + '#b');
+    }
+    function e(name) {
+      if (!cur) return;
+      var top = stack.pop();
+      var ms = performance.now() - top.t;
+      cur.seg[top.n] = (cur.seg[top.n] || 0) + ms;
+      segTot[top.n] = (segTot[top.n] || 0) + ms;
+      segN[top.n] = (segN[top.n] || 0) + 1;
+      if (!(top.n in segMax) || ms > segMax[top.n]) segMax[top.n] = ms;
+      if (traceOn) {
+        performance.mark(name + '#e');
+        performance.measure(name, name + '#b', name + '#e');
+      }
+    }
+    function rafEnd(steps, acc, paused) {
+      if (!on || !cur) return;
+      var work = performance.now() - cur.t0;
+      var dt = cur.dt;
+      histDt[hIdx] = dt; histWork[hIdx] = work; histSteps[hIdx] = steps;
+      hIdx = (hIdx + 1) % HIST;
+      if (hCount < HIST) hCount++;
+
+      if (!paused) {
+        physSteps += steps;
+        if (dt > budget * 1.5) dropRaf++;
+        if (steps >= 2) catchUp++;
+        if (steps > maxSteps) maxSteps = steps;
+      }
+      emaWork = emaWork ? emaWork * 0.93 + work * 0.07 : work;
+      var ifps = dt > 0 ? 1000 / dt : 0;
+      emaFps = emaFps ? emaFps * 0.93 + ifps * 0.07 : ifps;
+      if (++overlayTick % 30 === 0) p95Cache = percentile(histSnapshot(histWork), 0.95);
+
+      ['enemies', 'particles', 'blocks', 'lifts', 'pipes'].forEach(function (k) {
+        var list = state[k];
+        if (list && list.length > entPeak[k]) entPeak[k] = list.length;
+      });
+      CALL_APIS.forEach(function (m) {
+        if (cur.calls[m] > callsPeak[m]) callsPeak[m] = cur.calls[m];
+      });
+
+      if (work > budget) {
+        slowCount++;
+        var snap = {
+          n: rafN,
+          t: +((performance.now() - startWall) / 1000).toFixed(2),
+          dt: +dt.toFixed(2), work: +work.toFixed(2), steps: steps, acc: Math.round(acc),
+          seg: {}, calls: {}
+        };
+        Object.keys(cur.seg).forEach(function (k) { snap.seg[k] = +cur.seg[k].toFixed(2); });
+        CALL_APIS.forEach(function (m) { if (cur.calls[m]) snap.calls[m] = cur.calls[m]; });
+        if (slow.length < SLOW_MAX || work > slow[slow.length - 1].work) {
+          slow.push(snap);
+          slow.sort(function (a, b2) { return b2.work - a.work; });
+          if (slow.length > SLOW_MAX) slow.length = SLOW_MAX;
+        }
+      }
+      cur = null;
+    }
+
+    function histSnapshot(arr) {
+      var out = [];
+      for (var i = 0; i < hCount; i++) out.push(arr[(hIdx - hCount + i + HIST) % HIST]);
+      return out;
+    }
+    function percentile(sortedDirty, q) {
+      if (!sortedDirty.length) return 0;
+      var s = sortedDirty.slice().sort(function (a, b2) { return a - b2; });
+      return s[Math.min(s.length - 1, Math.floor(q * s.length))];
+    }
+    function avg(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
+    function f1(x) { return x.toFixed(1); }
+
+    function report() {
+      if (!on && rafN === 0) return '[Perf] 尚未采集：URL 加 ?perf=1 或按反引号 ` 开启后复现卡顿，再按 V 输出报告';
+      var dts = histSnapshot(histDt), works = histSnapshot(histWork);
+      var dSort = dts.slice().sort(function (a, b2) { return a - b2; });
+      var wSort = works.slice().sort(function (a, b2) { return a - b2; });
+      var elapsed = ((performance.now() - startWall) / 1000).toFixed(1);
+      var lines = [];
+      lines.push('===== 猫里奥性能报告 =====');
+      lines.push('采集 ' + elapsed + 's | rAF ' + rafN + ' | 物理帧 ' + physSteps +
+                 ' | 物理设置 ' + C.FPS + 'FPS（预算 ' + budget.toFixed(1) + 'ms）| 屏幕帧率(EMA) ' + emaFps.toFixed(1));
+      lines.push('rAF 间隔 ms : avg ' + f1(avg(dts)) + '  p50 ' + f1(percentile(dSort, 0.5)) +
+                 '  p95 ' + f1(percentile(dSort, 0.95)) + '  p99 ' + f1(percentile(dSort, 0.99)) +
+                 '  max ' + f1(dSort.length ? dSort[dSort.length - 1] : 0) +
+                 ' | 丢帧(>' + f1(budget * 1.5) + 'ms) ' + dropRaf);
+      lines.push('主线程工作 : avg ' + f1(avg(works)) + '  p50 ' + f1(percentile(wSort, 0.5)) +
+                 '  p95 ' + f1(percentile(wSort, 0.95)) + '  p99 ' + f1(percentile(wSort, 0.99)) +
+                 '  max ' + f1(wSort.length ? wSort[wSort.length - 1] : 0) +
+                 ' ms | 慢帧 ' + slowCount);
+      lines.push('物理追帧(单 rAF 跑≥2步) ' + catchUp + ' 次，单 rAF 最多连跑 ' + maxSteps + ' 步' +
+                 (maxSteps >= 3 ? '  ← 螺旋追帧，物理已拖垮渲染' : ''));
+      var ltRecent = longTasks.filter(function (l) { return l.t >= startWall; });
+      lines.push('Long Task(>50ms) ' + ltRecent.length + ' 次' +
+        (ltRecent.length ? '：' + ltRecent.slice(-5).map(function (l) {
+          return '@' + ((l.t - startWall) / 1000).toFixed(1) + 's/' + l.dur.toFixed(0) + 'ms';
+        }).join(' ') : ''));
+      lines.push('drawCall 峰值/帧: drawImage ' + callsPeak.drawImage + '  fillText ' + callsPeak.fillText +
+                 '  fillRect ' + callsPeak.fillRect + '  strokeRect ' + callsPeak.strokeRect);
+      lines.push('实体峰值: enemies ' + entPeak.enemies + '  particles ' + entPeak.particles +
+                 '  blocks ' + entPeak.blocks + '  lifts ' + entPeak.lifts + '  pipes ' + entPeak.pipes);
+      lines.push('分段耗时 ms（每次调用平均 / 最大 / 出现帧数）:');
+      GROUPS.forEach(function (g) {
+        var name = g[0], subs = g[1];
+        if (!segN[name]) return;
+        lines.push('  ' + name.padEnd(10) + ' ' + f1(segTot[name] / segN[name]) + ' / ' +
+                   f1(segMax[name]) + ' / ' + segN[name]);
+        subs.forEach(function (s) {
+          if (!segN[s]) return;
+          lines.push('    ' + s.padEnd(10) + ' ' + f1(segTot[s] / segN[s]) + ' / ' + f1(segMax[s]));
+        });
+      });
+      if (slow.length) {
+        lines.push('最慢帧 Top ' + slow.length + '（t=采集内秒数 work=主线程工作 dt=rAF间隔 steps=物理步数）:');
+        slow.forEach(function (s2, i) {
+          var segs = Object.keys(s2.seg).map(function (k) { return k + '=' + s2.seg[k]; }).join(' ');
+          var calls = Object.keys(s2.calls).map(function (k) { return k + ':' + s2.calls[k]; }).join(' ');
+          lines.push('  #' + (i + 1) + ' f' + s2.n + ' @' + s2.t + 's work=' + s2.work +
+                     'ms dt=' + s2.dt + 'ms steps=' + s2.steps + ' acc=' + s2.acc +
+                     ' | ' + segs + (calls ? ' | ' + calls : ''));
+        });
+      }
+      lines.push('提示: work 超预算但 dt 正常→渲染管线/合成侧压力；dt 与 work 同涨→JS 主线程过载；' +
+                 'steps≥2 频繁→物理帧本身太慢；trace 模式下用 DevTools Performance 录制可看分段时间线');
+      return lines.join('\n');
+    }
+
+    function dump() {
+      var text = report();
+      console.log(text);
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () {});
+      }
+      return text;
+    }
+
+    // 实时小窗：在 render 计时结束之后绘制，不计入任何分段；沿用 renderScene 的 _baseScale 虚拟坐标
+    function overlay(context) {
+      if (!on || !context) return;
+      context.save();
+      context.fillStyle = 'rgba(0,0,0,0.55)';
+      context.fillRect(4, 4, 268, 40);
+      context.font = '11px monospace';
+      context.textAlign = 'left';
+      context.textBaseline = 'top';
+      context.fillStyle = '#7cfc9a';
+      context.fillText('Perf' + (traceOn ? ' [trace]' : '') + '  ' +
+        emaFps.toFixed(1) + 'fps  ' + emaWork.toFixed(1) + 'ms  p95 ' + p95Cache.toFixed(1), 10, 8);
+      context.fillStyle = (dropRaf + catchUp) ? '#ffd54a' : '#9fd8ff';
+      context.fillText('drop ' + dropRaf + ' catch ' + catchUp + ' slow ' + slowCount +
+        '   ` 切换 / V 报告', 10, 24);
+      context.restore();
+    }
+
+    return {
+      attach: attach, initFromUrl: initFromUrl,
+      rafBegin: rafBegin, b: b, e: e, rafEnd: rafEnd, overlay: overlay,
+      setEnabled: setEnabled, toggle: toggle, setBudget: setBudget,
+      report: report, dump: dump,
+      isOn: function () { return on; }, isTrace: function () { return traceOn; }
+    };
+  })();
 
   // ==================== 主循环 ====================
   function frame() {
@@ -3304,25 +3606,37 @@
           markHurt('suicide');
           state.player.mhp = 0;
         }
+        PF.b('f.player');
         updatePlayer(key);
+        PF.e('f.player');
         var p = state.player;
         if (key & 2 || p.mb > 40000 || _debugFrame <= 10) {
           _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true });
         }
+        PF.b('f.collide');
         collideBlocks();
         collidePipes();
         collideLifts();
+        PF.e('f.collide');
         // キー入力初期化（原版行 2694：帧末尾重置方向输入，使摩擦生效）
         state.player.actaon[0] = 0; state.player.actaon[4] = 0;
         var p2 = state.player;
         if (key & 2 || p2.mb > 40000 || _debugFrame <= 10) {
           _debugLog.push({ f: _debugFrame, key: key, ma: p2.ma, mb: p2.mb, mc: p2.mc, md: p2.md, mz: p2.mzimen, mt: p2.mtype, before: false });
         }
+        PF.b('f.trigger');
         updateTriggers();
         updateEventTriggers();
+        PF.e('f.trigger');
+        PF.b('f.enemies');
         updateEnemies();
+        PF.e('f.enemies');
+        PF.b('f.particles');
         updateParticles();
+        PF.e('f.particles');
+        PF.b('f.camera');
         updateCamera();
+        PF.e('f.camera');
 
         // 分数
         state.scorepos = Math.max(state.scorepos, state.player.ma);
@@ -3501,6 +3815,8 @@
   Engine.init = function (canvasEl) {
     canvas = canvasEl;
     ctx2d = canvas.getContext('2d');
+    PF.attach(ctx2d);       // 性能观测绑定画布（?perf=1 / ?perf=trace，须在 loop 启动前读取 URL）
+    PF.initFromUrl();
     IN.init(canvas);
     A.init();
     state.proc = C.PROC.TITLE;
@@ -3557,6 +3873,18 @@
         var inControl = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tgt.isContentEditable;
         if (!inControl) state.randomMode = !state.randomMode;
       }
+      // `（反引号 192）：性能采集三态切换 关→统计→trace→关；V(86)：输出性能报告到控制台
+      // （表单控件聚焦时不拦截，避免影响反引号输入/快捷键）
+      if ((e.keyCode === 192 || e.keyCode === 86) && !e.repeat) {
+        var pfTgt = e.target;
+        var pfTag = pfTgt && pfTgt.tagName;
+        var pfInControl = pfTag === 'INPUT' || pfTag === 'SELECT' || pfTag === 'TEXTAREA' || pfTgt.isContentEditable;
+        if (!pfInControl) {
+          e.preventDefault();
+          if (e.keyCode === 192) PF.toggle();
+          else PF.dump();
+        }
+      }
     });
     window.addEventListener('keyup', function (e) {
       if (e.keyCode === 32) {
@@ -3584,23 +3912,34 @@
     _lastFrameTime = now;
     // 防止标签页切回来后的巨大 delta
     if (delta > 500) delta = 500;
+    PF.rafBegin(delta);
 
     // 暂停（P）：停止物理推进，但保持渲染（F 单步后画面即时更新）
     if (state.paused) {
       _accumulator = 0;
+      var _pfPauseSteps = 0;
       // 按住 F：超过初延迟后由引擎持续连步（方向键照常读取，可边步进边操作）
       if (_stepHold && now - _stepHoldT0 >= _STEP_DELAY) {
         _stepAcc += delta;
+        PF.b('L.physics');
         while (_stepAcc >= _STEP_RATE) {
           _stepAcc -= _STEP_RATE;
           A.unlock();
           frame();
+          _pfPauseSteps++;
         }
+        PF.e('L.physics');
       } else {
         _stepAcc = 0;
       }
+      PF.b('L.resize');
       resizeCanvas();
+      PF.e('L.resize');
+      PF.b('L.render');
       render(ctx2d, 0);
+      PF.e('L.render');
+      PF.rafEnd(_pfPauseSteps, 0, true);
+      PF.overlay(ctx2d);
       return;
     }
 
@@ -3609,14 +3948,20 @@
     _accumulator += delta * speedMult;
 
     // 固定 timestep 物理更新（原版 30FPS 基准）
+    var _pfSteps = 0;
+    PF.b('L.physics');
     while (_accumulator >= _PHYS_STEP) {
       A.unlock();
       frame();
       _accumulator -= _PHYS_STEP;
+      _pfSteps++;
     }
+    PF.e('L.physics');
 
     // 每帧重新同步画布虚拟尺寸（窗口 / DPR 变化即时生效）
+    PF.b('L.resize');
     resizeCanvas();
+    PF.e('L.resize');
 
     // 渲染插值：alpha = 累加器相位（距上一物理帧的时间比例 0~1），
     // 镜头与玩家在前后两物理帧之间线性插值。60Hz 屏呈现物理帧→中点→物理帧
@@ -3624,7 +3969,11 @@
     var camAlpha = _accumulator / _PHYS_STEP;
     if (camAlpha > 1) camAlpha = 1;
     if (camAlpha < 0) camAlpha = 0;
+    PF.b('L.render');
     render(ctx2d, camAlpha);
+    PF.e('L.render');
+    PF.rafEnd(_pfSteps, _accumulator, false);
+    PF.overlay(ctx2d);
   }
 
   var _debugKey = 0, _debugFrame = 0;
@@ -3794,8 +4143,15 @@
     C._DT = 30 / fps;
     _PHYS_STEP = 1000 / fps;
     _accumulator = 0;       // 切换时丢弃残余 delta，避免立刻补帧导致跳变
+    PF.setBudget(1000 / fps);   // 性能观测慢帧阈值随物理刷新率自适应
   };
   Engine.getFps = function () { return C.FPS; };
+
+  // 性能观测接口（排查卡顿/丢帧）：
+  // perfReport() 打印并返回统计报告（同时尝试写入剪贴板）；
+  // perfToggle() 循环 关→统计→trace→关，返回 {on, trace}。
+  Engine.perfReport = function () { return PF.dump(); };
+  Engine.perfToggle = function () { return PF.toggle(); };
 
   global.GameEngine = Engine;
 })(window);
