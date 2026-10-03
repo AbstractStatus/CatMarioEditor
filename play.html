@@ -94,6 +94,19 @@ canvas#canvas {
 }
 #fpsbar button:hover { background: #3d4458; }
 #fpsbar button.active { background: #48b048 !important; border-color: #48b048 !important; color: #fff !important; }
+/* 全屏：#wrap 占满整个屏幕，画布高等比放大（高=屏高），
+   宽强制 100%（镜头宽度=屏幕宽度），引擎 resizeCanvas 每帧
+   按新 CSS 尺寸同步 baseScale/FXMAX，所有格子等比例放大 */
+#wrap:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  background: #000;
+}
+#wrap:fullscreen canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
 #startBtn { background: rgba(45, 108, 223, .95) !important; border-color: #4a86f0 !important; color: #fff !important; font-weight: bold; }
 #infoBtn { background: rgba(80, 80, 60, .92) !important; }
 #status { font-size: 12px; color: #b8c2d6; text-shadow: 1px 1px 2px #000; pointer-events: none; }
@@ -214,6 +227,7 @@ body.dragging #dropTip { display: flex; }
   <button id="retryBtn">↺ 回到标题</button>
   <button id="infoBtn">ℹ️ 详情</button>
   <button id="logBtn">📜 日志<span id="logBadge" class="hide">0</span></button>
+  <button id="fsBtn" title="进入全屏（ESC 退出）">⛶ 全屏</button>
   <div id="fpsbar">
     <span class="fps-label">FPS</span>
     <button data-fps="30">30</button>
@@ -1479,6 +1493,25 @@ body.dragging #dropTip { display: flex; }
     });
     window.addEventListener('resize', applyViewWidth);
     applyViewWidth();
+
+    /* ---------- 全屏（ESC 退出） ----------
+     * 对 #wrap 请求全屏：CSS :fullscreen 使其占满屏幕，画布高=屏高，
+     * 引擎 resizeCanvas 每帧按新尺寸等比例放大所有格子，
+     * 画布宽=屏宽 → FXMAX 同步为屏幕宽度对应的镜头宽度。 */
+    var fsBtn = document.getElementById('fsBtn');
+    function inFs() { return document.fullscreenElement === wrapEl; }
+    fsBtn.addEventListener('click', function () {
+      if (inFs()) document.exitFullscreen();
+      else if (wrapEl.requestFullscreen) wrapEl.requestFullscreen();
+    });
+    document.addEventListener('fullscreenchange', function () {
+      fsBtn.textContent = inFs() ? '⛶ 退出全屏' : '⛶ 全屏';
+      if (!inFs()) applyViewWidth();   // 退出后恢复镜头宽度滑块设置
+    });
+    // ESC 退出全屏（浏览器原生已支持，这里兜底：部分内嵌 webview 不原生退出）
+    window.addEventListener('keydown', function (e) {
+      if (e.keyCode === 27 && inFs()) document.exitFullscreen();
+    });
   })();
 
   /* ---------- 刷新率切换 ----------
