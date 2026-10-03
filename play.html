@@ -715,7 +715,10 @@ body.dragging #dropTip { display: flex; }
         var pmWarp = null;
         // 原版 stype=40 左进入管道（保持原样）：sxtype=0 喷出陷阱 / 2 换关（编辑器 entry 映射回原版语义）
         if (e._origStype === 40) {
-          pipes.push({ sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: e.entry === 'eject' ? 0 : 2, uid: e.uid || null, dir: 'left' });
+          var pmPipe40 = { sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: e.entry === 'eject' ? 0 : 2, uid: e.uid || null, dir: 'left' };
+          // entry='off'（无进入事件）：透传给引擎，PipeTypes[40].onEnter 据此禁用进入
+          if (pmEntry === 'off') pmPipe40.entry = 'off';
+          pipes.push(pmPipe40);
         } else {
           var pmStype, pmSxtype;
           if (pmEntry === 'eject') { pmStype = 50; pmSxtype = 1; }
@@ -735,6 +738,8 @@ body.dragging #dropTip { display: flex; }
           var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
           // 喷出管道：entry 标记透传给引擎（PipeTypes[50].onEnter 按 entry==='eject' 进入 mxtype=10）
           if (pmEntry === 'eject') pmPipe.entry = 'eject';
+          // 无进入事件（entry='off'）：保持实体碰撞，onEnter 据此禁用进入（仅装饰）
+          if (pmEntry === 'off') pmPipe.entry = 'off';
           // 陷阱管道抖动动画覆盖（编辑器属性面板 → 引擎 tp.trapAnim）
           if (e.trapAnim && typeof e.trapAnim === 'object') pmPipe.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));
           if (pmDir === 'up') {

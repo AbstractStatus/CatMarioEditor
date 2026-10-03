@@ -1893,11 +1893,15 @@
     obj.ttype = a[0]; obj.txtype = a[1];
     obj.showQ = (yes && cur.kind === 'Q' && a[0] === 110);
   }
-  // 管道 entry → stype/sxtype（与 play.html L614-620 一致）
+  // 管道 entry → stype/sxtype（与 play.html pipe_mouth 转换分支一致）
   function evPipeEntry(obj, entry) {
     if (entry === 'trap') { obj.stype = 50; obj.sxtype = 0; }
     else if (entry === 'warp') { obj.stype = 60; obj.sxtype = 1; if (!obj.warp) obj.warp = { end: true, id: null }; }
-    else { obj.stype = 50; obj.sxtype = 1; }   // none
+    else { obj.stype = 50; obj.sxtype = 1; }   // none / off
+    // off（无进入事件）：标记透传，PipeTypes[50]/[40].onEnter 据此禁用进入；
+    // 切回其它值时清除该标记恢复可进入（不动 'eject' 标记——它由 else 分支的 sxtype=1 协同工作）
+    if (entry === 'off') obj.entry = 'off';
+    else if (obj.entry === 'off') delete obj.entry;
   }
   // 定位喷射运行时实体：
   //  - 目标本身就是 stype=180 生成器（旧档事件 target 带 '#spray' 后缀）→ 直接返回；

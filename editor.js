@@ -2216,7 +2216,7 @@
     if (id === 'pipe_mouth') {
       push({ field: 'length', label: '管身长度', kind: 'num', min: 1, max: 20, tip: '格；引擎按方向重算尺寸' });
       push({ field: 'dir', label: '开口方向', kind: 'enum', opts: [['up', '↑ 向上'], ['down', '↓ 向下'], ['left', '← 向左'], ['right', '→ 向右']], tip: '' });
-      push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['trap', '陷阱管道'], ['warp', '传送管道'], ['eject', '喷出管道']], tip: '' });
+      push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['off', '无（仅装饰）'], ['trap', '陷阱管道'], ['warp', '传送管道'], ['eject', '喷出管道']], tip: '' });
       push({ field: 'spray', label: '是否喷射', kind: 'bool', tip: '运行时仅标记，不动态创建喷射生成器' });
       push({ field: 'sprayTarget', label: '喷射对象', kind: 'ref', cat: 'enemy', tip: '从管口喷出的敌人' });
       push({ field: 'sprayFreq', label: '喷射周期', kind: 'num', min: 0.1, max: 10, tip: '秒；旧引擎1-2-1默认1.6秒(=sgtype48物理帧)' });
@@ -2815,12 +2815,12 @@
       fPmLen = numInput(1, 20, Math.max(1, selected.length | 0 || d.length || 1));
       propBody.appendChild(propRow('管身长度', fPmLen, '格'));
       fPmEntry = document.createElement('select');
-      [['none', '普通管道（可从管口进入）'], ['trap', '陷阱管道（进入即阵亡）'], ['warp', '传送管道（进入即传送到目标）'], ['eject', '喷出管道（进入后被喷出后阵亡）']].forEach(function (op) {
+      [['none', '普通管道（可从管口进入）'], ['off', '无（仅装饰，不可进入）'], ['trap', '陷阱管道（进入即阵亡）'], ['warp', '传送管道（进入即传送到目标）'], ['eject', '喷出管道（进入后被喷出后阵亡）']].forEach(function (op) {
         var opt = document.createElement('option'); opt.value = op[0]; opt.textContent = op[1];
         if ((selected.entry || d.entry || 'none') === op[0]) opt.selected = true;
         fPmEntry.appendChild(opt);
       });
-      propBody.appendChild(propRow('进入事件', fPmEntry, '玩家从管口按↓进入时触发'));
+      propBody.appendChild(propRow('进入事件', fPmEntry, '玩家从管口按↓进入时触发；「无」= 纯装饰实心管，按键不进入'));
       fPmDir = document.createElement('select');
       [['up', '↑ 向上（管口朝上）'], ['down', '↓ 向下'], ['left', '← 向左'], ['right', '→ 向右']].forEach(function (op) {
         var opt2 = document.createElement('option'); opt2.value = op[0]; opt2.textContent = op[1];
@@ -5091,13 +5091,14 @@
       var guid = 'g' + t + '_' + tt;   // 网格字节元素：行_列 天然唯一
       if (v === 40) {
         // 管口字节：向下扫描管身字节(41/43/44)，合并为 pipe_mouth 元素
+        // 旧引擎中 grid 管道（→stype=1/2/5 实心体）没有任何进入事件，仅装饰 → entry='off'
         var _pmBody = 0;
         for (var _pr = t + 1; _pr < 17; _pr++) {
           var _pv = (g[_pr] || [])[tt];
           if (_pv === 41 || _pv === 43 || _pv === 44) _pmBody++;
           else break;
         }
-        add('pipe_mouth', tt, t, { length: Math.max(1, _pmBody), dir: 'up', entry: 'none' }, guid);
+        add('pipe_mouth', tt, t, { length: Math.max(1, _pmBody), dir: 'up', entry: 'off' }, guid);
         continue;
       }
       if (v === 41 || v === 43 || v === 44) continue;  // 管身字节：已由管口合并，跳过
@@ -5180,11 +5181,11 @@
         var pmRow40 = Math.round((p.sb / 100 + 12) / 29);
         add('pipe_mouth', pmCol40, pmRow40, { length: 1, dir: 'left', entry: p.sxtype === 0 ? 'eject' : 'none', _origStype: 40 }, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
-        // 原版横管向左口
-        add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'none' }, puid);
+        // 原版横管向左口（旧引擎 stype=5 无进入事件，仅装饰 → entry='off'）
+        add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'off' }, puid);
       } else if (p.stype === 5 && p.sxtype === 11) {
-        // 原版横管向右口
-        add('pipe_mouth', col, row, { length: 1, dir: 'right', entry: 'none' }, puid);
+        // 原版横管向右口（旧引擎 stype=5 无进入事件，仅装饰 → entry='off'）
+        add('pipe_mouth', col, row, { length: 1, dir: 'right', entry: 'off' }, puid);
       } else if (p.stype === 1 || p.stype === 2 || p.stype === 5) {
         // grid 字节已恢复，跳过（避免重复）
       } else if (p.stype === 51 && (!p.sxtype || p.sxtype === 0) && (p.mov || p.sc >= p.sd)) {

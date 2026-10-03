@@ -155,6 +155,8 @@
     },
     onEnter: function (p, s, xx, state) {
       var C = getC();
+      // entry='off'（编辑器「无」进入事件）：纯装饰实心管，按键不进入
+      if (s.entry === 'off') return false;
       if (pipeEnterCheck(p, s, xx)) {
         // sxtype=0（原版数据）/entry='eject'（编辑器「喷出管道」）：喷出陷阱（mxtype=10）
         if (s.sxtype === 0 || s.entry === 'eject') {
@@ -213,6 +215,8 @@
     },
     onEnter: function (p, s, xx, state) {
       var C = getC();
+      // entry='off'（编辑器「无」进入事件）：纯装饰实心管，按键不进入
+      if (s.entry === 'off') return false;
       if (pipeEnterCheck(p, s, xx)) {
         // 编辑器「喷出管道」（entry='eject'）：进入后被沿开口方向喷出（mxtype=10），
         // 四方向通用化（原版仅左开口横管 stype=40 sxtype=0 有此行为）
