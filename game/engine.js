@@ -2990,7 +2990,21 @@
 
     // 等比例缩放：所有虚拟坐标乘 _baseScale 渲染到实际像素
     // 虚拟宽度 C.CANVAS_W 已由 resizeCanvas() 动态扩展（镜头变宽），
-    // 画面本身不拉伸（X/Y 用同一个 _baseScale）；录像锁宽时 x 加居中偏移
+    // 画面本身不拉伸（X/Y 用同一个 _baseScale）；录像锁宽时 x 加偏移
+    // 锁宽画面比画布宽（全屏高宽比小于录像）时：把可视窗口平移到玩家身上；
+    // 无玩家（标题/过场）时居中裁切；纯视觉处理，物理与回放不受影响。
+    if (GR.lockViewW() != null) {
+      var _gaW = C.CANVAS_W * _baseScale;
+      if (_gaW > canvas.width) {
+        var _rp = state.player;
+        if (_rp && state.proc === C.PROC.GAME) {
+          var _pxDev = (_rp.ma - state.fx) / 100 * _baseScale;
+          _renderOffsetX = Math.round(Math.max(canvas.width - _gaW, Math.min(0, canvas.width / 2 - _pxDev)));
+        } else {
+          _renderOffsetX = Math.round((canvas.width - _gaW) / 2);
+        }
+      }
+    }
     ctx.setTransform(_baseScale, 0, 0, _baseScale, _renderOffsetX, 0);
 
     // 背景
@@ -3858,7 +3872,7 @@
   var _BASE_FXMAX = C.FXMAX;
   var _baseScale = 1;       // 等比例缩放系数
   var _virtW = C.CANVAS_W;  // 当前虚拟宽度（420~..., 可变；420=与高度相等的正方形）
-  var _renderOffsetX = 0;   // 录像锁宽时锁定虚拟画面在宽画布上的居中偏移（设备像素）
+  var _renderOffsetX = 0;   // 录像锁宽时画面在画布上的水平偏移（设备像素，可为负=平移跟随）
 
   function resizeCanvas() {
     if (!canvas) return;
@@ -3868,8 +3882,10 @@
     var dpr = window.devicePixelRatio || 1;
     var newW = Math.floor(cssW * dpr);
     var newH = Math.floor(cssH * dpr);
-    // 录像录制/播放期：虚拟宽锁定为录像文件的镜头宽（FXMAX 参与物理，必须与录像一致），
-    // 宽画布两侧补黑边居中显示
+    // 录像录制/播放期：虚拟宽锁定为录像文件的镜头宽（FXMAX 参与物理，必须与录像一致）。
+    // 锁宽期渲染恒按高度撑满（scale=newH/420）：画面比画布窄→两侧黑边居中；
+    // 画面比画布宽（如 16:9 全屏播放宽屏录像）→ renderScene 每帧把可视窗口
+    // 平移跟随玩家，玩家永不被裁出屏。纯视觉偏移，物理/回放逐位一致不受影响。
     var lockW = GR.lockViewW();
 
     // 只在尺寸真正变化时才重设 canvas.width/height
@@ -3880,6 +3896,7 @@
       _virtW = lockW != null ? lockW : Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
       C.CANVAS_W = _virtW;
       C.FXMAX    = _virtW * 100;
+      // 居中初始值（可为负）；比画布宽时 renderScene 每帧按玩家位置重算
       _renderOffsetX = lockW != null ? Math.round((newW - lockW * _baseScale) / 2) : 0;
       return;
     }
