@@ -2637,11 +2637,21 @@
           // 与 Sprites.draw 一致：高清资源走高质量平滑插值，像素图保持最近邻
           var hdFlip = sp.img.naturalWidth >= sp.w * 1.5 || sp.img.naturalHeight >= sp.h * 1.5;
           if (hdFlip) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
+          var fdr = S.deviceRect ? S.deviceRect(ctx, dx, dy, sp.w, sp.h) : null;
           ctx.save();
-          ctx.translate(dx + sp.w / 2, dy + sp.h / 2);
-          ctx.scale(1, -1);
-          if (m) ctx.scale(-1, 1);
-          ctx.drawImage(sp.img, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
+          if (fdr) {
+            // 设备像素对齐后的翻转（同 Sprites.draw 对齐路径）
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.translate(fdr.dx + fdr.dw / 2, fdr.dy + fdr.dh / 2);
+            ctx.scale(1, -1);
+            if (m) ctx.scale(-1, 1);
+            ctx.drawImage(sp.img, -fdr.dw / 2, -fdr.dh / 2, fdr.dw, fdr.dh);
+          } else {
+            ctx.translate(dx + sp.w / 2, dy + sp.h / 2);
+            ctx.scale(1, -1);
+            if (m) ctx.scale(-1, 1);
+            ctx.drawImage(sp.img, -sp.w / 2, -sp.h / 2, sp.w, sp.h);
+          }
           ctx.restore();
           if (hdFlip) { ctx.imageSmoothingEnabled = false; ctx.imageSmoothingQuality = 'low'; }
         } else { S.draw(ctx, e.atype, 3, dx, dy, m); }
@@ -2742,8 +2752,17 @@
       }
       var im = _customImgCache[cu.dataUrl];
       if (im && im.complete && im.naturalWidth > 0) {
-        ctx.drawImage(im, Math.floor(xx[0] / 100), Math.floor(xx[1] / 100),
-          cu.tw * 29, cu.th * 29);
+        var cdx = Math.floor(xx[0] / 100), cdy = Math.floor(xx[1] / 100);
+        var cdw = cu.tw * 29, cdh = cu.th * 29;
+        var cdr = S.deviceRect ? S.deviceRect(ctx, cdx, cdy, cdw, cdh) : null;
+        if (cdr) {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.drawImage(im, cdr.dx, cdr.dy, cdr.dw, cdr.dh);
+          ctx.restore();
+        } else {
+          ctx.drawImage(im, cdx, cdy, cdw, cdh);
+        }
       }
     }
   }
@@ -2778,6 +2797,12 @@
         renderMb = _playerPrev.mb + dMb * alpha;
         state.player.mb = renderMb;
       }
+      // 全实体与镜头/玩家同一 alpha 插值（敌人/升降台/粒子/砖块/管道）
+      _interpList(state.enemies, 'aa', 'ab', alpha);
+      _interpList(state.lifts, 'sra', 'srb', alpha);
+      _interpList(state.particles, 'ea', 'eb', alpha);
+      _interpList(state.blocks, 'ta', 'tb', alpha);
+      _interpList(state.pipes, 'sa', 'sb', alpha);
     }
     _lastCamAlpha = alpha;
     _lastRenderFx = renderFx;
@@ -2790,6 +2815,11 @@
         state.player.ma = logicMa;
         state.player.mb = logicMb;
       }
+      _restoreList(state.enemies || [], 'aa', 'ab');
+      _restoreList(state.lifts || [], 'sra', 'srb');
+      _restoreList(state.particles || [], 'ea', 'eb');
+      _restoreList(state.blocks || [], 'ta', 'tb');
+      _restoreList(state.pipes || [], 'sa', 'sb');
     }
   }
 
@@ -3134,6 +3164,13 @@
       _playerPrev.ma = state.player.ma;
       _playerPrev.mb = state.player.mb;
     }
+    // 全实体快照：敌人/升降台/粒子/砖块/管道与镜头、玩家同一时基
+    _snapSeq++;
+    if (state.enemies) _snapList(state.enemies, 'aa', 'ab');
+    if (state.lifts) _snapList(state.lifts, 'sra', 'srb');
+    if (state.particles) _snapList(state.particles, 'ea', 'eb');
+    if (state.blocks) _snapList(state.blocks, 'ta', 'tb');
+    if (state.pipes) _snapList(state.pipes, 'sa', 'sb');
     var key = IN.get();
     _debugKey = key;
     _debugFrame++;
@@ -3274,6 +3311,38 @@
   var _CAM_SNAP_DIST = 100000;       // 兜底：帧间位移 >1000px 视为非连续跳变（外部直接写 fx/ma 时）
   var _lastCamAlpha = 0;             // 调试：最近一次渲染 alpha
   var _lastRenderFx = 0;             // 调试：最近一次实际绘制 fx
+
+  // ---- 全实体渲染插值（敌人/升降台/粒子/砖块/管道）----
+  // 逐实体快照字段 _px/_py/_ps：物理帧开始时记录坐标与快照序号，
+  // 渲染期按与镜头/玩家相同的 alpha 插值，finally 中恢复逻辑坐标。
+  // _ps 不等于当前序号 = 本物理帧新生成/跨关残留 → 直接吸附不插值；
+  // 数组被 filter/重建、索引漂移均不影响（快照挂在实体对象上）。
+  var _snapSeq = 0;
+  function _snapList(list, f1, f2) {
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      o._px = o[f1]; o._py = o[f2]; o._ps = _snapSeq;
+    }
+  }
+  function _interpList(list, f1, f2, alpha) {
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (o._ps !== _snapSeq) continue;                 // 新生成实体吸附
+      var dx = o[f1] - o._px, dy = o[f2] - o._py;
+      if (Math.abs(dx) >= _CAM_SNAP_DIST || Math.abs(dy) >= _CAM_SNAP_DIST) continue; // 传送/事件位移吸附
+      o._cx = o[f1]; o._cy = o[f2];                     // 逻辑坐标暂存（恢复用）
+      o[f1] = o._px + dx * alpha;
+      o[f2] = o._py + dy * alpha;
+    }
+  }
+  function _restoreList(list, f1, f2) {
+    for (var i = 0; i < list.length; i++) {
+      var o = list[i];
+      if (o._cx === undefined) continue;                // 未被插值（新生成/跳变/非本帧）
+      o[f1] = o._cx; o[f2] = o._cy;
+      o._cx = undefined; o._cy = undefined;
+    }
+  }
 
   // 按住 F 连续单步：由引擎 rAF 驱动，不依赖系统 keyrepeat
   // （系统 repeat 会切换到最后按下的键，按住 F 再按方向键时 F repeat 停止，导致暂停下物理帧停摆、方向键"失灵"）

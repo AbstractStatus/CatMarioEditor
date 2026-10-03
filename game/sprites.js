@@ -112,6 +112,22 @@
     return null;
   };
 
+  // 设备像素对齐：当前变换为纯平移+等比缩放（引擎 renderScene 的 _baseScale）
+  // 时，把目标矩形换算到设备空间取整，再切恒等变换绘制。
+  // 非整数缩放下分数设备坐标会让双线性采样相位逐帧漂移（运动拖影/边缘蠕动），
+  // 取整后采样相位恒定，画面稳定。返回 false 表示存在旋转/错切，调用方走原路径。
+  function deviceRect(ctx, x, y, w, h) {
+    var t = ctx.getTransform();
+    if (!(t.a > 0) || t.b !== 0 || t.c !== 0 || t.d <= 0) return null;
+    var dx = Math.round(x * t.a + t.e);
+    var dy = Math.round(y * t.d + t.f);
+    var dw = Math.round((x + w) * t.a + t.e) - dx;
+    var dh = Math.round((y + h) * t.d + t.f) - dy;
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    return { dx: dx, dy: dy, dw: dw, dh: dh };
+  }
+
   // 绘制精灵到画布上下文
   // 自适应：无论替换的 PNG 原始分辨率多大（高清重绘/原版像素图），
   // 一律把整图缩放到 manifest 声明的 w/h，绝不按 naturalWidth/Height 绘制
@@ -127,7 +143,19 @@
     // 一次性采样到最终设备像素，不存在“先缩到 30px 再放大”的中间锯齿。
     var hd = img.naturalWidth >= w * 1.5 || img.naturalHeight >= h * 1.5;
     if (hd) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
-    if (mirror) {
+    var dr = deviceRect(ctx, x, y, w, h);
+    if (dr) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (mirror) {
+        ctx.translate(dr.dx + dr.dw, dr.dy);
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, 0, 0, dr.dw, dr.dh);
+      } else {
+        ctx.drawImage(img, dr.dx, dr.dy, dr.dw, dr.dh);
+      }
+      ctx.restore();
+    } else if (mirror) {
       ctx.save();
       ctx.translate(x + w, y);
       ctx.scale(-1, 1);
@@ -139,6 +167,9 @@
     if (hd) { ctx.imageSmoothingEnabled = false; ctx.imageSmoothingQuality = 'low'; }
     return true;
   };
+
+  // 供引擎特殊翻转分支复用同一套设备像素对齐
+  Sprites.deviceRect = deviceRect;
 
   global.Sprites = Sprites;
 })(window);
