@@ -5149,19 +5149,26 @@
       note(col);
       var puid = 'p' + pi;
       if (p.stype === 50) {
-        // 原版 stype=50 竖管：sxtype=0→陷阱、1/2/5→普通（变体）
+        // 原版 stype=50 竖管：sxtype=0→陷阱（抖动向天上抛）、sxtype=2/5→即死管
+        // （main.cpp:1918-1919，沉入即死+台词，编辑器侧统一归为陷阱管道）、1/6→普通/传送
         // 坐标：sa = col*2900+500，sb = row*2900-1200（管口上沿）
         var pmCol = Math.round((p.sa - 500) / 2900);
         var pmRow = Math.round((p.sb / 100 + 12) / 29);
         // 长度：sd = 总高度（含管口），length = sd/2900 - 管口1格
         var pmLen = Math.max(1, Math.min(20, Math.max(1, Math.round((p.sd + 100) / 2900) - 1)));
-        var pmEntry = (p.sxtype === 0) ? 'trap' : 'none';
+        var pmEntry = (p.sxtype === 0 || p.sxtype === 2 || p.sxtype === 5) ? 'trap' : 'none';
         var pmExtra = { length: pmLen, dir: 'up', entry: pmEntry };
+        // 原版换关管（stype=50 sxtype=1/6，stages_data.js 已注入显式 warp）→ 传送管道
+        if (p.warp && (p.warp.end || p.warp.id) && p.sxtype !== 0) {
+          pmExtra.entry = 'warp';
+          pmExtra.warp = JSON.parse(JSON.stringify(p.warp));
+        }
         // 1-3 空中区(1-3-5)唯一管道（14列11行，sxtype=1）：原版进管 stc++(5→6→0)
         // 回地上，地上按 stagepoint 从屏顶落下（main.cpp:4450/4551，ma=4500,mb=-3000）。
         // 解耦为显式传送 → 1-3 地上 + 单次出生点覆盖；旧落点在格点边界附近，取最近格
         // (1列0行)（运行时换算 ma=3100,mb=-4200，同样从屏顶落下，死亡复活回 1-3 自身出生点）
-        if (def.id === '1-3-5' && p.sxtype === 1) {
+        // （旧档兜底：stages_data.js 已为该管注入同款 warp，命中上方 p.warp 分支）
+        else if (def.id === '1-3-5' && p.sxtype === 1) {
           pmExtra.entry = 'warp';
           pmExtra.warp = { end: false, id: '1-3', spawnMode: 'once', spawnCol: 1, spawnRow: 0 };
         }
@@ -5176,10 +5183,16 @@
         // 位置：sa=col*2900, sb=(row*29-12)*100, sc=3000, sd=5800
         // 作为特殊 pipe_mouth 存：stype=40 标记，dir='left'
         // sxtype=0 为喷出陷阱（原版 main.cpp:2556-2559，1-2/2-2-1 整蛊管）→ entry='eject'；
-        // sxtype=2 为换关（stc++）→ entry='none'
+        // sxtype=2 为换关（stc++）→ entry='none'；stages_data.js 已注入 warp 时 → 'warp'
         var pmCol40 = Math.round(p.sa / 2900);
         var pmRow40 = Math.round((p.sb / 100 + 12) / 29);
-        add('pipe_mouth', pmCol40, pmRow40, { length: 1, dir: 'left', entry: p.sxtype === 0 ? 'eject' : 'none', _origStype: 40 }, puid);
+        var pmEntry40 = (p.sxtype === 0) ? 'eject' : 'none';
+        var pmExtra40 = { length: 1, dir: 'left', entry: pmEntry40, _origStype: 40 };
+        if (p.warp && (p.warp.end || p.warp.id) && p.sxtype !== 0) {
+          pmExtra40.entry = 'warp';
+          pmExtra40.warp = JSON.parse(JSON.stringify(p.warp));
+        }
+        add('pipe_mouth', pmCol40, pmRow40, pmExtra40, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
         // 原版横管向左口（旧引擎 stype=5 无进入事件，仅装饰 → entry='off'）
         add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'off' }, puid);

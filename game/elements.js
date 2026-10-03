@@ -165,7 +165,14 @@
           p._trapPipe = s;   // 携带管道实例供死亡日志溯源 uid
         } else {
           p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
-          p._warp = null;
+          // 原版 stype=40 换关管（sxtype=2）解耦为显式 warp（stages_data.js 注入）：
+          // 携带 warp 时进管动画结束走 onWarp（同 stype=60），无 warp 保持 stc++ 兜底
+          p._warp = s.warp ? {
+            end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null,
+            spawnMode: (s.warp.spawnMode === 'once' || s.warp.spawnMode === 'forever') ? s.warp.spawnMode : undefined,
+            spawnCol: s.warp.spawnCol | 0,
+            spawnRow: s.warp.spawnRow | 0
+          } : null;
           p._trapPipe = null;
         }
         return true;
@@ -229,6 +236,15 @@
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = s.sxtype;
         // sxtype===0 为陷阱管道：记录管道对象，动画期间驱动管道本体抖动/上升
         p._trapPipe = (s.sxtype === 0) ? s : null;
+        // 原版 stype=50 换关管（sxtype=1/6）解耦为显式 warp（stages_data.js 注入）：
+        // 携带 warp 时进管动画结束走 onWarp（同 stype=60），无 warp 保持 stc++ 兜底；
+        // 陷阱管（sxtype=0）强制无 warp
+        p._warp = (s.warp && s.sxtype !== 0) ? {
+          end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null,
+          spawnMode: (s.warp.spawnMode === 'once' || s.warp.spawnMode === 'forever') ? s.warp.spawnMode : undefined,
+          spawnCol: s.warp.spawnCol | 0,
+          spawnRow: s.warp.spawnRow | 0
+        } : null;
         return true;
       }
       return false;

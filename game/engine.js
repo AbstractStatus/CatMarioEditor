@@ -985,6 +985,14 @@
         } else {
           p.mc = 0; p.md = 0;
           if (p.mtm <= 16) { p.ma += sinkDx; p.mb += sinkDy; }
+          // 旧引擎即死管（stype=50 sxtype=2/5 → mxtype=2/5，main.cpp:1918-1919）：
+          // 沉入后 mtm==19 即死（mhp=0，无视残机）+ 台词气泡（51「这...!!」/ 52「死路一条」），不换关。
+          // 1-2-1 地下的三根连续管（sxtype=5）即此陷阱
+          if (p.mtm === 19 && (p.mxtype === 2 || p.mxtype === 5)) {
+            sayPlayer(p.mxtype === 2 ? 51 : 52, 30);
+            markHurt('trap-pipe-msg', p._trapPipe ? p._trapPipe.uid : null);
+            p._trapPipe = null; p.mtype = 0; p.mhp = 0;
+          }
           if (p.mtm === 20) {
             // 玩家已完全沉入管道并离屏：进行关卡切换
             p.mb = -80000000; p.mtype = 0; A.bgmStop();
@@ -3636,6 +3644,7 @@
   // 伤害原因 → 中文（与各 markHurt 调用点一一对应）
   var HURT_REASON_CN = {
     'trap-pipe': '陷阱管道：进入伪装管道，被带到高空后抛下',
+    'trap-pipe-msg': '陷阱管道：进入死路管道（旧引擎 sxtype=2/5 即死管）',
     'pipe-eject': '喷出管道：进入后从管口被喷出',
     'out-of-world': '坠入深渊：掉出地图底部',
     'spike': '尖刺：撞上地刺',

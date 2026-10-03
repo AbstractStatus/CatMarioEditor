@@ -718,6 +718,18 @@ body.dragging #dropTip { display: flex; }
           var pmPipe40 = { sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: e.entry === 'eject' ? 0 : 2, uid: e.uid || null, dir: 'left' };
           // entry='off'（无进入事件）：透传给引擎，PipeTypes[40].onEnter 据此禁用进入
           if (pmEntry === 'off') pmPipe40.entry = 'off';
+          // entry='warp'（传送管道）：保留 stype=40 原始几何，透传 warp 目标
+          //（PipeTypes[40].onEnter 读取 s.warp，进管动画结束走 onWarp，同 stype=60）
+          if (pmEntry === 'warp') {
+            pmPipe40.warp = (e.warp && (e.warp.end || e.warp.id))
+              ? { end: !!e.warp.end, id: e.warp.id || null }
+              : { end: true, id: null };
+            if (e.warp && (e.warp.spawnMode === 'once' || e.warp.spawnMode === 'forever')) {
+              pmPipe40.warp.spawnMode = e.warp.spawnMode;
+              pmPipe40.warp.spawnCol = e.warp.spawnCol | 0;
+              pmPipe40.warp.spawnRow = e.warp.spawnRow | 0;
+            }
+          }
           pipes.push(pmPipe40);
         } else {
           var pmStype, pmSxtype;
