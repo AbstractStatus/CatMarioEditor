@@ -1055,15 +1055,11 @@ body.dragging #dropTip { display: flex; }
   // 坐标能在原版 STAGES 命中时返回对应关；自定义关或数据缺失时回退当前关
   window.Levels = window.Levels || {};
   window.Levels.get = function (sta, stb, stc) {
-    // 原版 main.cpp:4450：1-3 空中区返回管道（stc++ → 6）重置为地上(0)；
-    // 返回时按原版 stagepoint 语义（main.cpp:4551）从空中落回关卡开头（ma=4500, mb=-3000）
-    var returnFromSky = false;
-    if (sta === 1 && stb === 3 && (stc || 0) === 6) { stc = 0; returnFromSky = true; }
     if (isWorldChain) {
       // 若 levelConv 与目标关卡同坐标且携带 eventTriggers（_worldDef 分支注入），
       // 优先返回 levelConv：findStageByCoord 返回 STAGES 原始对象，未经 _worldDef
       // 分支的 eventTriggers/uid 注入，引擎 loadStage 读不到 eventTriggers 和 uid
-      if (!returnFromSky && levelConv && levelConv.sta === sta && levelConv.stb === stb &&
+      if (levelConv && levelConv.sta === sta && levelConv.stb === stb &&
           (levelConv.stc || 0) === (stc || 0) &&
           (levelConv.eventTriggers || levelConv._hasInjections)) {
         return levelConv;
@@ -1073,10 +1069,6 @@ body.dragging #dropTip { display: flex; }
         // STAGES 原始关卡首次被坐标链解析到时注入 uid/events/eventTriggers
         // （幂等），否则进管/通关后问号球不显示、触碰事件缺失
         injectWorldDef(t);
-        if (returnFromSky) {
-          // 浅拷贝覆盖出生点，避免污染共享 STAGES 原始对象
-          t = Object.assign({}, t, { spawn: { ma: 4500, mb: -3000 } });
-        }
         levelConv = t;
         return t;
       }
@@ -1214,16 +1206,25 @@ body.dragging #dropTip { display: flex; }
       }
       // 1-3 桃色音符块（18/19/20 列，txtype 0/1）：原版硬编码 stc+=5 弹入空中区，
       // 解耦为显式传送目标 → 1-3-5（空中区 空中）；已带 warp 时不覆盖。
-      // 出生位置：原版 1-3-5 固定 ma=3000,mb=33000（≈编辑器 1列13行），空中关内死亡复活
-      // 也回此点，故注入「永远修改」，避免依赖目标关自身 spawn
+      // 不修改出生位置：空中区自身 spawn（ma=3000,mb=33000）即旧引擎落点，死亡复活同理
       if (conv.id === '1-3' && b.type === 117 && (b.xt || 0) < 2 &&
           !(b.warp && (b.warp.end || b.warp.id))) {
-        b.warp = { end: false, id: '1-3-5', spawnMode: 'forever', spawnCol: 1, spawnRow: 13 };
+        b.warp = { end: false, id: '1-3-5' };
       }
     });
     // 2) pipes 注入 uid（'p'+pi）
     (conv.pipes || []).forEach(function (p, pi) {
       if (!p.uid) p.uid = 'p' + pi;
+      // 1-3 空中区(1-3-5)唯一管道（14列11行，原版 stype=50/sxtype=1）：原版进管
+      // stc++(5→6→0) 回地上并按 stagepoint 从屏顶落下（main.cpp:4450/4551），
+      // 解耦为显式传送 → 1-3 地上 + 单次出生点覆盖（旧 ma=4500,mb=-3000 取最近格
+      // 1列0行）；用户已配置 warp 的数据不覆盖
+      if (conv.id === '1-3-5' && p.stype === 50 && p.sxtype === 1 &&
+          !(p.warp && (p.warp.end || p.warp.id))) {
+        p.stype = 60;
+        p.sxtype = 1;
+        p.warp = { end: false, id: '1-3', spawnMode: 'once', spawnCol: 1, spawnRow: 0 };
+      }
     });
     // 3) enemies 注入 uid（'e'+ei）
     (conv.enemies || []).forEach(function (en, ei) {

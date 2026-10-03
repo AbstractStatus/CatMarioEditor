@@ -5119,11 +5119,11 @@
       }
       // 1-3 桃色音符块（txtype 0/1）：原版硬编码 stc+=5 弹入空中区，解耦为显式
       // 传送目标 → 1-3-5（空中区 空中）；白色音符块(txtype>=2)仅普通大跳，不带 warp。
-      // 出生位置：原版 1-3-5 载入即 ma=3000,mb=33000（≈编辑器 1列13行），空中关内死亡复活
-      // 也回到此点（main.cpp 1-3(空中) 分支），故配置为「永远修改」
+      // 不修改出生位置：原版冲顶换关只当次载入空中区自身出生点（ma=3000,mb=33000，
+      // 即 1-3-5 关卡自身 spawn），死亡复活同样走该点，无需传送器覆盖
       if (def.id === '1-3' && b.type === 117 && (b.xt || 0) < 2) {
         extra = extra || {};
-        extra.warp = { end: false, id: '1-3-5', spawnMode: 'forever', spawnCol: 1, spawnRow: 13 };
+        extra.warp = { end: false, id: '1-3-5' };
       }
       add(bid, col, row, extra, 'b' + bi);
     });
@@ -5143,7 +5143,16 @@
         // 长度：sd = 总高度（含管口），length = sd/2900 - 管口1格
         var pmLen = Math.max(1, Math.min(20, Math.max(1, Math.round((p.sd + 100) / 2900) - 1)));
         var pmEntry = (p.sxtype === 0) ? 'trap' : 'none';
-        add('pipe_mouth', pmCol, pmRow, { length: pmLen, dir: 'up', entry: pmEntry }, puid);
+        var pmExtra = { length: pmLen, dir: 'up', entry: pmEntry };
+        // 1-3 空中区(1-3-5)唯一管道（14列11行，sxtype=1）：原版进管 stc++(5→6→0)
+        // 回地上，地上按 stagepoint 从屏顶落下（main.cpp:4450/4551，ma=4500,mb=-3000）。
+        // 解耦为显式传送 → 1-3 地上 + 单次出生点覆盖；旧落点在格点边界附近，取最近格
+        // (1列0行)（运行时换算 ma=3100,mb=-4200，同样从屏顶落下，死亡复活回 1-3 自身出生点）
+        if (def.id === '1-3-5' && p.sxtype === 1) {
+          pmExtra.entry = 'warp';
+          pmExtra.warp = { end: false, id: '1-3', spawnMode: 'once', spawnCol: 1, spawnRow: 0 };
+        }
+        add('pipe_mouth', pmCol, pmRow, pmExtra, puid);
       } else if (p.stype === 60) {
         var pmCol2 = Math.round((p.sa - 500) / 2900);
         var pmRow2 = Math.round((p.sb / 100 + 12) / 29);
