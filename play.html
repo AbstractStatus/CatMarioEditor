@@ -275,9 +275,9 @@ body.dragging #dropTip { display: flex; }
 <script src="sprites.js?v=hd4"></script>
 <script src="audio.js?v=custom8"></script>
 <script src="input.js?v=custom5"></script>
-<script src="elements.js?v=evlog26"></script>
+<script src="elements.js?v=evlog27"></script>
 <script src="levels.js?v=custom3"></script>
-<script src="engine.js?v=hd61"></script>
+<script src="engine.js?v=hd63"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell15"></script>
 <script>
@@ -713,12 +713,13 @@ body.dragging #dropTip { display: flex; }
         var pmDir = e.dir || 'up';
         var pmEntry = e.entry || 'none';
         var pmWarp = null;
-        // 原版 stype=40 左进入管道（保持原样）
+        // 原版 stype=40 左进入管道（保持原样）：sxtype=0 喷出陷阱 / 2 换关（编辑器 entry 映射回原版语义）
         if (e._origStype === 40) {
-          pipes.push({ sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: 0, uid: e.uid || null, dir: 'left' });
+          pipes.push({ sa: c * 2900, sb: (r * 29 - 12) * 100, sc: 3000, sd: 5800, stype: 40, sxtype: e.entry === 'eject' ? 0 : 2, uid: e.uid || null, dir: 'left' });
         } else {
           var pmStype, pmSxtype;
-          if (pmEntry === 'trap') { pmStype = 50; pmSxtype = 0; }
+          if (pmEntry === 'eject') { pmStype = 50; pmSxtype = 1; }
+          else if (pmEntry === 'trap') { pmStype = 50; pmSxtype = 0; }
           else if (pmEntry === 'warp') {
             pmStype = 60; pmSxtype = 1;
             pmWarp = e.warp && (e.warp.end || e.warp.id)
@@ -732,6 +733,8 @@ body.dragging #dropTip { display: flex; }
             }
           } else { pmStype = 50; pmSxtype = 1; }
           var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
+          // 喷出管道：entry 标记透传给引擎（PipeTypes[50].onEnter 按 entry==='eject' 进入 mxtype=10）
+          if (pmEntry === 'eject') pmPipe.entry = 'eject';
           // 陷阱管道抖动动画覆盖（编辑器属性面板 → 引擎 tp.trapAnim）
           if (e.trapAnim && typeof e.trapAnim === 'object') pmPipe.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));
           if (pmDir === 'up') {

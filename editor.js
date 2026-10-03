@@ -231,6 +231,18 @@
         if (e.bhv) o.bhv = JSON.parse(JSON.stringify(e.bhv));   // 行为属性覆盖（BlockTypes/LiftTypes）
         if (e.trapAnim) o.trapAnim = JSON.parse(JSON.stringify(e.trapAnim));   // 陷阱管道抖动动画覆盖
         if (e.events && e.events.length) o.events = JSON.parse(JSON.stringify(e.events));   // 事件触发器动作列表
+        // 管道口字段（length/entry/_origStype/spray*）：进入事件（含喷出管道）必须随快照保留，
+        // 否则撤销后喷出/传送/陷阱管道会静默退化为普通管道
+        if (e.id === 'pipe_mouth') {
+          if (e.length != null) o.length = e.length;
+          if (e.entry) o.entry = e.entry;
+          if (e._origStype) o._origStype = e._origStype;
+          if (e.spray) {
+            o.spray = true;
+            if (e.sprayTarget) o.sprayTarget = e.sprayTarget;
+            if (e.sprayFreq != null) o.sprayFreq = e.sprayFreq;
+          }
+        }
         // 合并升降台：运动模式 + 往复方向 + 颜色 + 接触事件
         if (e.id === 'lift') {
           if (e.move) o.move = true;
@@ -2204,7 +2216,7 @@
     if (id === 'pipe_mouth') {
       push({ field: 'length', label: '管身长度', kind: 'num', min: 1, max: 20, tip: '格；引擎按方向重算尺寸' });
       push({ field: 'dir', label: '开口方向', kind: 'enum', opts: [['up', '↑ 向上'], ['down', '↓ 向下'], ['left', '← 向左'], ['right', '→ 向右']], tip: '' });
-      push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['trap', '陷阱管道'], ['warp', '传送管道']], tip: '' });
+      push({ field: 'entry', label: '进入事件', kind: 'enum', opts: [['none', '普通管道'], ['trap', '陷阱管道'], ['warp', '传送管道'], ['eject', '喷出管道']], tip: '' });
       push({ field: 'spray', label: '是否喷射', kind: 'bool', tip: '运行时仅标记，不动态创建喷射生成器' });
       push({ field: 'sprayTarget', label: '喷射对象', kind: 'ref', cat: 'enemy', tip: '从管口喷出的敌人' });
       push({ field: 'sprayFreq', label: '喷射周期', kind: 'num', min: 0.1, max: 10, tip: '秒；旧引擎1-2-1默认1.6秒(=sgtype48物理帧)' });
@@ -2803,7 +2815,7 @@
       fPmLen = numInput(1, 20, Math.max(1, selected.length | 0 || d.length || 1));
       propBody.appendChild(propRow('管身长度', fPmLen, '格'));
       fPmEntry = document.createElement('select');
-      [['none', '普通管道（可从管口进入）'], ['trap', '陷阱管道（进入即阵亡）'], ['warp', '传送管道（进入即传送到目标）']].forEach(function (op) {
+      [['none', '普通管道（可从管口进入）'], ['trap', '陷阱管道（进入即阵亡）'], ['warp', '传送管道（进入即传送到目标）'], ['eject', '喷出管道（进入后被喷出后阵亡）']].forEach(function (op) {
         var opt = document.createElement('option'); opt.value = op[0]; opt.textContent = op[1];
         if ((selected.entry || d.entry || 'none') === op[0]) opt.selected = true;
         fPmEntry.appendChild(opt);
@@ -5162,9 +5174,11 @@
         // 原版左进入管道（简单 AABB，无 onEnter，只是实心绿色矩形）
         // 位置：sa=col*2900, sb=(row*29-12)*100, sc=3000, sd=5800
         // 作为特殊 pipe_mouth 存：stype=40 标记，dir='left'
+        // sxtype=0 为喷出陷阱（原版 main.cpp:2556-2559，1-2/2-2-1 整蛊管）→ entry='eject'；
+        // sxtype=2 为换关（stc++）→ entry='none'
         var pmCol40 = Math.round(p.sa / 2900);
         var pmRow40 = Math.round((p.sb / 100 + 12) / 29);
-        add('pipe_mouth', pmCol40, pmRow40, { length: 1, dir: 'left', entry: 'none', _origStype: 40 }, puid);
+        add('pipe_mouth', pmCol40, pmRow40, { length: 1, dir: 'left', entry: p.sxtype === 0 ? 'eject' : 'none', _origStype: 40 }, puid);
       } else if (p.stype === 5 && p.sxtype === 10) {
         // 原版横管向左口
         add('pipe_mouth', col, row, { length: 1, dir: 'left', entry: 'none' }, puid);

@@ -145,7 +145,8 @@
   };
 
   // stype 40: 左进入管道（与竖管口相同，y偏移1px）
-  // 原版左进入管道：玩家在左侧按→进入，进入下一子关（stc++）
+  // 原版左进入管道：sxtype=0 喷出陷阱（玩家进入后被反向喷出后受伤，main.cpp:2556-2559），
+  // 其余（sxtype=2 等）进入下一子关（stc++）
   PipeTypes[40] = {
     solid: true,
     render: function (ctx, s, x, y, w, h) {
@@ -155,9 +156,16 @@
     onEnter: function (p, s, xx, state) {
       var C = getC();
       if (pipeEnterCheck(p, s, xx)) {
-        p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
-        p._warp = null;
-        p._trapPipe = null;
+        // sxtype=0（原版数据）/entry='eject'（编辑器「喷出管道」）：喷出陷阱（mxtype=10）
+        if (s.sxtype === 0 || s.entry === 'eject') {
+          p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 10;
+          p._warp = null;
+          p._trapPipe = s;   // 携带管道实例供死亡日志溯源 uid
+        } else {
+          p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
+          p._warp = null;
+          p._trapPipe = null;
+        }
         return true;
       }
       return false;
@@ -206,6 +214,14 @@
     onEnter: function (p, s, xx, state) {
       var C = getC();
       if (pipeEnterCheck(p, s, xx)) {
+        // 编辑器「喷出管道」（entry='eject'）：进入后被沿开口方向喷出（mxtype=10），
+        // 四方向通用化（原版仅左开口横管 stype=40 sxtype=0 有此行为）
+        if (s.entry === 'eject') {
+          p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 10;
+          p._warp = null;
+          p._trapPipe = s;
+          return true;
+        }
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = s.sxtype;
         // sxtype===0 为陷阱管道：记录管道对象，动画期间驱动管道本体抖动/上升
         p._trapPipe = (s.sxtype === 0) ? s : null;

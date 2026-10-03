@@ -30,7 +30,7 @@
     { id: 'pipe_mouth', cat: 'struct', name: '管道口', kind: 'vector',
       tw: 2, th: 4,
       dir: 'up', length: 3, entry: 'none', spray: false, sprayTarget: 'enemy_fireball', sprayFreq: 1.6,
-      hint: '统一管道元素：dir=管口朝向(up/down/left/right 默认up)、length=管身长度格(默认3)、entry=进入事件(none/trap/warp)、spray=是否周期喷射(默认否)、sprayTarget=喷射对象(默认喷火)、sprayFreq=喷射周期秒(默认1.6=旧引擎1-2-1喷火土管sgtype=48帧)' },
+      hint: '统一管道元素：dir=管口朝向(up/down/left/right 默认up)、length=管身长度格(默认3)、entry=进入事件(none/trap/warp/eject 喷出=进入后沿管口方向喷出后阵亡)、spray=是否周期喷射(默认否)、sprayTarget=喷射对象(默认喷火)、sprayFreq=喷射周期秒(默认1.6=旧引擎1-2-1喷火土管sgtype=48帧)' },
     { id: 'pipe_cross', cat: 'struct', name: '四口连接管', kind: 'vector',
       tw: 2, th: 2, rot: 0, lengths: [1,1,1,1], hint: '四个方向都连接的管道交叉点；中心块 2×2 满格，每端口向外延伸 1-4 格管身（可配）' },
     { id: 'pipe_tee', cat: 'struct', name: '三口连接管', kind: 'vector',

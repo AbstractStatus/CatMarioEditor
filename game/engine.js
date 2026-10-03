@@ -478,6 +478,8 @@
       }
       // stype=60 传送管道口：保留传送目标 {end,id} 及出生位置覆盖
       if (p.warp) pipe.warp = copyWarp(p.warp);
+      // 喷出管道（编辑器 pipe_mouth entry='eject'）：透传进入事件标记（PipeTypes[50] 读取）
+      if (p.entry) pipe.entry = p.entry;
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
       // stype=51 延时（秒）：convert 路径由元素 delay 提供；原版 sxtype=1/2（1-2-1 连锁桥）
@@ -953,6 +955,32 @@
             sayPlayer(52, 30);   // 「死路一条」（旧 mxtype=5 为入管即死，新引擎陷阱管道统一在抬升终结时说）
             p._trapPipe = null; p.mtype = 0; p.mhp--;
             _debugLog.push({ f: _debugFrame, key: key, ma: p.ma, mb: p.mb, mc: p.mc, md: p.md, mz: p.mzimen, mt: p.mtype, before: true, mhpDmg: true, reason: 'pipe-exit', uid: state._lastHurt ? state._lastHurt.uid : null });
+          }
+        } else if (p.mxtype === 10) {
+          // 喷出管道（原版「ふっとばし」main.cpp:1904-1913）：沉入后沿管口开口方向
+          // 反向喷出，喷出结束后受伤（mhp--，1血即死）。四方向泛化：
+          //   横管（开口左/右）：mtm16 先向上弹出管口（原版 mb-=1100）、mtm24 起沿开口
+          //   方向水平喷出（2000/物理帧）并转身背对管口；
+          //   竖管（开口上/下）：mtm24 起沿开口方向垂直喷出。
+          p.mc = 0; p.md = 0;
+          // 沉入/喷出均按整数物理帧步进（mtm 先加后判断，与原版30Hz switch 逐点一致；
+          // 60Hz 半整数帧不步进，保证跨刷新率在相同 mtm 检查点轨迹逐点一致）
+          if (p.mtm % 1 === 0 && p.mtm <= 16) { p.ma += sinkDx; p.mb += sinkDy; }
+          if (pdir === 'left' || pdir === 'right') {
+            if (p.mtm === 16) p.mb -= 1100;
+            if (p.mtm % 1 === 0 && p.mtm >= 24 && p.mtm < 48) {
+              p.ma += (pdir === 'left' ? -2000 : 2000);
+              p.mmuki = (pdir === 'left') ? 0 : 1;
+            }
+          } else {
+            if (p.mtm % 1 === 0 && p.mtm >= 24 && p.mtm < 48) {
+              p.mb += (pdir === 'up' ? -2000 : 2000);
+            }
+          }
+          if (p.mtm === 20) A.playSE(C.SE.GHOST_SPRING);   // 原版 soundplay(10)
+          if (p.mtm >= 48) {
+            markHurt('pipe-eject', p._trapPipe ? p._trapPipe.uid : null);
+            p._trapPipe = null; p.mtype = 0; p.mhp--;
           }
         } else {
           p.mc = 0; p.md = 0;
@@ -3604,6 +3632,7 @@
   // 伤害原因 → 中文（与各 markHurt 调用点一一对应）
   var HURT_REASON_CN = {
     'trap-pipe': '陷阱管道：进入伪装管道，被带到高空后抛下',
+    'pipe-eject': '喷出管道：进入后从管口被喷出',
     'out-of-world': '坠入深渊：掉出地图底部',
     'spike': '尖刺：撞上地刺',
     'fatigue-lift': '疲劳升降台：站台停留过久失控坠落',
