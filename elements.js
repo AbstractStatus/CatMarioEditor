@@ -119,7 +119,7 @@
     { id: 'b2_off', cat: 'block', name: 'OFF开关块', kind: 'sprite', img: 'block/b2_off.png',
       tw: 1, th: 1, ttype: 131, hint: 'ttype=131：蓝色OFF块' },
     { id: 'b2_note_peach', cat: 'block', name: '音符块(桃色)', kind: 'sprite', img: 'block/b2_note_peach.png',
-      tw: 1, th: 1, ttype: 117, hint: 'ttype=117：隐形弹跳块，触碰显形并匀速弹上传送到上空子关(stc+=5)' },
+      tw: 1, th: 1, ttype: 117, hint: 'ttype=117：隐形弹跳块，触碰显形并匀速弹飞，冲出屏幕顶后传送到「传送目标」场景（默认1-3-5空中区，可在⚙属性修改）' },
     { id: 'b2_note_white', cat: 'block', name: '音符块(白色)', kind: 'sprite', img: 'block/b2_note_white.png',
       tw: 1, th: 1, ttype: 117, hint: 'ttype=117：可见白色大跳块，普通弹跳不传送' },
     { id: 'b2_sword', cat: 'block', name: '剑刺陷阱', kind: 'sprite', img: 'block/b2_sword.png',

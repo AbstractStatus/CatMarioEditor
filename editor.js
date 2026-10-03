@@ -800,6 +800,14 @@
     if (d.id === 'block_brick_m') { ne.ori = d.ori || 'h'; ne.count = d.count || 3; }
     if (d.id === 'pipe_mouth') { ne.length = Math.max(1, d.length || 1); ne.dir = d.dir || 'up'; ne.entry = d.entry || 'none'; if (ne.entry === 'warp') ne.warp = { end: true, id: null }; if (d.spray) { ne.spray = true; ne.sprayTarget = d.sprayTarget || 'enemy_fireball'; ne.sprayFreq = +d.sprayFreq > 0 ? +d.sprayFreq : 1.6; } }
     if (d.id === 'block_question' || d.id === 'block_hidden') { ne.pop = d.pop || 'coin'; ne.mass = !!d.mass; }
+    // 桃色音符块：默认传送到 1-3-5 空中区（原版 stc+=5 的语义）；原版数据缺失时退化为第一个原版关卡
+    if (d.id === 'b2_note_peach') {
+      var _noteDefault = '1-3-5';
+      if (!(window.STAGES || []).some(function (s) { return s.id === _noteDefault; })) {
+        _noteDefault = (window.STAGES && window.STAGES[0]) ? window.STAGES[0].id : '1-1';
+      }
+      ne.warp = { end: false, id: _noteDefault };
+    }
     if (d.id === 'pipe_cross' || d.id === 'pipe_tee' || d.id === 'pipe_L_a' || d.id === 'pipe_L_b') {
       ne.lengths = (d.lengths || [1, 1]).slice();
       ne.rot = 0;
@@ -2218,9 +2226,9 @@
       push({ field: 'cev.launchMc',     label: '弹飞力度', kind: 'num', min: -9999, max: 0, tip: '勾选「弹飞」时生效（默认 -2400）' });
       push({ field: 'cev.fatigueFrames', label: '疲劳帧数', kind: 'num', min: 1, max: 999, tip: '勾选「弹飞」时连续站立多少帧后碎裂（默认100）' });
     }
-    // 传送目标
-    if (def.warpable) {
-      push({ field: 'warp', label: '传送目标', kind: 'enum', opts: (window.STAGES || []).map(function (s) { return [s.id, s.id + ' ' + s.name]; }).concat([['__end__', '游戏结束（通关）']]), tip: '进入管道后前往' });
+    // 传送目标（传送管道 / 桃色音符块）
+    if (def.warpable || id === 'b2_note_peach') {
+      push({ field: 'warp', label: '传送目标', kind: 'enum', opts: (window.STAGES || []).map(function (s) { return [s.id, s.id + ' ' + s.name]; }).concat([['__end__', '游戏结束（通关）']]), tip: id === 'b2_note_peach' ? '音符块弹飞冲顶后前往' : '进入管道后前往' });
     }
     return f;
   }
@@ -3127,6 +3135,43 @@
       var nb0 = selected.bhv || {};
       fBhvBounce = numInput(-9999, 0, nb0.bounceMd != null ? nb0.bounceMd : -1500);
       propBody.appendChild(propRow('弹跳力度', fBhvBounce, '负值=向上弹起，-1500 为原版默认'));
+    }
+    // 桃色音符块：传送目标（踩中后匀速弹飞，冲出屏幕顶时前往；白色音符块仅普通大跳，无此项）
+    if (d.id === 'b2_note_peach') {
+      fWarp = document.createElement('select');
+      var nbOptEnd = document.createElement('option');
+      nbOptEnd.value = '__end__'; nbOptEnd.textContent = '🏁 游戏结束（通关）';
+      fWarp.appendChild(nbOptEnd);
+      loadSceneLib();
+      if (sceneLib.length) {
+        var nbOgMine = document.createElement('optgroup'); nbOgMine.label = '📝 我的场景';
+        sceneLib.forEach(function (r) {
+          var o = document.createElement('option');
+          o.value = 'sc:' + r.key; o.textContent = '📝 ' + r.name;
+          nbOgMine.appendChild(o);
+        });
+        fWarp.appendChild(nbOgMine);
+      }
+      var nbOgStg = document.createElement('optgroup'); nbOgStg.label = '🌍 原版关卡';
+      (window.STAGES || []).forEach(function (s) {
+        var o = document.createElement('option');
+        o.value = s.id; o.textContent = '🌍 ' + s.id + ' ' + s.name;
+        nbOgStg.appendChild(o);
+      });
+      fWarp.appendChild(nbOgStg);
+      var nbWv = selected.warp && !selected.warp.end ? (selected.warp.id || '__end__') : '__end__';
+      var nbWExists = false;
+      for (var nbi = 0; nbi < fWarp.options.length; nbi++) {
+        if (fWarp.options[nbi].value === nbWv) { nbWExists = true; break; }
+      }
+      if (!nbWExists) {
+        var nbStale = document.createElement('option');
+        nbStale.value = nbWv;
+        nbStale.textContent = '⚠ 目标已失效：' + (nbWv.indexOf('sc:') === 0 ? nbWv.slice(3) : nbWv);
+        fWarp.appendChild(nbStale);
+      }
+      fWarp.value = nbWv;
+      propBody.appendChild(propRow('传送目标', fWarp, '踩中音符块弹飞到屏幕顶后前往：游戏结束 / 我的场景 / 原版关卡（原版 1-3 默认 1-3-5 空中区）'));
     }
     if (d.id === 'item_jumppad') {
       var jb0 = selected.bhv || {};
@@ -4982,6 +5027,12 @@
       // 提示块：恢复 txtype → hintType
       if (b.type === 300 && b.xt >= 1 && b.xt <= 100) {
         extra = { hintType: String(b.xt) };
+      }
+      // 1-3 桃色音符块（txtype 0/1）：原版硬编码 stc+=5 弹入空中区，解耦为显式
+      // 传送目标 → 1-3-5（空中区 空中）；白色音符块(txtype>=2)仅普通大跳，不带 warp
+      if (def.id === '1-3' && b.type === 117 && (b.xt || 0) < 2) {
+        extra = extra || {};
+        extra.warp = { end: false, id: '1-3-5' };
       }
       add(bid, col, row, extra, 'b' + bi);
     });

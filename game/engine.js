@@ -399,7 +399,10 @@
         showQ: !!b.showQ,
         uid: b.uid || null,
         // 行为属性覆盖（BlockTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
-        bhv: b.bhv ? JSON.parse(JSON.stringify(b.bhv)) : null
+        bhv: b.bhv ? JSON.parse(JSON.stringify(b.bhv)) : null,
+        // ttype=117 桃色音符块：冲顶后的传送目标 {end,id}（解耦原硬编码 stc+=5；
+        // 无此字段时走原版默认上空子关 stc+=5）
+        warp: b.warp ? { end: !!b.warp.end, id: b.warp.id || null } : null
       });
     });
     var _gridBlocks = [];
@@ -1012,18 +1015,33 @@
     }
 
     // 音符块弹跳上升+传送（原版 main.cpp:1861-1869）：mtype=2 期间每帧重置 md=-1500 匀速上升、
-    // 锁输入，冲出屏幕顶（mb<=-6000）后 stc+=5 切换到上空子关（如 1-3 地上(0)→空中区(5)）
+    // 锁输入，冲出屏幕顶（mb<=-6000）后切换关卡。目标由弹跳的音符块实例 warp 属性决定
+    // （编辑器「传送目标」：游戏结束/我的场景/原版关卡）；无 warp 时走原版默认 stc+=5
+    // 切换到上空子关（如 1-3 地上(0)→空中区(5)）
     if (p.mtype === C.MTYPE.NOTE) {
       p.mtm += C._DT;
       p.mkeytm = 2;
       p.md = -1500;
       if (p.mb <= -6000) {
         p.mtype = 0; p.mtm = 0; p.mkeytm = 0;
+        p.mb = -80000000;
         A.bgmStop();
         state.checkpoint = null;
-        state.stc += 5;   // 原版 stc+=5：如 1-3 地上(0)→空中区(5)
-        startGame();
-        state.proc = C.PROC.STAGE_START; state.maintm = 0;
+        var noteWarp = p._noteWarp; p._noteWarp = null;
+        var noteWarpUid = p._noteWarpUid; p._noteWarpUid = null;
+        var noteProceed = true;
+        if (noteWarp && (noteWarp.end || noteWarp.id) && typeof state.onWarp === 'function') {
+          // 与传送管道口同一宿主钩子：onWarp 返回 false 表示宿主自行处理（如回标题），引擎不重载。
+          // via='note' 供宿主区分触发来源（音符块 vs 传送管道），仅作文案用途
+          noteProceed = state.onWarp({ end: !!noteWarp.end, id: noteWarp.id || null, via: 'note' }) !== false;
+          if (noteWarp.end) pushEvent({ kind: 'goal', via: 'note', f: _debugFrame, uid: noteWarpUid, ma: p.ma, mb: p.mb });
+        } else {
+          state.stc += 5;   // 原版 stc+=5：如 1-3 地上(0)→空中区(5)
+        }
+        if (noteProceed) {
+          startGame();
+          state.proc = C.PROC.STAGE_START; state.maintm = 0;
+        }
       }
     }
     // 跳台弹飞（原版 main.cpp:1872-1875）：匀速上升，冲出屏幕顶即死亡
@@ -1151,9 +1169,16 @@
                 if (b.ttype === 117 && b.txtype >= 2) {
                   // 原版 main.cpp:2122：txtype>=2 音符块=白色普通大跳（不进入上升/传送状态），显形为白色
                   p.mtype = 0; p.md = -1600; b.txtype = 3; p.mtm = 0;
+                  p._noteWarp = null; p._noteWarpUid = null;
                 } else {
                   // 原版 main.cpp:2121：弹起（mtype=2 音符上升+传送 / mtype=3 跳台弹飞）
                   p.md = bhvStand.bounceMd; p.mtype = bhvStand.mtype != null ? bhvStand.mtype : C.MTYPE.NOTE; p.mtm = 0;
+                  // 桃色音符块：记住本块的传送目标，冲顶（mb<=-6000）时交给 onWarp 宿主处理；
+                  // 无 warp 字段则走原版默认 stc+=5（上空子关）
+                  if (p.mtype === C.MTYPE.NOTE) {
+                    p._noteWarp = b.warp ? { end: !!b.warp.end, id: b.warp.id || null } : null;
+                    p._noteWarpUid = b.uid || null;
+                  }
                   // 原版 main.cpp:2123：txtype 0→1，隐形音符块触碰后显形为桃色
                   if (b.ttype === 117 && b.txtype === 0) b.txtype = 1;
                 }

@@ -963,7 +963,8 @@
     10:  { damage: 1, msgTm: 30, msgType: 3 },
     // ttype=115 易碎砖：站上去碎裂（1-3 g13_61 左边的三块砖即此类型）
     115: { standBreak: true, breakCfg: BLOCK_BREAK_DEFAULT },
-    // ttype=117 音符块：站上弹跳（mtype=2=NOTE 匀速上升+冲顶传送 stc+=5；txtype>=2 时为白色普通大跳，引擎另判）
+    // ttype=117 音符块：站上弹跳（mtype=2=NOTE 匀速上升+冲顶传送；目标取方块实例 warp 属性，
+    // 无 warp 时回退原版 stc+=5；txtype>=2 时为白色普通大跳，引擎另判）
     117: { bounceMd: -1500, bounceSound: 14, mtype: 2 },
     // ttype=120 弹簧跳台：站上弹跳（mtype=3=JUMP_PAD 匀速上升冲顶即死，原版 main.cpp:1872）
     120: { bounceMd: -2400, bounceSound: 14, mtype: 3 },
