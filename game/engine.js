@@ -59,6 +59,10 @@
     player: null,
     // 中间旗检查点（触碰后保存的复活坐标 {ma,mb}，本关内死亡复活时复用；进下一关/新游戏时清空）
     checkpoint: null,
+    // 传送出生位置覆盖（音符块/传送管道口的 warp.spawnMode）：
+    // {x,y}|{ma,mb} + persist（true=永远，死亡复活保留；false=单次，loadStage 用后即清）；
+    // 普通进管/通关/新游戏等非 warp 换关时清空
+    warpSpawn: null,
     // 通关后去向配置 {end, id}（来自关卡定义 def.nextLevel）
     nextLevel: null,
     onGoalNext: null,
@@ -354,6 +358,17 @@
   var _customImgCache = {};
 
   // ==================== 关卡加载 ====================
+  // 拷贝传送对象 {end,id} 并附带出生位置覆盖（spawnMode once/forever + spawnCol/spawnRow）
+  function copyWarp(w) {
+    if (!w) return null;
+    var o = { end: !!w.end, id: w.id || null };
+    if (w.spawnMode === 'once' || w.spawnMode === 'forever') {
+      o.spawnMode = w.spawnMode;
+      o.spawnCol = w.spawnCol | 0;
+      o.spawnRow = w.spawnRow | 0;
+    }
+    return o;
+  }
   function loadStage() {
     var def = Lv.get(state.sta, state.stb, state.stc);
     // 原版世界 def 自带世界坐标：载入时同步引擎内部 sta/stb/stc，
@@ -400,9 +415,9 @@
         uid: b.uid || null,
         // 行为属性覆盖（BlockTypes 注册表默认值的实例级覆盖；编辑器属性面板写回）
         bhv: b.bhv ? JSON.parse(JSON.stringify(b.bhv)) : null,
-        // ttype=117 桃色音符块：冲顶后的传送目标 {end,id}（解耦原硬编码 stc+=5；
-        // 无此字段时走原版默认上空子关 stc+=5）
-        warp: b.warp ? { end: !!b.warp.end, id: b.warp.id || null } : null
+        // ttype=117 桃色音符块：冲顶后的传送目标 {end,id,spawnMode,spawnCol,spawnRow}
+        // （解耦原硬编码 stc+=5；无此字段时走原版默认上空子关 stc+=5）
+        warp: copyWarp(b.warp)
       });
     });
     var _gridBlocks = [];
@@ -461,8 +476,8 @@
         pipe.sgtype = Math.max(1, p.sgtype | 0 || 48);
         pipe.target = p.target || 'enemy_fireball';
       }
-      // stype=60 传送管道口：保留传送目标 {end,id}
-      if (p.warp) pipe.warp = { end: !!p.warp.end, id: p.warp.id || null };
+      // stype=60 传送管道口：保留传送目标 {end,id} 及出生位置覆盖
+      if (p.warp) pipe.warp = copyWarp(p.warp);
       // stype=51 坠落砖组：保留通用运动配置 {axis:'x'|'y', dir:-1|1}
       if (p.mov) pipe.mov = { axis: p.mov.axis === 'x' ? 'x' : 'y', dir: p.mov.dir < 0 ? -1 : 1 };
       // stype=51 延时（秒）：convert 路径由元素 delay 提供；原版 sxtype=1/2（1-2-1 连锁桥）
@@ -607,16 +622,26 @@
     // 0 随机元素模式（参考旧引擎 main.cpp RAND_STAGE 宏）
     if (state.randomMode) _randomizeElements();
 
-    // 出生点：
-    //  - 若已触碰中间旗（state.checkpoint），死亡复活时从旗子位置出生
-    //  - 否则使用 def.spawn：
-    //      原版抽取关卡 def.spawn={ma,mb}：与玩家世界坐标同系，直接放置
-    //      自定义关 def.spawn={x,y}：编辑器像素口径，沿用 +200/(-30) 转换
-    // 进关直接把玩家放到出生点并把镜头居中，远端出生不再依赖首帧相机追赶
+    // 出生点优先级：
+    //  1. 中间旗 state.checkpoint（本关内死亡复活）
+    //  2. 传送出生位置覆盖 state.warpSpawn（音符块/传送管道口 warp 携带）：
+    //     persist=false（单次修改）用后即清，死亡复活回到关卡自身出生点；
+    //     persist=true（永远修改）跨死亡复活保留，直到普通进管/通关/新游戏等换关清空
+    //  3. def.spawn：原版抽取关卡 {ma,mb} 直接放置；自定义关 {x,y} 按编辑器像素口径转换
     if (state.player) {
       if (state.checkpoint) {
         state.player.ma = state.checkpoint.ma;
         state.player.mb = state.checkpoint.mb;
+      } else if (state.warpSpawn) {
+        var ws = state.warpSpawn;
+        if (typeof ws.ma === 'number') {
+          state.player.ma = ws.ma;
+          state.player.mb = ws.mb;
+        } else {
+          state.player.ma = ws.x * 100 + 200;
+          state.player.mb = (ws.y - 30) * 100;   // 略高几格，自然落地
+        }
+        if (!ws.persist) state.warpSpawn = null;   // 单次修改：仅本次传送生效
       } else if (def.spawn) {
         if (typeof def.spawn.ma === 'number') {
           state.player.ma = def.spawn.ma;
@@ -944,8 +969,10 @@
               // onWarp 返回 false 表示宿主自行处理结局（如回标题），引擎不再重载关卡
               proceed = (typeof state.onWarp === 'function') ? state.onWarp(warp) !== false : false;
               if (warp.end) pushEvent({ kind: 'goal', via: 'warp', f: _debugFrame, uid: warp.uid || null, ma: p.ma, mb: p.mb });
+              if (!proceed) state.warpSpawn = null;   // 结局/失败：宿主已自行处理，丢弃出生覆盖
             } else {
               state.stc++;   // 普通进管：进入下一子关
+              state.warpSpawn = null;   // 非 warp 换关：传送出生覆盖仅对目标关有效
             }
             if (proceed) { state.checkpoint = null; startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0; }
           }
@@ -959,6 +986,7 @@
         if (p.mtm === 110) { p.mb = -80000000; p.mc = 0; }
         if (p.mtm === 250) {
           state.checkpoint = null;
+          state.warpSpawn = null;   // 通关换关：传送出生覆盖不延续到下一大关
           var nl = state.nextLevel;
           if (nl && typeof state.onGoalNext === 'function') {
             var proceed = state.onGoalNext(nl) !== false;
@@ -998,6 +1026,7 @@
             state.ending = 1;   // frame() 中据此切换 proc=ENDING
           } else {
             state.checkpoint = null;
+            state.warpSpawn = null;   // 通关换关：传送出生覆盖不延续到下一大关
             var nl2 = state.nextLevel;
             if (nl2 && typeof state.onGoalNext === 'function') {
               var proceed2 = state.onGoalNext(nl2) !== false;
@@ -1032,11 +1061,20 @@
         var noteProceed = true;
         if (noteWarp && (noteWarp.end || noteWarp.id) && typeof state.onWarp === 'function') {
           // 与传送管道口同一宿主钩子：onWarp 返回 false 表示宿主自行处理（如回标题），引擎不重载。
-          // via='note' 供宿主区分触发来源（音符块 vs 传送管道），仅作文案用途
-          noteProceed = state.onWarp({ end: !!noteWarp.end, id: noteWarp.id || null, via: 'note' }) !== false;
+          // via='note' 供宿主区分触发来源（音符块 vs 传送管道），仅作文案用途；
+          // spawnMode/spawnCol/spawnRow 为目标关出生位置覆盖（宿主据此调 setWarpSpawn）
+          var _noteWarpArg = { end: !!noteWarp.end, id: noteWarp.id || null, via: 'note' };
+          if (noteWarp.spawnMode === 'once' || noteWarp.spawnMode === 'forever') {
+            _noteWarpArg.spawnMode = noteWarp.spawnMode;
+            _noteWarpArg.spawnCol = noteWarp.spawnCol | 0;
+            _noteWarpArg.spawnRow = noteWarp.spawnRow | 0;
+          }
+          noteProceed = state.onWarp(_noteWarpArg) !== false;
           if (noteWarp.end) pushEvent({ kind: 'goal', via: 'note', f: _debugFrame, uid: noteWarpUid, ma: p.ma, mb: p.mb });
+          if (!noteProceed) state.warpSpawn = null;   // 结局/失败：丢弃出生覆盖
         } else {
           state.stc += 5;   // 原版 stc+=5：如 1-3 地上(0)→空中区(5)
+          state.warpSpawn = null;   // 无显式 warp 的音符块：按普通换关处理
         }
         if (noteProceed) {
           startGame();
@@ -1176,7 +1214,7 @@
                   // 桃色音符块：记住本块的传送目标，冲顶（mb<=-6000）时交给 onWarp 宿主处理；
                   // 无 warp 字段则走原版默认 stc+=5（上空子关）
                   if (p.mtype === C.MTYPE.NOTE) {
-                    p._noteWarp = b.warp ? { end: !!b.warp.end, id: b.warp.id || null } : null;
+                    p._noteWarp = copyWarp(b.warp);
                     p._noteWarpUid = b.uid || null;
                   }
                   // 原版 main.cpp:2123：txtype 0→1，隐形音符块触碰后显形为桃色
@@ -3313,6 +3351,7 @@
   function beginNewGame() {
     state.life = 0;   // 新游戏，重置死亡计数
     state.checkpoint = null;   // 新游戏，清空中间旗检查点
+    state.warpSpawn = null;    // 新游戏，清空传送出生位置覆盖
     state._evFired = {};       // 新游戏，事件触发器重新待命
     state.proc = C.PROC.STAGE_START;
     state.maintm = 0;
@@ -3676,12 +3715,18 @@
     state.proc = C.PROC.TITLE;
     state.maintm = 0;
     state.checkpoint = null;
+    state.warpSpawn = null;
     A.bgmStop();
   };
 
   // 传送管道口钩子：玩家进入 stype=60 管道、沉管动画结束时调用 fn(warp)。
   // warp = {end:true} 或 {id:'世界id'}；fn 返回 false 表示宿主自行处理结局（引擎不重载关卡）。
   Engine.setWarpHandler = function (fn) { state.onWarp = fn; };
+
+  // 传送出生位置覆盖：宿主在 onWarp 回调内、startGame 重载前调用。
+  // sp = {x,y}（编辑器像素口径）或 {ma,mb}（世界坐标），persist=true 死亡复活保留（永远修改），
+  // false/省略 仅本次 loadStage 生效（单次修改）；传 null 清除覆盖。
+  Engine.setWarpSpawn = function (sp) { state.warpSpawn = sp; };
 
   // 通关去向钩子：玩家碰到终点旗杆通关后调用 fn(nextLevel)。
   // nextLevel = {end:true} 或 {id:'世界id'} 或 null（默认下一关）；

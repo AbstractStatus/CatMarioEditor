@@ -267,8 +267,13 @@
       var C = getC();
       if (pipeEnterCheck(p, s, xx)) {
         p.mtype = C.MTYPE.PIPE; p.mtm = 0; p.mxtype = 1;
-        // 带上管道实例 uid，供直接通关(warp.end)事件溯源
-        p._warp = s.warp ? { end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null } : null;
+        // 带上管道实例 uid，供直接通关(warp.end)事件溯源；出生位置覆盖字段一并透传
+        p._warp = s.warp ? {
+          end: !!s.warp.end, id: s.warp.id || null, uid: s.uid || null,
+          spawnMode: (s.warp.spawnMode === 'once' || s.warp.spawnMode === 'forever') ? s.warp.spawnMode : undefined,
+          spawnCol: s.warp.spawnCol | 0,
+          spawnRow: s.warp.spawnRow | 0
+        } : null;
         p._trapPipe = null;
         return true;
       }

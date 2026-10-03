@@ -205,7 +205,15 @@
         else if (e.rot) o.rot = e.rot;
         if (e.dir === 'cw' || e.dir === 'ccw') o.dir = e.dir;   // 火焰棒旋转方向
         if (e.mirror) o.mirror = true;   // 火焰棒水平镜像（atype 88）
-        if (e.warp) o.warp = { end: !!e.warp.end, id: e.warp.id || null };
+        if (e.warp) {
+          o.warp = { end: !!e.warp.end, id: e.warp.id || null };
+          // 传送出生位置覆盖（音符块/管道口）：仅 once/forever 随快照保留
+          if (e.warp.spawnMode === 'once' || e.warp.spawnMode === 'forever') {
+            o.warp.spawnMode = e.warp.spawnMode;
+            o.warp.spawnCol = e.warp.spawnCol | 0;
+            o.warp.spawnRow = e.warp.spawnRow | 0;
+          }
+        }
         if (e.hintType) o.hintType = e.hintType;
         if (e.hintCustom) o.hintCustom = e.hintCustom;
         if (e.pop) o.pop = e.pop;
@@ -2068,6 +2076,48 @@
     sel.value = val ? 'yes' : 'no';
     return sel;
   }
+  // 传送出生位置覆盖控件（桃色音符块 / 传送管道口共用）：
+  // warp.spawnMode = none 不修改（默认，隐藏行列）/ once 仅传送那一次 / forever 永久修改（复活也生效）
+  // defCol/defRow 为首次开启时行列输入框的默认值（通常取元素自身所在格）
+  // 返回 {modeRow, posRow, modeSel, colInp, rowInp}，由调用方 append 并联动显隐
+  function warpSpawnControls(warp, defCol, defRow) {
+    var mode = (warp && (warp.spawnMode === 'once' || warp.spawnMode === 'forever')) ? warp.spawnMode : 'none';
+    var modeSel = document.createElement('select');
+    [['none', '不修改（默认）'],
+     ['once', '单次修改（仅本次传送）'],
+     ['forever', '永远修改（以后复活也在此出生）']].forEach(function (op) {
+      var o = document.createElement('option');
+      o.value = op[0]; o.textContent = op[1];
+      modeSel.appendChild(o);
+    });
+    modeSel.value = mode;
+    var modeRow = propRow('修改出生位置', modeSel,
+      '不修改=出生在目标关卡自身出生点；单次=仅传送那一次改位置；永远=在目标关死亡复活也用该位置（离开该关后失效）');
+    var colVal = (warp && warp.spawnCol != null) ? (warp.spawnCol | 0) : defCol;
+    var rowVal = (warp && warp.spawnRow != null) ? (warp.spawnRow | 0) : defRow;
+    var colInp = numInput(0, 1000, colVal);
+    var rowInp = numInput(0, ROWS - 1, rowVal);
+    var posWrap = document.createElement('span');
+    posWrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+    var lbC = document.createElement('label'); lbC.textContent = '列';
+    var lbR = document.createElement('label'); lbR.textContent = '行';
+    posWrap.appendChild(lbC); posWrap.appendChild(colInp);
+    posWrap.appendChild(lbR); posWrap.appendChild(rowInp);
+    var posRow = propRow('出生位置（列,行）', posWrap, '传送到目标关卡后玩家出生的格子坐标');
+    posRow.style.display = (mode !== 'none') ? '' : 'none';
+    return { modeRow: modeRow, posRow: posRow, modeSel: modeSel, colInp: colInp, rowInp: rowInp };
+  }
+  // 导出落盘用的 warp：始终带 end/id，仅在 once/forever 时追加出生位置覆盖
+  function serializeWarp(w) {
+    if (!w || (!w.end && !w.id)) return null;
+    var o = { end: !!w.end, id: w.id || null };
+    if (w.spawnMode === 'once' || w.spawnMode === 'forever') {
+      o.spawnMode = w.spawnMode;
+      o.spawnCol = w.spawnCol | 0;
+      o.spawnRow = w.spawnRow | 0;
+    }
+    return o;
+  }
   // ---------- 事件触发器动作列表编辑器（trap_event / block_qball 共用） ----------
   var EV_ACTS = [
     ['se', '播音效'],
@@ -2545,6 +2595,8 @@
     propBody.appendChild(posRow);
 
     var fTotal = null, fRot = null, fRand = null, fDir = null, fMirror = null, fLen = null, fWarp = null;
+    // 传送出生位置覆盖（桃色音符块 / 传送管道口共用；mode=none 时 col/row 行隐藏）
+    var fWarpSpawnMode = null, fWarpSpawnCol = null, fWarpSpawnRow = null, fWarpSpawnPosRow = null;
     var fFallOri = null, fFallCount = null, fFallDir = null, fFallDelay = null, fFallChain = null;
     var fBmOri = null, fBmCount = null;
     var fFallVariant = null, fFallGCount = null, fFallGRows = null, fFallGRowsRow = null;
@@ -2851,6 +2903,20 @@
       pmWarpRow.style.display = pmEntryVal0 === 'warp' ? '' : 'none';
       propBody.appendChild(pmWarpRow);
 
+      // 传送出生位置覆盖（仅 entry=warp 时显示；默认不修改，隐藏行列）
+      var pmWs = warpSpawnControls(selected.warp, selected.col, selected.row);
+      fWarpSpawnMode = pmWs.modeSel; fWarpSpawnCol = pmWs.colInp;
+      fWarpSpawnRow = pmWs.rowInp; fWarpSpawnPosRow = pmWs.posRow;
+      var pmSpawnModeRow = pmWs.modeRow;
+      pmSpawnModeRow.style.display = pmEntryVal0 === 'warp' ? '' : 'none';
+      fWarpSpawnPosRow.style.display = (pmEntryVal0 === 'warp' && fWarpSpawnMode.value !== 'none') ? '' : 'none';
+      propBody.appendChild(pmSpawnModeRow);
+      propBody.appendChild(fWarpSpawnPosRow);
+      fWarpSpawnMode.addEventListener('change', function () {
+        fWarpSpawnPosRow.style.display =
+          (fPmEntry.value === 'warp' && fWarpSpawnMode.value !== 'none') ? '' : 'none';
+      });
+
       // 进入事件切换时联动显隐陷阱字段与传送目标
       fPmEntry.addEventListener('change', function () {
         var v = fPmEntry.value;
@@ -2859,6 +2925,8 @@
         pmTrapAmpRow.style.display = isTrap ? '' : 'none';
         pmTrapRiseRow.style.display = isTrap ? '' : 'none';
         pmWarpRow.style.display = isWarp ? '' : 'none';
+        pmSpawnModeRow.style.display = isWarp ? '' : 'none';
+        fWarpSpawnPosRow.style.display = (isWarp && fWarpSpawnMode.value !== 'none') ? '' : 'none';
       });
     }
     // 陷阱触发区：方向 + 对象 + 触发区宽高 + 生成区独立位置/尺寸 + 生成个数
@@ -3172,6 +3240,15 @@
       }
       fWarp.value = nbWv;
       propBody.appendChild(propRow('传送目标', fWarp, '踩中音符块弹飞到屏幕顶后前往：游戏结束 / 我的场景 / 原版关卡（原版 1-3 默认 1-3-5 空中区）'));
+      // 传送出生位置覆盖（默认不修改，隐藏行列）
+      var nbWs = warpSpawnControls(selected.warp, selected.col, selected.row);
+      fWarpSpawnMode = nbWs.modeSel; fWarpSpawnCol = nbWs.colInp;
+      fWarpSpawnRow = nbWs.rowInp; fWarpSpawnPosRow = nbWs.posRow;
+      propBody.appendChild(nbWs.modeRow);
+      propBody.appendChild(nbWs.posRow);
+      fWarpSpawnMode.addEventListener('change', function () {
+        fWarpSpawnPosRow.style.display = fWarpSpawnMode.value !== 'none' ? '' : 'none';
+      });
     }
     if (d.id === 'item_jumppad') {
       var jb0 = selected.bhv || {};
@@ -3351,6 +3428,18 @@
       }
       if (fWarp) selected.warp = (fWarp.value === '__end__')
         ? { end: true, id: null } : { end: false, id: fWarp.value };
+      // 传送出生位置覆盖写回（稀疏存储：仅 once/forever 落盘行列；不修改时清除）
+      if (fWarp && fWarpSpawnMode) {
+        if (fWarpSpawnMode.value === 'once' || fWarpSpawnMode.value === 'forever') {
+          selected.warp.spawnMode = fWarpSpawnMode.value;
+          selected.warp.spawnCol = Math.max(0, Math.min(1000, parseInt(fWarpSpawnCol.value, 10) || 0));
+          selected.warp.spawnRow = Math.max(0, Math.min(ROWS - 1, parseInt(fWarpSpawnRow.value, 10) || 0));
+        } else {
+          delete selected.warp.spawnMode;
+          delete selected.warp.spawnCol;
+          delete selected.warp.spawnRow;
+        }
+      }
       if (fHintType) {
         if (fHintType.value === '__custom__') {
           selected.hintType = '__custom__';
@@ -5029,10 +5118,12 @@
         extra = { hintType: String(b.xt) };
       }
       // 1-3 桃色音符块（txtype 0/1）：原版硬编码 stc+=5 弹入空中区，解耦为显式
-      // 传送目标 → 1-3-5（空中区 空中）；白色音符块(txtype>=2)仅普通大跳，不带 warp
+      // 传送目标 → 1-3-5（空中区 空中）；白色音符块(txtype>=2)仅普通大跳，不带 warp。
+      // 出生位置：原版 1-3-5 载入即 ma=3000,mb=33000（≈编辑器 1列13行），空中关内死亡复活
+      // 也回到此点（main.cpp 1-3(空中) 分支），故配置为「永远修改」
       if (def.id === '1-3' && b.type === 117 && (b.xt || 0) < 2) {
         extra = extra || {};
-        extra.warp = { end: false, id: '1-3-5' };
+        extra.warp = { end: false, id: '1-3-5', spawnMode: 'forever', spawnCol: 1, spawnRow: 13 };
       }
       add(bid, col, row, extra, 'b' + bi);
     });
@@ -5702,7 +5793,7 @@
       else if (e.rot) out.rot = (((e.rot | 0) % 360) + 360) % 360;
       if (e.dir === 'cw' || e.dir === 'ccw') out.dir = e.dir;   // 火焰棒旋转方向
       if (e.mirror === true) out.mirror = true;   // 火焰棒水平镜像（atype 88）
-      if (e.warp && (e.warp.end || e.warp.id)) out.warp = { end: !!e.warp.end, id: e.warp.id || null };
+      if (e.warp && (e.warp.end || e.warp.id)) out.warp = serializeWarp(e.warp);
       // 问号块/隐藏块的弹出对象与量产标记（pop 必须保留，mass 默认 false）
       if (e.id === 'block_question' || e.id === 'block_hidden') {
         if (e.pop) out.pop = String(e.pop);
@@ -5802,7 +5893,7 @@
         if (e.dir) out.dir = String(e.dir);
         if (e.entry) out.entry = String(e.entry);
         if (e.entry === 'warp' && e.warp && (e.warp.end || e.warp.id)) {
-          out.warp = { end: !!e.warp.end, id: e.warp.id || null };
+          out.warp = serializeWarp(e.warp);
         }
         // 是否喷射：稀疏存储，仅开启时落盘；喷射对象默认火球（喷火）
         if (e.spray === true) {

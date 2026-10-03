@@ -547,9 +547,15 @@ body.dragging #dropTip { display: flex; }
         var eb = { x: x, y: y, type: sp.type, xt: xt, followJump: !!e.follow, uid: e.uid || null };
         if (sp.showQ) eb.showQ = true;   // 110 可见量产问号块扩展
         if (e.bhv) eb.bhv = JSON.parse(JSON.stringify(e.bhv));
-        // 桃色音符块：冲顶后的传送目标（游戏结束/我的场景/原版关卡）；白色音符块仅普通大跳
+        // 桃色音符块：冲顶后的传送目标（游戏结束/我的场景/原版关卡）；白色音符块仅普通大跳。
+        // spawnMode/spawnCol/spawnRow=目标关出生位置覆盖（once 单次 / forever 死亡复活也生效）
         if (id === 'b2_note_peach' && e.warp && (e.warp.end || e.warp.id)) {
           eb.warp = { end: !!e.warp.end, id: e.warp.id || null };
+          if (e.warp.spawnMode === 'once' || e.warp.spawnMode === 'forever') {
+            eb.warp.spawnMode = e.warp.spawnMode;
+            eb.warp.spawnCol = e.warp.spawnCol | 0;
+            eb.warp.spawnRow = e.warp.spawnRow | 0;
+          }
         }
         blocks.push(eb);
       } else if (EX_TRIGGER[id] !== undefined) {
@@ -704,6 +710,12 @@ body.dragging #dropTip { display: flex; }
             pmWarp = e.warp && (e.warp.end || e.warp.id)
               ? { end: !!e.warp.end, id: e.warp.id || null }
               : { end: true, id: null };
+            // 目标关出生位置覆盖（once 单次 / forever 死亡复活也生效）
+            if (e.warp && (e.warp.spawnMode === 'once' || e.warp.spawnMode === 'forever')) {
+              pmWarp.spawnMode = e.warp.spawnMode;
+              pmWarp.spawnCol = e.warp.spawnCol | 0;
+              pmWarp.spawnRow = e.warp.spawnRow | 0;
+            }
           } else { pmStype = 50; pmSxtype = 1; }
           var pmPipe = { stype: pmStype, sxtype: pmSxtype, uid: e.uid || null, dir: pmDir, warp: pmWarp };
           // 陷阱管道抖动动画覆盖（编辑器属性面板 → 引擎 tp.trapAnim）
@@ -1201,10 +1213,12 @@ body.dragging #dropTip { display: flex; }
         b.uid = 'bm_1_3';
       }
       // 1-3 桃色音符块（18/19/20 列，txtype 0/1）：原版硬编码 stc+=5 弹入空中区，
-      // 解耦为显式传送目标 → 1-3-5（空中区 空中）；已带 warp 时不覆盖
+      // 解耦为显式传送目标 → 1-3-5（空中区 空中）；已带 warp 时不覆盖。
+      // 出生位置：原版 1-3-5 固定 ma=3000,mb=33000（≈编辑器 1列13行），空中关内死亡复活
+      // 也回此点，故注入「永远修改」，避免依赖目标关自身 spawn
       if (conv.id === '1-3' && b.type === 117 && (b.xt || 0) < 2 &&
           !(b.warp && (b.warp.end || b.warp.id))) {
-        b.warp = { end: false, id: '1-3-5' };
+        b.warp = { end: false, id: '1-3-5', spawnMode: 'forever', spawnCol: 1, spawnRow: 13 };
       }
     });
     // 2) pipes 注入 uid（'p'+pi）
@@ -1495,12 +1509,28 @@ body.dragging #dropTip { display: flex; }
     });
   })();
 
+  // 按 warp 携带的出生位置覆盖配置引擎（在 onWarp 内、引擎 startGame 重载前调用）：
+  // once=单次修改（仅本次传送），forever=永远修改（目标关内死亡复活也用该位置）；
+  // 其余情况（不修改/字段缺失）显式清除，避免上一次传送的覆盖残留
+  function applyWarpSpawn(warp) {
+    if (!window.GameEngine || !GameEngine.setWarpSpawn) return;
+    var m = warp && warp.spawnMode;
+    if ((m === 'once' || m === 'forever') && warp.spawnCol != null && warp.spawnRow != null) {
+      var col = Math.max(0, Math.min(1000, parseInt(warp.spawnCol, 10) || 0));
+      var row = Math.max(0, Math.min(16, parseInt(warp.spawnRow, 10) || 0));
+      GameEngine.setWarpSpawn({ x: col * 29, y: row * 29 - 12, persist: m === 'forever' });
+    } else {
+      GameEngine.setWarpSpawn(null);
+    }
+  }
+
   // 传送管道口（stype=60）/ 桃色音符块冲顶：按目标切换世界或游戏结束（warp.via='note' 时来自音符块）
   GameEngine.setWarpHandler(function (warp) {
     var viaNote = !!(warp && warp.via === 'note');
     var fromTxt = viaNote ? '（由音符块弹飞触发）' : '（由传送管道触发）';
     if (!warp || warp.end) {
       setStatus('🏁 通关！游戏结束' + fromTxt, 'ok');
+      applyWarpSpawn(null);
       GameEngine.backToTitle();
       return false;   // 宿主自行处理结局，引擎不重载
     }
@@ -1509,10 +1539,12 @@ body.dragging #dropTip { display: flex; }
       var rec = findSceneRecord(warp.id.slice(3));
       if (rec) {
         enterSceneRecord(rec);
+        applyWarpSpawn(warp);
         setStatus('✈ 已传送到场景「' + rec.name + '」' + fromTxt, 'ok');
         return true;
       }
       setStatus('传送失败：找不到目标场景「' + warp.id.slice(3) + '」（可能已被删除）', 'err');
+      applyWarpSpawn(null);
       GameEngine.backToTitle();
       return false;
     }
@@ -1523,10 +1555,12 @@ body.dragging #dropTip { display: flex; }
     }
     if (!target) {
       setStatus('传送失败：找不到目标世界「' + warp.id + '」', 'err');
+      applyWarpSpawn(null);
       GameEngine.backToTitle();
       return false;
     }
     enterStage(target);
+    applyWarpSpawn(warp);
     setStatus('✈ 已传送到世界 ' + target.id + '（' + target.name + '）' + fromTxt, 'ok');
     return true;    // 让引擎重载到目标关卡
   });
