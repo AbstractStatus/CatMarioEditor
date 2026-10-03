@@ -227,6 +227,9 @@ body.dragging #dropTip { display: flex; }
   <button id="retryBtn">↺ 回到标题</button>
   <button id="infoBtn">ℹ️ 详情</button>
   <button id="logBtn">📜 日志<span id="logBadge" class="hide">0</span></button>
+  <button id="recBtn" title="仅在标题画面（游戏未开始）可录制；录制期间锁定 480 标准镜头宽">● 录制</button>
+  <button id="playRepBtn" title="选择录像文件（.json）播放：画面由引擎按录像按键与内嵌游戏数据还原">📂 播放录像</button>
+  <input type="file" id="repPicker" accept=".json,application/json" style="display:none">
   <button id="fsBtn" title="进入全屏（ESC 退出）">⛶ 全屏</button>
   <div id="fpsbar">
     <span class="fps-label">FPS</span>
@@ -272,12 +275,13 @@ body.dragging #dropTip { display: flex; }
 <script src="../assets/sprites/manifest.js"></script>
 <!-- 新引擎模块（base 指向 game/） -->
 <script src="constants.js?v=custom3"></script>
+<script src="replay.js?v=2"></script>
 <script src="sprites.js?v=hd4"></script>
 <script src="audio.js?v=custom8"></script>
 <script src="input.js?v=custom5"></script>
-<script src="elements.js?v=evlog27"></script>
+<script src="elements.js?v=evlog28rep1"></script>
 <script src="levels.js?v=custom3"></script>
-<script src="engine.js?v=hd64perf"></script>
+<script src="engine.js?v=rep2"></script>
 <!-- 原版全部关卡数据（传送管道口选择目标世界时用；base 指向 game/，需 ../ 回根目录） -->
 <script src="../stages_data.js?v=shell15"></script>
 <script>
@@ -1675,6 +1679,108 @@ body.dragging #dropTip { display: flex; }
   retryBtn.addEventListener('click', function () {
     GameEngine.backToTitle();
   });
+
+  /* ---------- 录像：录制 / 下载 / 播放 ---------- */
+  (function () {
+    if (!GameEngine.Replay) return;
+    var recBtn = document.getElementById('recBtn');
+    var playRepBtn = document.getElementById('playRepBtn');
+    var repPicker = document.getElementById('repPicker');
+
+    function pad(n) { return n < 10 ? '0' + n : '' + n; }
+    function stamp() {
+      var d = new Date();
+      return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+             '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+    }
+    function downloadReplay(file) {
+      var blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'catmario-replay-' + stamp() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    }
+
+    recBtn.addEventListener('click', function () {
+      var st = GameEngine.Replay.status();
+      if (st.mode === 'record' || st.mode === 'recorded') {
+        var out = GameEngine.Replay.stopRecord();
+        if (out.ok) downloadReplay(out.file);
+        else setStatus(out.error || '停止录制失败', 'err');
+      } else if (st.mode === 'off') {
+        if (GameEngine.getState().proc !== 100) {
+          setStatus('只有在标题画面（游戏尚未开始）才能启动录制', 'err');
+          return;
+        }
+        var r = GameEngine.Replay.beginRecord({ date: new Date().toISOString() });
+        if (!r.ok) setStatus(r.error || '录制启动失败', 'err');
+      }
+    });
+
+    playRepBtn.addEventListener('click', function () {
+      var st = GameEngine.Replay.status();
+      if (st.mode === 'play' || st.mode === 'ended' || st.mode === 'error') {
+        GameEngine.Replay.stopPlay();
+      } else if (st.mode === 'off') {
+        repPicker.value = '';
+        repPicker.click();
+      }
+    });
+
+    repPicker.addEventListener('change', function () {
+      var f = repPicker.files && repPicker.files[0];
+      if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () {
+        var file;
+        try { file = JSON.parse(rd.result); }
+        catch (e) { setStatus('录像文件不是有效的 JSON', 'err'); return; }
+        var r = GameEngine.Replay.startPlay(file);
+        if (!r.ok) setStatus(r.error || '播放失败', 'err');
+      };
+      rd.readAsText(f);
+    });
+
+    setInterval(function () {
+      var st = GameEngine.Replay.status();
+      var proc = GameEngine.getState().proc;
+      if (st.mode === 'record') {
+        recBtn.textContent = '■ 停止并下载';
+        recBtn.disabled = false;
+        playRepBtn.textContent = '播放中…';
+        playRepBtn.disabled = true;
+      } else if (st.mode === 'recorded') {
+        recBtn.textContent = '⬇ 下载录像';
+        recBtn.disabled = false;
+        playRepBtn.textContent = '📂 播放录像';
+        playRepBtn.disabled = true;
+      } else if (st.mode === 'play') {
+        recBtn.textContent = '● 录制';
+        recBtn.disabled = true;
+        playRepBtn.textContent = '■ 停止播放';
+        playRepBtn.disabled = false;
+      } else if (st.mode === 'ended') {
+        recBtn.textContent = '● 录制';
+        recBtn.disabled = proc !== 100;
+        playRepBtn.textContent = '✓ 播放结束（点此复位）';
+        playRepBtn.disabled = false;
+      } else if (st.mode === 'error') {
+        recBtn.textContent = '● 录制';
+        recBtn.disabled = proc !== 100;
+        playRepBtn.textContent = '✗ 播放出错（点此复位）';
+        playRepBtn.disabled = false;
+      } else {
+        recBtn.textContent = '● 录制';
+        recBtn.disabled = proc !== 100;
+        playRepBtn.textContent = '📂 播放录像';
+        playRepBtn.disabled = false;
+      }
+    }, 200);
+  })();
+
 
   /* ---------- JSON 载入途径 ---------- */
   document.getElementById('pickBtn').addEventListener('click', function () {

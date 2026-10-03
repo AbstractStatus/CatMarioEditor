@@ -776,7 +776,10 @@
       var atype = TRAP_TARGET_ATYPE[s.target || 'enemy_fireball'];
       if (atype == null) atype = 84;   // 兜底火球（喷火）
       var dir = s.dir || 'up';
-      var rnd = function (n) { return Math.floor(Math.random() * n); };
+      // 初速随机走种子随机（录像确定性回放）；未加载 replay.js 时退回 Math.random
+      var rnd = global.GameRand
+        ? function (n) { return global.GameRand.int(n); }
+        : function (n) { return Math.floor(Math.random() * n); };
       var sx, sy, svx, svy;
       if (dir === 'down') {
         sx = s.sa; sy = s.sb - 7100;

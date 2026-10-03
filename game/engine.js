@@ -14,6 +14,28 @@
   var PT = global.PipeTypes;
   var BlockTypes = global.BlockTypes;
   var LiftTypes = global.LiftTypes;
+  var GR = global.GameReplay || _makeDummyReplay();
+
+  // 玩法随机统一出口：录制/播放时由 GameRand 提供种子随机（保证录像可确定性
+  // 回放）；未加载 replay.js 的环境退回 Math.random（旧无头测试兼容）。
+  function randInt(n) { return global.GameRand ? global.GameRand.int(n) : (Math.random() * n) | 0; }
+  function randFloat() { return global.GameRand ? global.GameRand.next() : Math.random(); }
+
+  // 未加载 game/replay.js 时的空实现：全部钩子透传，行为与无录像系统完全一致
+  function _makeDummyReplay() {
+    return {
+      bindApi: function () {},
+      mode: function () { return 'off'; },
+      lockViewW: function () { return null; },
+      externalStart: function () {},
+      preFrame: function (k) { return k; },
+      suicide: function () { return IN.consumeSuicide(); },
+      captureStage: function () {},
+      nextStage: function () { return null; },
+      hostHook: function (kind, thunk) { return thunk(); },
+      postFrame: function () {}
+    };
+  }
 
   // ---- 合并升降台（元素 id=lift）默认参数 ----
   // 运动/行为由编辑器属性配置，经 play.html convert 转成 sracttype/sre/bhv/proximity/color；
@@ -71,6 +93,19 @@
     mainmsgtype: 0,  // 主消息类型（原版 mainmsgtype）
     tmsgtype: 0, tmsgtm: 0, tmsg: 0, tmsgy: 0
   };
+
+  // ==================== 录像系统：注入引擎闭包 ====================
+  // replay.js 不持有引擎私有状态，所需能力全部经此 api 访问
+  GR.bindApi({
+    state: function () { return state; },
+    getFps: function () { return C.FPS; },
+    setFps: function (fps) { applyFps(fps); },
+    // 外部开局（宿主按钮/点击）：与 Engine.startGame 同义
+    externalStart: function () { beginNewGame(); _debugFrame = 0; },
+    backToTitle: function () { backToTitle(); },
+    // 录制/播放锁宽状态切换：立即重算 FXMAX 与居中偏移
+    viewLock: function () { if (canvas) resizeCanvas(); }
+  });
 
   // ==================== 提示块默认文本 ====================
   // txtype → 行数组（原版 IDS_TMSG_* 中文版）
@@ -194,7 +229,8 @@
     e.amsgtm = time; e.amsgtype = type; e._amsgmax = time;
   }
   // 旧引擎 getrand(n)=floor(rand*n)，取值 0..n-1（lib.js:384，上界不含）
-  function oldRand(n) { return (Math.random() * n) | 0; }
+  // 走种子随机，保证录像回放时敌人嘲讽等随机表现一致
+  function oldRand(n) { return randInt(n); }
 
   // 玩家被敌人接触击杀时的台词分派（对应旧 main.cpp:3601-3659 的 mhp==0 分支）
   function dispatchContactLine(e) {
@@ -370,7 +406,16 @@
     return o;
   }
   function loadStage() {
-    var def = Lv.get(state.sta, state.stb, state.stc);
+    // 录像播放：关卡数据来自录像内嵌快照（按录制时的 loadStage 次序），
+    // 绕过宿主 Levels 提供器；录制：正常取关并截获快照
+    var def;
+    if (GR.mode() === 'play') {
+      def = GR.nextStage();
+      if (!def) return;   // 快照缺失：录像系统已置 error 状态
+    } else {
+      def = Lv.get(state.sta, state.stb, state.stc);
+      GR.captureStage(def);
+    }
     // 原版世界 def 自带世界坐标：载入时同步引擎内部 sta/stb/stc，
     // 使通关 stb++、进管 stc++ 后下一次 Lv.get 能取到正确的关卡
     if (def.sta) { state.sta = def.sta; state.stb = def.stb; state.stc = def.stc || 0; }
@@ -682,13 +727,13 @@
     for (i = 0; i < addTrigCount; i++) {
       // 均匀分布在关卡范围内，避免过于集中在开头
       var col = Math.floor((i + 0.5) / addTrigCount * scrollCols);
-      var row = Math.floor(Math.random() * 14); // 0~13 行
+      var row = randInt(14); // 0~13 行
       var x = col * 2900; // 世界单位（29px * 100）
       var y = (row * 29 - 12) * 100;
       // 类型：0~141；9~99 重抽为 0~8（旧引擎逻辑）
-      var btype = Math.floor(Math.random() * 142);
-      if (btype >= 9 && btype <= 99) btype = Math.floor(Math.random() * 8);
-      var bxtype = Math.floor(Math.random() * 4);
+      var btype = randInt(142);
+      if (btype >= 9 && btype <= 99) btype = randInt(8);
+      var bxtype = randInt(4);
       state.triggers.push({
         ba: x, bb: y, btype: btype, bxtype: bxtype,
         bz: 1, btm: 0, spawned: false, uid: null
@@ -705,19 +750,19 @@
     for (i = 0; i < addBlkCount; i++) {
       // 均匀分布在关卡范围内
       var col = Math.floor((i + 0.5) / addBlkCount * scrollCols);
-      var row = Math.floor(Math.random() * 15); // 0~14 行（原版 getrand(15)）
+      var row = randInt(15); // 0~14 行（原版 getrand(15)）
       var x = col * 2900;
       var y = (row * 29 - 12) * 100 - 3000; // 原版 -1200 - 3000
       // 1/6 概率随机类型，否则保持 0（空，即 invisible）
-      var ttype = (Math.floor(Math.random() * 6) === 0) ? Math.floor(Math.random() * 9) : 0;
+      var ttype = (randInt(6) === 0) ? randInt(9) : 0;
       state.blocks.push({
         ta: x, tb: y, ttype: ttype, txtype: 0, thp: 0, titem: 0, uid: null
       });
     }
 
     // ── 关卡色调：25% 概率随机 ──
-    if (Math.floor(Math.random() * 4) === 0) {
-      state.stagecolor = Math.floor(Math.random() * 4);  // 0~3
+    if (randInt(4) === 0) {
+      state.stagecolor = randInt(4);  // 0~3
       state._stagecolor = state.stagecolor;
     }
   }
@@ -747,7 +792,7 @@
     // 旧数据 axtype=101..110 无角度语义（旧引擎仅 %100 取球数），仍走随机初相
     if (xtype === 87 || xtype === 88) e.atm = xxtype >= 10000
       ? (((Math.floor(xxtype / 100) - 100) % 360 + 360) % 360) * 2
-      : Math.floor(Math.random() * 179) - 90;
+      : randInt(179) - 90;
     // 生成音效（与原版 ayobi 一致）
     if (xtype === 7) A.playSE(C.SE.GHOST_SPRING);
     if (xtype === 10) A.playSE(C.SE.FIRE);
@@ -1002,8 +1047,11 @@
             var proceed = true;
             if (warp) {
               // 传送管道口：交给宿主（试玩页）决定目标世界或游戏结束
-              // onWarp 返回 false 表示宿主自行处理结局（如回标题），引擎不再重载关卡
-              proceed = (typeof state.onWarp === 'function') ? state.onWarp(warp) !== false : false;
+              // onWarp 返回 false 表示宿主自行处理结局（如回标题），引擎不再重载关卡。
+              // 录像系统录制该决策及宿主对 state 的副作用，播放时直接复刻而不回调宿主。
+              proceed = GR.hostHook('warp', function () {
+                return (typeof state.onWarp === 'function') ? state.onWarp(warp) !== false : false;
+              });
               if (warp.end) pushEvent({ kind: 'goal', via: 'warp', f: _debugFrame, uid: warp.uid || null, ma: p.ma, mb: p.mb });
               if (!proceed) state.warpSpawn = null;   // 结局/失败：宿主已自行处理，丢弃出生覆盖
             } else {
@@ -1025,7 +1073,7 @@
           state.warpSpawn = null;   // 通关换关：传送出生覆盖不延续到下一大关
           var nl = state.nextLevel;
           if (nl && typeof state.onGoalNext === 'function') {
-            var proceed = state.onGoalNext(nl) !== false;
+            var proceed = GR.hostHook('goal', function () { return state.onGoalNext(nl) !== false; });
             if (proceed) {
               if (!nl.end && !nl.id) { state.stb++; state.stc = 0; }
               startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
@@ -1065,7 +1113,7 @@
             state.warpSpawn = null;   // 通关换关：传送出生覆盖不延续到下一大关
             var nl2 = state.nextLevel;
             if (nl2 && typeof state.onGoalNext === 'function') {
-              var proceed2 = state.onGoalNext(nl2) !== false;
+              var proceed2 = GR.hostHook('goal', function () { return state.onGoalNext(nl2) !== false; });
               if (proceed2) {
                 if (!nl2.end && !nl2.id) { state.sta++; state.stb = 1; state.stc = 0; }
                 startGame(); state.proc = C.PROC.STAGE_START; state.maintm = 0;
@@ -1105,7 +1153,8 @@
             _noteWarpArg.spawnCol = noteWarp.spawnCol | 0;
             _noteWarpArg.spawnRow = noteWarp.spawnRow | 0;
           }
-          noteProceed = state.onWarp(_noteWarpArg) !== false;
+          // 与管道口同属 warp 类宿主钩子（录像共用编号序列，via 仅作文案）
+          noteProceed = GR.hostHook('warp', function () { return state.onWarp(_noteWarpArg) !== false; });
           if (noteWarp.end) pushEvent({ kind: 'goal', via: 'note', f: _debugFrame, uid: noteWarpUid, ma: p.ma, mb: p.mb });
           if (!noteProceed) state.warpSpawn = null;   // 结局/失败：丢弃出生覆盖
         } else {
@@ -2208,7 +2257,7 @@
               if (e.aa + e.anobia > re.aa + 500 && e.aa < re.aa + re.anobia - 500 &&
                   e.ab + e.anobib > re.ab - 800 &&
                   e.ab + e.anobib < re.ab + 6300) {
-                if (Math.random() < 0.5) {
+                if (randFloat() < 0.5) {
                   // e 扔 re
                   re.amuki = 1; re.aa = e.aa + 300; re.ab = e.ab - 3000; re.abrocktm = 120;
                   e.atm = 200; e.amuki = 1;
@@ -2934,10 +2983,15 @@
     // 两次 nearest 保证每个原始像素最终还是锐利大方块（Win10 图片查看器那种效果）
     ctx.imageSmoothingEnabled = false;
 
+    // 录像锁宽时画布可能比 480 虚拟画面宽：先全屏黑底，防止两侧黑边处残留上一帧
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     // 等比例缩放：所有虚拟坐标乘 _baseScale 渲染到实际像素
     // 虚拟宽度 C.CANVAS_W 已由 resizeCanvas() 动态扩展（镜头变宽），
-    // 画面本身不拉伸（X/Y 用同一个 _baseScale）
-    ctx.setTransform(_baseScale, 0, 0, _baseScale, 0, 0);
+    // 画面本身不拉伸（X/Y 用同一个 _baseScale）；录像锁宽时 x 加居中偏移
+    ctx.setTransform(_baseScale, 0, 0, _baseScale, _renderOffsetX, 0);
 
     // 背景
     var bgColor = '#000';
@@ -3578,7 +3632,8 @@
     if (state.particles) _snapList(state.particles, 'ea', 'eb');
     if (state.blocks) _snapList(state.blocks, 'ta', 'tb');
     if (state.pipes) _snapList(state.pipes, 'sa', 'sb');
-    var key = IN.get();
+    // 录像系统：录制时在此截获当帧按键，播放时用录像按键替换真实输入
+    var key = GR.preFrame(IN.get());
     _debugKey = key;
     _debugFrame++;
 
@@ -3602,7 +3657,7 @@
       }
       if (state.proc === C.PROC.GAME && state.tmsgtype === 0) {
         // O 键自杀：仅在玩家存活时触发，复用死亡流程（含死亡动画/生命计数/事件日志）
-        if (IN.consumeSuicide() && state.player.mtype !== C.MTYPE.DEAD && state.player.mhp > 0) {
+        if (GR.suicide() && state.player.mtype !== C.MTYPE.DEAD && state.player.mhp > 0) {
           markHurt('suicide');
           state.player.mhp = 0;
         }
@@ -3689,6 +3744,8 @@
       if (key) beginNewGame();
     }
 
+    // 录像系统：帧末记账（录制检测开局/回标题自动终局；播放推进帧指针）
+    GR.postFrame();
     IN.endFrame();
   }
 
@@ -3712,6 +3769,24 @@
     state.proc = C.PROC.STAGE_START;
     state.maintm = 0;
     startGame();
+  }
+
+  // 回到标题画面（宿主按钮 / 录像播放结束共用）
+  function backToTitle() {
+    state.proc = C.PROC.TITLE;
+    state.maintm = 0;
+    state.checkpoint = null;
+    state.warpSpawn = null;
+    A.bgmStop();
+  }
+
+  // 实际应用刷新率（录像系统播放时内部强制切换，不走公开接口的锁定保护）
+  function applyFps(fps) {
+    C.FPS = fps;
+    C._DT = 30 / fps;
+    _PHYS_STEP = 1000 / fps;
+    _accumulator = 0;       // 切换时丢弃残余 delta，避免立刻补帧导致跳变
+    PF.setBudget(1000 / fps);   // 性能观测慢帧阈值随物理刷新率自适应
   }
 
   // ==================== 公开接口 ====================
@@ -3783,6 +3858,7 @@
   var _BASE_FXMAX = C.FXMAX;
   var _baseScale = 1;       // 等比例缩放系数
   var _virtW = C.CANVAS_W;  // 当前虚拟宽度（420~..., 可变；420=与高度相等的正方形）
+  var _renderOffsetX = 0;   // 录像锁宽时锁定虚拟画面在宽画布上的居中偏移（设备像素）
 
   function resizeCanvas() {
     if (!canvas) return;
@@ -3792,24 +3868,29 @@
     var dpr = window.devicePixelRatio || 1;
     var newW = Math.floor(cssW * dpr);
     var newH = Math.floor(cssH * dpr);
+    // 录像录制/播放期：虚拟宽锁定为录像文件的镜头宽（FXMAX 参与物理，必须与录像一致），
+    // 宽画布两侧补黑边居中显示
+    var lockW = GR.lockViewW();
 
     // 只在尺寸真正变化时才重设 canvas.width/height
     // （重设会清空 canvas 导致闪黑，所以必须节流）
     if (canvas.width === newW && canvas.height === newH) {
       // 即使尺寸没变也更新虚拟宽度（DPR/窗口变宽时 FXMAX 仍要刷新）
       _baseScale = newH / _BASE_CANVAS_H;
-      _virtW = Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
+      _virtW = lockW != null ? lockW : Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
       C.CANVAS_W = _virtW;
       C.FXMAX    = _virtW * 100;
+      _renderOffsetX = lockW != null ? Math.round((newW - lockW * _baseScale) / 2) : 0;
       return;
     }
 
     canvas.width  = newW;
     canvas.height = newH;
     _baseScale = newH / _BASE_CANVAS_H;
-    _virtW = Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
+    _virtW = lockW != null ? lockW : Math.max(_BASE_CANVAS_H, Math.round(newW / _baseScale));
     C.CANVAS_W = _virtW;
     C.FXMAX    = _virtW * 100;
+    _renderOffsetX = lockW != null ? Math.round((newW - lockW * _baseScale) / 2) : 0;
   }
 
   Engine.init = function (canvasEl) {
@@ -3828,7 +3909,7 @@
 
     // 调试快捷键
     window.addEventListener('keydown', function (e) {
-      if (e.keyCode === 67) {                     // C: 作弊模式
+      if (e.keyCode === 67 && GR.mode() !== 'play') {   // C: 作弊模式（播放期由录像事件驱动，屏蔽真实按键）
         state.cheat = !state.cheat;
         if (state.cheat && state.player) {
           state.player.mhp = 1;
@@ -3903,6 +3984,34 @@
     }
   };
 
+  // 录像状态角标（REC/PLAY），设备像素坐标绘制
+  function drawReplayOverlay(ctx) {
+    var st = GR.status();
+    if (st.mode === 'off') return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = 'bold ' + Math.max(12, Math.round(canvas.height / 32)) + 'px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    var x = 8, y = 8;
+    if (st.mode === 'record') {
+      var blink = Math.floor(performance.now() / 500) % 2 === 0;
+      if (blink) { ctx.fillStyle = '#ff3b30'; ctx.beginPath(); ctx.arc(x + 6, y + 9, 5, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = '#fff';
+      ctx.fillText('REC ' + Math.round(st.frames / st.fps) + 's', x + 16, y);
+    } else if (st.mode === 'play') {
+      ctx.fillStyle = '#4da3ff';
+      ctx.fillText('\u25B6 PLAY ' + st.pos + '/' + st.total, x, y);
+    } else if (st.mode === 'ended') {
+      ctx.fillStyle = '#34c759';
+      ctx.fillText('\u2713 PLAY END ' + st.total + 'f', x, y);
+    } else if (st.mode === 'error') {
+      ctx.fillStyle = '#ff453a';
+      ctx.fillText('\u2717 ' + (st.error || 'replay error'), x, y);
+    }
+    ctx.restore();
+  }
+
   function loop() {
     if (!_loopRunning) return;
     requestAnimationFrame(loop);
@@ -3939,6 +4048,7 @@
       render(ctx2d, 0);
       PF.e('L.render');
       PF.rafEnd(_pfPauseSteps, 0, true);
+      drawReplayOverlay(ctx2d);
       PF.overlay(ctx2d);
       return;
     }
@@ -3973,6 +4083,7 @@
     render(ctx2d, camAlpha);
     PF.e('L.render');
     PF.rafEnd(_pfSteps, _accumulator, false);
+    drawReplayOverlay(ctx2d);
     PF.overlay(ctx2d);
   }
 
@@ -4099,18 +4210,15 @@
   };
 
   Engine.startGame = function () {
+    // 录像录制中：外部开局需落账（下一物理帧前生效），播放中忽略外部调用
+    if (GR.mode() === 'record') GR.externalStart();
+    else if (GR.mode() === 'play') return;
     beginNewGame();            // 与标题按键开局同一入口（含 0 随机起始关）
     _debugFrame = 0;
   };
 
   // 回到标题画面（试玩页"回到标题"按钮用）
-  Engine.backToTitle = function () {
-    state.proc = C.PROC.TITLE;
-    state.maintm = 0;
-    state.checkpoint = null;
-    state.warpSpawn = null;
-    A.bgmStop();
-  };
+  Engine.backToTitle = backToTitle;
 
   // 传送管道口钩子：玩家进入 stype=60 管道、沉管动画结束时调用 fn(warp)。
   // warp = {end:true} 或 {id:'世界id'}；fn 返回 false 表示宿主自行处理结局（引擎不重载关卡）。
@@ -4139,11 +4247,9 @@
   // 跳跃/坠落轨迹跨帧率一致（hd39：重力补偿 + boost 阈值 7+DT 对齐偏移 3.0）
   Engine.setFps = function (fps) {
     if (fps !== 30 && fps !== 60 && fps !== 120) return;
-    C.FPS = fps;
-    C._DT = 30 / fps;
-    _PHYS_STEP = 1000 / fps;
-    _accumulator = 0;       // 切换时丢弃残余 delta，避免立刻补帧导致跳变
-    PF.setBudget(1000 / fps);   // 性能观测慢帧阈值随物理刷新率自适应
+    // 录像录制/播放期间刷新率已锁定为录像 fps，禁止手动切换（播放结束自动恢复）
+    if (GR.mode() === 'record' || GR.mode() === 'play') return;
+    applyFps(fps);
   };
   Engine.getFps = function () { return C.FPS; };
 
@@ -4152,6 +4258,19 @@
   // perfToggle() 循环 关→统计→trace→关，返回 {on, trace}。
   Engine.perfReport = function () { return PF.dump(); };
   Engine.perfToggle = function () { return PF.toggle(); };
+
+  // 录像系统公开接口（页面按钮用；未加载 replay.js 时为 null）
+  if (global.GameReplay) {
+    Engine.Replay = {
+      beginRecord: function (meta) { return global.GameReplay.beginRecord(meta); },
+      stopRecord: function () { return global.GameReplay.stopRecord(); },
+      startPlay: function (file) { return global.GameReplay.startPlay(file); },
+      stopPlay: function () { return global.GameReplay.stopPlay(); },
+      status: function () { return global.GameReplay.status(); }
+    };
+  } else {
+    Engine.Replay = null;
+  }
 
   global.GameEngine = Engine;
 })(window);
