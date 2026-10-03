@@ -1587,8 +1587,10 @@
         case 1: if (l.sron === 1) l.srf = 60; break;            // 踩上即加速下坠
         case 5:                                                  // 纵向循环（1-2-1）
           l.srmuki = (l.srmove === 0) ? 0 : 1;
-          if (l.srb < -2100) l.srb = C.FYMAX + 2000;
-          if (l.srb > C.FYMAX + 2000) l.srb = -2100;
+          // 越界瞬移时同步偏移渲染插值快照 _py（瞬移距离 FYMAX+4100 < 跳变阈值
+          // _CAM_SNAP_DIST，否则渲染期会在瞬移两点间插值，台在屏幕中间闪现一帧）
+          if (l.srb < -2100) { l.srb = C.FYMAX + 2000; if (l._py != null) l._py += C.FYMAX + 4100; }
+          if (l.srb > C.FYMAX + 2000) { l.srb = -2100; if (l._py != null) l._py -= C.FYMAX + 4100; }
           break;
         case 6: if (l.sron === 1) l.srf = 40; break;
       }
